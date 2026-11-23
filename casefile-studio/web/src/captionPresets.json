@@ -1,0 +1,36 @@
+{
+  "fonts": {
+    "dejavu": {"label": "DejaVu Sans", "file": "DejaVuSans.ttf", "ass": "DejaVu Sans", "bold": false, "ratio": 0.8591},
+    "dejavu-bold": {"label": "DejaVu Sans Bold", "file": "DejaVuSans-Bold.ttf", "ass": "DejaVu Sans", "bold": true, "ratio": 0.8591},
+    "inter": {"label": "Inter Bold", "file": "Inter-Bold.otf", "ass": "Inter", "bold": true, "ratio": 0.8265},
+    "inter-black": {"label": "Inter Black", "file": "Inter-Black.otf", "ass": "Inter Black", "bold": false, "ratio": 0.8265},
+    "poppins": {"label": "Poppins Bold", "file": "Poppins-Bold.ttf", "ass": "Poppins", "bold": true, "ratio": 0.5675},
+    "liberation-sans": {"label": "Liberation Sans Bold", "file": "LiberationSans-Bold.ttf", "ass": "Liberation Sans", "bold": true, "ratio": 0.8951},
+    "liberation-serif": {"label": "Liberation Serif Bold", "file": "LiberationSerif-Bold.ttf", "ass": "Liberation Serif", "bold": true, "ratio": 0.903},
+    "mono": {"label": "Liberation Mono Bold (typewriter)", "file": "LiberationMono-Bold.ttf", "ass": "Liberation Mono", "bold": true, "ratio": 0.8828},
+    "carlito": {"label": "Carlito Bold", "file": "Carlito-Bold.ttf", "ass": "Carlito", "bold": true, "ratio": 0.8192},
+    "caladea": {"label": "Caladea Bold (serif)", "file": "Caladea-Bold.ttf", "ass": "Caladea", "bold": true, "ratio": 0.7692}
+  },
+  "defaults": {
+    "preset": "documentary", "font": "dejavu", "size": 0.0335, "color": "#FFFFFF", "highlight": "#FFD84D",
+    "outline": 0.0028, "outline_color": "#000000", "box": true, "box_color": "#000000", "box_opacity": 0.56,
+    "shadow": 0, "position": 0.075, "uppercase": false, "words": 0, "animation": "none"
+  },
+  "presets": [
+    {"id": "documentary", "label": "Documentary", "style": {}},
+    {"id": "clean", "label": "Clean outline", "style": {"font": "inter", "size": 0.04, "box": false, "outline": 0.0045, "shadow": 0.002}},
+    {"id": "highlight", "label": "Word highlight", "style": {"font": "poppins", "size": 0.052, "box": false, "outline": 0.006, "uppercase": true, "words": 4, "animation": "highlight", "highlight": "#FFD84D", "position": 0.14}},
+    {"id": "pop", "label": "Bold pop", "style": {"font": "inter-black", "size": 0.06, "box": false, "outline": 0.007, "uppercase": true, "words": 3, "animation": "pop", "position": 0.16, "shadow": 0.003}},
+    {"id": "green", "label": "Green highlight", "style": {"font": "inter-black", "size": 0.05, "box": false, "outline": 0.006, "uppercase": true, "words": 3, "animation": "highlight", "highlight": "#3DFF7A", "position": 0.15}},
+    {"id": "yellow", "label": "Yellow subtitle", "style": {"font": "liberation-sans", "size": 0.042, "color": "#FFE14D", "box": false, "outline": 0.004, "shadow": 0.002}},
+    {"id": "typewriter", "label": "Typewriter", "style": {"font": "mono", "size": 0.034, "box": true, "box_opacity": 0.85, "outline": 0.006, "animation": "fade"}},
+    {"id": "news", "label": "Newsroom", "style": {"font": "carlito", "size": 0.042, "box": true, "box_color": "#B3141B", "box_opacity": 0.92, "outline": 0.007, "uppercase": true, "words": 6}},
+    {"id": "serif", "label": "Serif", "style": {"font": "caladea", "size": 0.046, "box": false, "outline": 0.0015, "shadow": 0.004, "animation": "fade"}},
+    {"id": "minimal", "label": "Minimal", "style": {"font": "inter", "size": 0.032, "box": false, "outline": 0, "shadow": 0.0025}}
+  ],
+  "limits": {
+    "size": [0.02, 0.1], "outline": [0, 0.015], "shadow": [0, 0.012], "position": [0.03, 0.85],
+    "box_opacity": [0, 1], "words": [0, 12]
+  },
+  "animations": ["none", "fade", "pop", "highlight"]
+}

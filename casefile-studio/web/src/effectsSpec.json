@@ -1,0 +1,338 @@
+{
+  "transitions": [
+    {
+      "id": "none",
+      "label": "None",
+      "xfade": null
+    },
+    {
+      "id": "dissolve",
+      "label": "Dissolve",
+      "xfade": "fade"
+    },
+    {
+      "id": "dip-black",
+      "label": "Dip to black",
+      "xfade": "fadeblack"
+    },
+    {
+      "id": "dip-white",
+      "label": "Flash white",
+      "xfade": "fadewhite"
+    },
+    {
+      "id": "slide-left",
+      "label": "Slide",
+      "xfade": "slideleft"
+    },
+    {
+      "id": "slide-up",
+      "label": "Slide up",
+      "xfade": "slideup"
+    },
+    {
+      "id": "wipe-left",
+      "label": "Wipe",
+      "xfade": "wipeleft"
+    },
+    {
+      "id": "zoom",
+      "label": "Zoom in",
+      "xfade": "zoomin"
+    },
+    {
+      "id": "circle",
+      "label": "Circle open",
+      "xfade": "circleopen"
+    },
+    {
+      "id": "pixelize",
+      "label": "Pixelate",
+      "xfade": "pixelize"
+    },
+    {
+      "id": "fade",
+      "label": "Fade in and out (black)",
+      "xfade": null
+    }
+  ],
+  "legacy_transitions": {
+    "cut": "none",
+    "cross-dissolve": "dissolve"
+  },
+  "motions": [
+    {
+      "id": "none",
+      "label": "Still / original video"
+    },
+    {
+      "id": "slow-zoom",
+      "label": "Slow push in"
+    },
+    {
+      "id": "slow-zoom-out",
+      "label": "Slow pull out"
+    },
+    {
+      "id": "pan-left",
+      "label": "Pan left"
+    },
+    {
+      "id": "pan-right",
+      "label": "Pan right"
+    },
+    {
+      "id": "pan-up",
+      "label": "Pan up"
+    },
+    {
+      "id": "pan-down",
+      "label": "Pan down"
+    },
+    {
+      "id": "ken-burns",
+      "label": "Ken Burns (push in and drift)"
+    }
+  ],
+  "looks": [
+    {
+      "id": "natural",
+      "label": "Natural",
+      "ffmpeg": "",
+      "css": "none",
+      "tint": null
+    },
+    {
+      "id": "noir",
+      "label": "Documentary",
+      "ffmpeg": "eq=saturation=0.72:contrast=1.05:brightness=-0.015",
+      "css": "saturate(0.72) contrast(1.05) brightness(0.98)",
+      "tint": null
+    },
+    {
+      "id": "crime",
+      "label": "Crime doc",
+      "ffmpeg": "colorbalance=rs=-0.08:gs=-0.01:bs=0.07:rh=0.07:gh=0.02:bh=-0.07,eq=contrast=1.08:saturation=0.85:brightness=-0.02",
+      "css": "contrast(1.08) saturate(0.85) brightness(0.97)",
+      "tint": "rgba(0,110,130,0.22)"
+    },
+    {
+      "id": "cold",
+      "label": "Cold",
+      "ffmpeg": "colorbalance=rs=-0.05:bs=0.1:bm=0.05,eq=saturation=0.9",
+      "css": "saturate(0.9)",
+      "tint": "rgba(70,120,200,0.2)"
+    },
+    {
+      "id": "warm",
+      "label": "Warm",
+      "ffmpeg": "colorbalance=rs=0.08:rm=0.05:bs=-0.06,eq=saturation=1.05",
+      "css": "saturate(1.05)",
+      "tint": "rgba(255,150,60,0.18)"
+    },
+    {
+      "id": "archive",
+      "label": "Archive (faded colour)",
+      "ffmpeg": "eq=saturation=0.2:contrast=1.03",
+      "css": "saturate(0.2) contrast(1.03)",
+      "tint": null
+    },
+    {
+      "id": "bw",
+      "label": "Black and white",
+      "ffmpeg": "hue=s=0,eq=contrast=1.12",
+      "css": "grayscale(1) contrast(1.12)",
+      "tint": null
+    },
+    {
+      "id": "sepia",
+      "label": "Sepia",
+      "ffmpeg": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+      "css": "sepia(1)",
+      "tint": null
+    },
+    {
+      "id": "faded",
+      "label": "Faded film",
+      "ffmpeg": "eq=contrast=0.85:brightness=0.04:saturation=0.75",
+      "css": "contrast(0.85) brightness(1.06) saturate(0.75)",
+      "tint": null
+    },
+    {
+      "id": "punchy",
+      "label": "High contrast",
+      "ffmpeg": "eq=contrast=1.25:saturation=1.1",
+      "css": "contrast(1.25) saturate(1.1)",
+      "tint": null
+    }
+  ],
+  "effects_defaults": {
+    "grain": 0,
+    "vignette": 0,
+    "letterbox": false
+  },
+  "lower_third": {
+    "font": "inter",
+    "name_size": 0.045,
+    "role_size": 0.03,
+    "x": 0.06,
+    "bottom": 0.24,
+    "pad": 0.012,
+    "box_opacity": 0.62,
+    "seconds": 5.0
+  },
+  "formats": {
+    "16:9": {
+      "label": "16:9 · YouTube",
+      "sizes": {
+        "480p": [
+          854,
+          480
+        ],
+        "720p": [
+          1280,
+          720
+        ],
+        "1080p": [
+          1920,
+          1080
+        ]
+      },
+      "text_scale": 1.0,
+      "safe_bottom": 0,
+      "lower_third_bottom": 0.24,
+      "label_top": 0.76
+    },
+    "9:16": {
+      "label": "9:16 · Shorts, TikTok, Reels",
+      "sizes": {
+        "480p": [
+          480,
+          854
+        ],
+        "720p": [
+          720,
+          1280
+        ],
+        "1080p": [
+          1080,
+          1920
+        ]
+      },
+      "text_scale": 1.4,
+      "safe_bottom": 0.2,
+      "lower_third_bottom": 0.48,
+      "label_top": 0.54
+    }
+  },
+  "fits": [
+    {
+      "id": "blur",
+      "label": "Blurred background (whole picture shows)"
+    },
+    {
+      "id": "crop",
+      "label": "Crop to fill (sides cut off)"
+    }
+  ],
+  "cta": {
+    "defaults": {
+      "enabled": false,
+      "asset_id": null,
+      "button": null,
+      "opacity": 0.5,
+      "seconds": 5.0,
+      "mode": "auto",
+      "style": "overlay",
+      "source": "casefile",
+      "file_id": null,
+      "size": 0.62,
+      "y": 0.5
+    },
+    "limits": {
+      "opacity": [
+        0.15,
+        1.0
+      ],
+      "seconds": [
+        3.0,
+        8.0
+      ],
+      "size": [
+        0.25,
+        1.0
+      ],
+      "y": [
+        0.15,
+        0.85
+      ]
+    },
+    "lead": 0.5,
+    "fade_in": 0.4,
+    "fade_out": 0.5,
+    "cursor_from": [
+      0.86,
+      1.02
+    ],
+    "move": [
+      0.45,
+      1.45
+    ],
+    "click": 1.55,
+    "press": 0.15,
+    "ripple": [
+      1.55,
+      2.15
+    ],
+    "bell_in": 1.8,
+    "wiggle": [
+      2.0,
+      2.9
+    ],
+    "fallback_button": [
+      0.41,
+      0.66,
+      0.59,
+      0.74
+    ],
+    "blur": {
+      "radius": 0.03,
+      "brightness": -0.1,
+      "fade_in": 0.4,
+      "fade_out": 0.5
+    },
+    "file_max_seconds": 15
+  },
+  "watermark": {
+    "positions": [
+      "top-left",
+      "top-center",
+      "top-right",
+      "middle-left",
+      "center",
+      "middle-right",
+      "bottom-left",
+      "bottom-center",
+      "bottom-right"
+    ],
+    "defaults": {
+      "enabled": false,
+      "asset_id": null,
+      "position": "bottom-right",
+      "size": 0.14,
+      "opacity": 0.85
+    },
+    "limits": {
+      "size": [
+        0.05,
+        0.4
+      ],
+      "opacity": [
+        0.2,
+        1.0
+      ]
+    },
+    "margin": 0.035,
+    "note": "size is the logo's width as a share of the frame's short side (0.14 = 150 px at 1080p, YouTube's 150x150 branding watermark); the height is capped at the same size."
+  }
+}
