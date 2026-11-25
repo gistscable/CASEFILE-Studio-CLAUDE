@@ -722,3 +722,77 @@ Speed (Bismilah, 158 scenes): edit 0.3 s, scene edit with rebuild 0.45 s, undo 0
 Browser check (Chromium, copy of Bismilah in CASEFILE_DATA_DIR): toggle → "Undo: Scene 4 · title card",
 Ctrl+Z / Ctrl+Shift+Z / buttons / Ctrl+Y, playhead stays 00:14:07; 6 s slow trim drag = 0 saves during,
 1 on release, 1 step. Tests: tests/test_history.py (12). Suite 496 passed, 1 skipped; JS 35 pass.
+
+## v0.4.52: Motion graphics (stage 1 of the "Intelligent Cinematic Motion Graphics Engine" spec)
+
+User: a friend's spec ("Storyroom" = Casefile) — "This is it… let's make it work with Casefile spec".
+Constraints kept: Python + Pillow/NumPy + FFmpeg only (no Remotion/Node/JS renderer, no paid APIs, no
+cloud), fully offline, **off by default**, never changes narration, soundbites, source timestamps,
+footage ids, clip ranges or the timeline; never invents case imagery or words.
+`motion.py` (new; spec block `"motion"` in web/src/effectsSpec.json; Oswald fonts, SIL OFL):
+- Data `project.motion = {enabled: False, items: [...]}`; item = template (findings | timeline |
+  contrast | legal), status (suggested | draft | approved), start/end (timeline s), heading, title,
+  layout, lines [{text, label, kind, emphasis, at}], background (charcoal | footage | photo from the
+  project's own images), dim, font, size, accent, text_color, align, x, y, speed, enter, exit,
+  hide_captions, source, reason. `normalise` clamps everything (limits in the spec). Only
+  `status == approved` items render, and only while `enabled` (`exported()`).
+- Word sync: `timeline_words` maps the narration's words to timeline seconds — guide projects from
+  `episode.timings.words` (exact, via each scene's audio_start), else each caption's words spread over
+  it, else the scene's narration over the scene; soundbites (`insert_audio`) have no words.
+  `sentences()` (handles "p.m. Trial…" vs "3 p.m. on Friday"). Each line's `at` = when the narrator
+  starts that sentence.
+- `draft(project, template, start, end)`: lines are the narration's own sentences (never cut — the
+  layout shrinks instead); timeline lifts a date/time out only when it opens the sentence, ranges
+  "2:41–3:27 P.M.", inherits a.m./p.m.; legal labels from LEGAL patterns (none if none — never made up);
+  contrast kinds statement/finding (+ emphasis on "but/however/never…").
+- `suggest(project)`: reads every chapter; windows of 2–7 consecutive narration sentences (8–45 s),
+  no soundbite inside; skipped: cold open/hook, first/last 8 %, CTA places ±2 s, soundbites ±1 s,
+  emotional/family/tribute words, a sentence ending ":" (introduces a speaker), any sentence too long
+  to show whole. Scores timeline (≥3 dated events), legal (≥2 outcomes), contrast (stated vs records
+  with a contradiction word, **never courtroom arguments** — prosecution/defense/jury passages are not
+  shown as "found"), findings (≥3 investigative sentences). ≥75 s apart, ≤5, ≤2 of one template;
+  none when nothing qualifies. Bismilah (15 min): 3 (CCTV timeline ch.3, surveillance findings ch.5,
+  escape ch.8); trial contradiction correctly rejected; legal outcome sits in the closing guard
+  (user can make it manually).
+- Drawing (`build` places elements, `frame(lay, n)` draws one RGBA frame): charcoal background with
+  soft light, vignette, faint smoke and a slow accent glow (steps of 1/6 s), or the footage darkened
+  (gradient on the text side), or a blurred project photo with a slow push-in. Heading with bar,
+  masked title rise, divider wipe, per-line reveals (mask / slide with motion blur / fade), bullets
+  pop, timeline red line grows to each dot, legal tags (ALLEGED outline grey, CHARGED/ARRESTED
+  outline, PLEA/VERDICT/CONVICTED solid red, SENTENCED solid light, ACQUITTED/DISMISSED grey), exit
+  last-in-first-out then background out. Auto-fit: shrinks until inside the frame and nothing cut.
+  16:9 and 9:16. ~20 ms per 1080p frame (+ PNG encode at export).
+- Identical frames drawn once (`plan`: frame key = background alpha/phase + every element's state).
+- Cache by content: `data/cache/motion/<item_hash>/` (ENGINE, item minus status/id, size). Export
+  `prepare()` draws only missing unique frames (≤4 threads), hard-links `mgN/%05d.png`; `prune` keeps
+  it ≤2 GB. `overlay_filters` = sticker pattern.
+renderer.py: prepares after stickers; per scene overlays after CTA + stickers, before the watermark
+and captions (logo and captions stay on top); `hide_cues` takes captions out of a graphic's window
+(`write_ass(…, hide=)`); report line "motion graphics xN (new drawings, from the cache)"; warning
+if a graphic overlaps the subscribe animation. The SRT sidecar is unchanged.
+app.py: PATCH `motion` (normalised); `GET …/motion/narration` (sentences + times), `POST …/motion/draft`
+(not saved), `POST …/motion/suggest` (replaces unapproved suggestions; one undo step), `POST
+…/motion/plan` (preview frames list; warms in the background, paused while an export runs), `GET
+/api/motion/<hash>/<k>.webp` (on demand, ≤2 drawings at a time). history.py: field `motion`, names
+"Suggest 3 motion graphics", "Approve motion graphic", "Motion graphic text/timing/style", "Motion
+graphics on"…
+Front end: inspector tab **Motion** (`MotionPanel.jsx`): "Add approved graphics to the export"
+(off), "Suggest from the narration", "New from a passage" (template + click first/last sentence near
+the playhead), list with status badges and "why here", Play it / Approve / Unapprove / Regenerate
+(keeps style) / Reject / Remove, template + layout, heading/title/line text, labels (legal list,
+dates), statement/finding + emphasis, per-line "set to playhead", add/remove lines, start/end, speed,
+entrance/exit, hide captions, background/photo/darken, font, size, accent/text swatches, align, x/y.
+`MotionLayer.jsx` draws the server's frames on a canvas (1280 px WebP, 24 fps, preloads 2 s, keeps
+the last frame until the next arrives). The preview shows the selected graphic (tagged "Preview · not
+approved") or the approved ones; captions hidden as in the export; timeline marks (striped =
+unapproved, solid = approved).
+Measured (2-vCPU sandbox, 60 s 1080p export, 10 photo scenes, captions on): without 38.8 s (CPU
+ffmpeg 60 s, python RSS 58 MB); with 2 graphics (30 s timeline + 16 s legal) first export 80.3 s
+(+36 s python drawing 447 unique frames, RSS 235 MB); same again 44.2 s (0 drawn); one title edited
+52.4 s (only that graphic redrawn); cache 120 MB. Headless Chromium note: the canvas paints black with
+GPU canvas; use `--disable-gpu --disable-accelerated-2d-canvas` for screenshots.
+Demo: `casefile-studio/qa/motion-graphics-demo.mp4` (720p, 63 s, all four templates, Bismilah
+narration verbatim, neutral background — made with the real export).
+Next stages (not done): more layouts per template, suggestions tuned per chapter type, a background
+render worker for long graphics, 2K/4K (Casefile exports ≤1080p).
+Tests: tests/test_motion.py (27). Suite 523 passed, 1 skipped; JS 35 pass.
