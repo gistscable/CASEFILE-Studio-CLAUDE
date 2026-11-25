@@ -247,7 +247,8 @@
       "source": "casefile",
       "file_id": null,
       "size": 0.62,
-      "y": 0.5
+      "y": 0.5,
+      "x": 0.5
     },
     "limits": {
       "opacity": [
@@ -265,6 +266,10 @@
       "y": [
         0.15,
         0.85
+      ],
+      "x": [
+        0.1,
+        0.9
       ]
     },
     "lead": 0.5,
@@ -301,7 +306,11 @@
       "fade_in": 0.4,
       "fade_out": 0.5
     },
-    "file_max_seconds": 15
+    "file_max_seconds": 15,
+    "place_length": [
+      0.5,
+      15
+    ]
   },
   "watermark": {
     "positions": [
@@ -334,5 +343,212 @@
     },
     "margin": 0.035,
     "note": "size is the logo's width as a share of the frame's short side (0.14 = 150 px at 1080p, YouTube's 150x150 branding watermark); the height is capped at the same size."
+  },
+  "picture": {
+    "fits": [
+      {
+        "id": "cover",
+        "label": "Fill the frame (edges cut off)"
+      },
+      {
+        "id": "blur",
+        "label": "Photo over a blur of itself"
+      }
+    ],
+    "over_blur": {
+      "radius": 0.025,
+      "brightness": -0.2,
+      "saturation": 0.8,
+      "inset": 0.9,
+      "css_brightness": 0.55
+    },
+    "crop_min": 0.05,
+    "keyframes": {
+      "max": 24,
+      "zoom": [
+        1.0,
+        4.0
+      ]
+    },
+    "auto_crop": {
+      "flat": 7.0,
+      "same": 14.0,
+      "black": 18.0
+    }
+  },
+  "stickers": {
+    "defaults": {
+      "length": 4.0,
+      "opacity": 1.0
+    },
+    "limits": {
+      "size": [
+        0.03,
+        1.0
+      ],
+      "opacity": [
+        0.05,
+        1.0
+      ],
+      "length": [
+        0.2,
+        600.0
+      ],
+      "xy": [
+        -0.25,
+        1.25
+      ]
+    },
+    "max": 60,
+    "preview_width": 480,
+    "fade": 0.2,
+    "tabs": [
+      {
+        "id": "subscribe",
+        "label": "Subscribe"
+      },
+      {
+        "id": "shapes",
+        "label": "Arrows & shapes"
+      },
+      {
+        "id": "yours",
+        "label": "Yours"
+      }
+    ],
+    "catalog": [
+      {
+        "id": "subscribe-click",
+        "label": "Subscribe click",
+        "tab": "subscribe",
+        "animated": true,
+        "aspect": 4.2,
+        "cycle": 3.0,
+        "size": 0.3,
+        "x": 0.5,
+        "y": 0.82
+      },
+      {
+        "id": "like-subscribe-bell",
+        "label": "Like · Subscribe · Bell",
+        "tab": "subscribe",
+        "animated": true,
+        "aspect": 4.8,
+        "cycle": 3.2,
+        "size": 0.34,
+        "x": 0.5,
+        "y": 0.82
+      },
+      {
+        "id": "subscribed",
+        "label": "Subscribed",
+        "tab": "subscribe",
+        "animated": false,
+        "aspect": 5.4,
+        "cycle": 0,
+        "size": 0.3,
+        "x": 0.5,
+        "y": 0.82
+      },
+      {
+        "id": "bell",
+        "label": "Bell",
+        "tab": "subscribe",
+        "animated": true,
+        "aspect": 1.0,
+        "cycle": 1.6,
+        "size": 0.1,
+        "x": 0.88,
+        "y": 0.8
+      },
+      {
+        "id": "like",
+        "label": "Like",
+        "tab": "subscribe",
+        "animated": false,
+        "aspect": 1.0,
+        "cycle": 0,
+        "size": 0.1,
+        "x": 0.88,
+        "y": 0.8
+      },
+      {
+        "id": "share",
+        "label": "Share",
+        "tab": "subscribe",
+        "animated": false,
+        "aspect": 3.6,
+        "cycle": 0,
+        "size": 0.2,
+        "x": 0.5,
+        "y": 0.82
+      },
+      {
+        "id": "comment",
+        "label": "Comment",
+        "tab": "subscribe",
+        "animated": false,
+        "aspect": 3.4,
+        "cycle": 0,
+        "size": 0.22,
+        "x": 0.5,
+        "y": 0.82
+      },
+      {
+        "id": "arrow-ne",
+        "label": "Arrow ↗",
+        "tab": "shapes",
+        "animated": false,
+        "aspect": 1.35,
+        "cycle": 0,
+        "size": 0.16,
+        "x": 0.4,
+        "y": 0.6
+      },
+      {
+        "id": "arrow-nw",
+        "label": "Arrow ↖",
+        "tab": "shapes",
+        "animated": false,
+        "aspect": 1.35,
+        "cycle": 0,
+        "size": 0.16,
+        "x": 0.6,
+        "y": 0.6
+      },
+      {
+        "id": "circle",
+        "label": "Circle",
+        "tab": "shapes",
+        "animated": false,
+        "aspect": 1.6,
+        "cycle": 0,
+        "size": 0.22,
+        "x": 0.5,
+        "y": 0.45
+      },
+      {
+        "id": "rec-frame",
+        "label": "REC frame",
+        "tab": "shapes",
+        "animated": true,
+        "aspect": 1.7778,
+        "cycle": 1.0,
+        "size": 1.0,
+        "x": 0.5,
+        "y": 0.5
+      },
+      {
+        "id": "waveform",
+        "label": "Waveform",
+        "tab": "shapes",
+        "animated": true,
+        "aspect": 3.75,
+        "cycle": 1.2,
+        "size": 0.3,
+        "x": 0.5,
+        "y": 0.8
+      }
+    ]
   }
 }

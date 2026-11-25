@@ -54,7 +54,7 @@ def normalise(value, assets=None, files=None):
     out["source"] = v.get("source") if v.get("source") in ("casefile", "file") else "casefile"
     if v.get("file_id") and (files is None or v["file_id"] in files):
         out["file_id"] = str(v["file_id"])
-    for k in ("size", "y"):
+    for k in ("size", "y", "x"):
         try:
             lo, hi = SPEC["limits"][k]
             n = float(v.get(k, out[k]))
@@ -62,7 +62,43 @@ def normalise(value, assets=None, files=None):
                 out[k] = round(min(hi, max(lo, n)), 3)
         except (TypeError, ValueError):
             pass
+    # v0.4.49: every place it shows. `spots` changes a place CASEFILE found
+    # (key s:<scene id>); `extra` are places you added at the playhead.
+    out["spots"] = {}
+    raw = v.get("spots") if isinstance(v.get("spots"), dict) else {}
+    for key, sp in list(raw.items())[:60]:
+        if isinstance(sp, dict) and re.fullmatch(r"s:[\w-]{1,64}", str(key)):
+            out["spots"][str(key)] = _spot(sp)
+    out["extra"] = []
+    for sp in (v.get("extra") if isinstance(v.get("extra"), list) else [])[:20]:
+        if not isinstance(sp, dict):
+            continue
+        try:
+            start = float(sp.get("start"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(start):
+            continue
+        sid = re.sub(r"[^\w-]", "", str(sp.get("id") or ""))[:24] or f"x{len(out['extra']) + 1}"
+        out["extra"].append({"id": sid, "start": round(min(86400.0, max(0.0, start)), 3), **_spot(sp)})
     return out
+
+
+def _spot(sp):
+    def num(x, lo, hi):
+        try:
+            n = float(x)
+        except (TypeError, ValueError):
+            return None
+        return round(min(hi, max(lo, n)), 3) if math.isfinite(n) else None
+
+    length = num(sp.get("length"), SPEC["place_length"][0], SPEC["file_max_seconds"]) if sp.get("length") is not None else None
+    return {
+        "on": sp.get("on") is not False,
+        "nudge": num(sp.get("nudge"), -30.0, 30.0) or 0.0,
+        "length": length,
+        "scene_end": sp.get("scene_end") is True,
+    }
 
 
 def file_seconds(asset):
@@ -84,15 +120,16 @@ def length(c, assets_by_id):
     return file_seconds(assets_by_id.get(c["file_id"])) if c["source"] == "file" else c["seconds"]
 
 
-def card(frame_w, frame_h, img_w, img_h, size, y):
-    """The banner as a card: `size` of the width, centred at height `y`."""
+def card(frame_w, frame_h, img_w, img_h, size, y, x=0.5):
+    """The banner as a card: `size` of the width, centred at (`x`, `y`)."""
     w = frame_w * size
     h = w * img_h / img_w
     if h > frame_h * 0.9:
         h = frame_h * 0.9
         w = h * img_w / img_h
     top = min(max(0, y * frame_h - h / 2), frame_h - h)
-    return round((frame_w - w) / 2), round(top), round(w), round(h)
+    left = min(max(0, x * frame_w - w / 2), frame_w - w)
+    return round(left), round(top), round(w), round(h)
 
 
 def alpha_decoder(path):
@@ -212,34 +249,109 @@ def is_cta_scene(scene):
     return bool(re.search(r"subscri|\bCTA\b|call to action", head, re.I))
 
 
-def events(project):
-    """[(start, end)] on the whole timeline, in seconds."""
+def spots(project, ready_only=True):
+    """v0.4.49 Every place the animation can show, in time order:
+    [{key, start, end, natural, fade_out, on, auto, scene, label}].
+    `on` places that do not overlap an earlier one are the ones that show.
+
+    * CASEFILE finds every scene that says "subscribe" (or is a CTA chapter);
+      as before, only the first is on until you tick the others.
+    * Each place: a nudge of its start, a shorter length (it then fades out
+      instead of stopping hard) and "stop at the end of this scene"."""
     c = normalise(project.get("cta"))
     assets_by_id = {a["id"]: a for a in project.get("assets", [])}
-    if not ready(c, assets_by_id):
+    if ready_only and not ready(c, assets_by_id):
         return []
-    seconds = length(c, assets_by_id)
+    natural = length(c, assets_by_id)
     scenes = project.get("scenes", [])
     offsets, t = [], 0.0
     for s in scenes:
         offsets.append(t)
         t += round(float(s["duration"]) * FPS) / FPS
     total = t
-    picks = []
+    found = []  # (key, scene index, start, default on)
+    heads = [i for i, s in enumerate(scenes) if is_cta_scene(s)]
+    said = [i for i, s in enumerate(scenes) if re.search(r"subscri", s.get("narration", ""), re.I)]
+    ticked = [i for i, s in enumerate(scenes) if s.get("cta")]
     if c["mode"] == "scenes":
-        picks = [i for i, s in enumerate(scenes) if s.get("cta")]
+        default = set(ticked)
     else:
-        heads = [i for i, s in enumerate(scenes) if is_cta_scene(s)]
-        said = [i for i, s in enumerate(scenes) if re.search(r"subscri", s.get("narration", ""), re.I)]
         pool = [i for i in heads if i in said] or heads or said
-        picks = pool[:1]
+        default = set(pool[:1])
+    for i in sorted(set(heads) | set(said) | set(ticked)):
+        s = scenes[i]
+        found.append((f"s:{s.get('id') or i}", i, offsets[i] + cue_start(s), i in default))
+    rows = []
+    for key, i, start, default_on in found:
+        sp = c["spots"].get(key)
+        rows.append((key, i, start, sp, default_on, True))
+    for e in c["extra"]:
+        i = next((k for k in range(len(scenes)) if e["start"] < offsets[k] + round(float(scenes[k]["duration"]) * FPS) / FPS), len(scenes) - 1)
+        rows.append((e["id"], max(0, i), e["start"], e, True, False))
     out = []
-    for i in picks:
-        start = offsets[i] + cue_start(scenes[i])
-        end = min(total, start + seconds)
-        if not out or start >= out[-1][1]:
-            out.append((round(start, 3), round(end, 3)))
+    for key, i, start, sp, default_on, auto in rows:
+        sp = sp or {"on": default_on, "nudge": 0.0, "length": None, "scene_end": False}
+        on = sp["on"] if (not auto or key in c["spots"]) else default_on
+        begin = max(0.0, start + (sp["nudge"] if auto else 0.0))
+        run = min(natural, sp["length"]) if sp["length"] else natural
+        end = begin + run
+        if sp["scene_end"] and scenes:
+            end = min(end, offsets[i] + round(float(scenes[i]["duration"]) * FPS) / FPS)
+        end = min(end, total)
+        if end - begin < 1 / FPS:
+            continue
+        scene = scenes[i] if scenes else {}
+        out.append({
+            "key": key, "start": round(begin, 3), "end": round(end, 3), "natural": natural,
+            "fade_out": end < begin + natural - 1e-3, "on": on, "auto": auto, "scene": i,
+            "label": scene.get("title") or f"Scene {i + 1}",
+        })
+    out.sort(key=lambda r: r["start"])
+    shown_end = -1.0
+    for r in out:
+        r["shown"] = bool(r["on"] and r["start"] >= shown_end - 1e-6)
+        if r["shown"]:
+            shown_end = r["end"]
     return out
+
+
+def fade_out_seconds(start, end):
+    return min(SPEC["fade_out"], (end - start) / 3)
+
+
+def fade_filter(a, t1, fo, ra):
+    """FFmpeg filters fading an overlay stream that starts at `a` on the timeline
+    (`ra` in its scene's clock) out by `t1`. When the fade began in an earlier
+    scene, this scene starts at the alpha it had reached, so the fade carries
+    on across the cut without a jump."""
+    fs = t1 - fo
+    if fs >= a:
+        return f",fade=t=out:st={ra + fs - a:.3f}:d={fo:.3f}:alpha=1"
+    left = max(1e-3, t1 - a)
+    k = min(1.0, left / fo)
+    return f",colorchannelmixer=aa={k:.4f},fade=t=out:st={ra:.3f}:d={left:.3f}:alpha=1"
+
+
+def alpha_at(t, start, end, natural):
+    """v0.4.49 How visible a place is `t` seconds into the timeline (1 = as the
+    animation itself draws it): 0 outside it, fading out when it was cut short.
+    Shared with the preview (cta.js ctaSpotAlpha)."""
+    if t < start or t >= end:
+        return 0.0
+    if end >= start + natural - 1e-3:
+        return 1.0
+    fo = fade_out_seconds(start, end)
+    return max(0.0, min(1.0, (end - t) / fo)) if fo > 0 else 1.0
+
+
+def events(project):
+    """[(start, end)] on the whole timeline, in seconds: the places that show."""
+    return [(r["start"], r["end"]) for r in spots(project) if r["shown"]]
+
+
+def cut_short(project):
+    """{(start, end): True} for places that end before the animation does (they fade out)."""
+    return {(r["start"], r["end"]): True for r in spots(project) if r["shown"] and r["fade_out"]}
 
 
 # --------------------------------------------------------------------------
@@ -281,7 +393,7 @@ def frames(project, banner_path, width, height, folder):
     blur = c["style"] == "blur"
     if blur:
         # v0.4.35: a solid card with rounded corners and a shadow, over the blurred video.
-        bx, by, bw, bh = card(width, height, banner.width, banner.height, c["size"], c["y"])
+        bx, by, bw, bh = card(width, height, banner.width, banner.height, c["size"], c["y"], c["x"])
         banner = banner.resize((bw, bh), Image.LANCZOS)
         mask = Image.new("L", (bw, bh), 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, bw - 1, bh - 1), radius=max(4, round(bw * 0.025)), fill=255)

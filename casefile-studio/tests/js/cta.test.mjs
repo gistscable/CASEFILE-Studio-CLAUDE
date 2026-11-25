@@ -19,7 +19,7 @@ test("banner placement and events", () => {
     { duration: 6, narration: "Please subscribe.", chapter: "SUBSCRIBE CTA" },
   ];
   const caps = (s) => (s.narration.includes("subscribe") ? [{ start: 2, end: 6, text: "Please subscribe." }] : []);
-  assert.deepEqual(ctaEvents({ scenes, cta: { enabled: true, asset_id: "b" } }, [0, 4], caps), [[5.5, 10]]);
+  assert.deepEqual(ctaEvents({ scenes, cta: { enabled: true, asset_id: "b" } }, [0, 4], caps).map(([a, b]) => [a, b]), [[5.5, 10]]);
   assert.deepEqual(ctaEvents({ scenes, cta: { enabled: false, asset_id: "b" } }, [0, 4], caps), []);
   assert.equal(normaliseCta({ opacity: 5 }).opacity, 1);
 });

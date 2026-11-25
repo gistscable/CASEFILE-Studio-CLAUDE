@@ -2130,7 +2130,7 @@ def build(project, allow_placeholders=False, inspection=False, _fill_boost=0):
 # the guide decides timing and words; these are looks and picture choices.
 OVERRIDE_FIELDS = (
     "transition", "transition_duration", "motion", "lower_third", "cta",
-    "asset_id", "trim_start", "replaced", "source_label",
+    "asset_id", "trim_start", "replaced", "source_label", "fit", "keyframes",
 )
 
 

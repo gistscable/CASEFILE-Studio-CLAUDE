@@ -9,11 +9,19 @@ import Effects from "./Effects.jsx";
 import ReplacePicker from "./ReplacePicker.jsx";
 import Home, { HomeIcon } from "./Home.jsx";
 import CtaOverlay from "./CtaOverlay.jsx";
-import { ctaEvents as findCtaEvents, normaliseCta } from "./cta.js";
+import PictureLayer from "./PictureLayer.jsx";
+import StickerLayer from "./StickerLayer.jsx";
+import StickerDialog from "./StickerDialog.jsx";
+import StickerPanel from "./StickerPanel.jsx";
+import CropDialog from "./CropDialog.jsx";
+import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
+import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
+import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
 import { effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
 import { captionAt, captionCss, normaliseStyle, sceneCaptions, chunks as captionChunks, textUnit } from "./captionStyle.js";
 import {
+  Sticker,
   Clapperboard,
   Search,
   FileText,
@@ -96,7 +104,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.48",
+    version: "0.4.49",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -128,7 +136,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.48";
+const APP_VERSION = "0.4.49";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -367,6 +375,9 @@ function App() {
     [saving, setSaving] = useState("saved"),
     [toast, setToast] = useState(null),
   [command, setCommand] = useState("");
+  const [stickerId, setStickerId] = useState(null),
+    [stickerDialog, setStickerDialog] = useState(false),
+    [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
     [mediaId, setMediaId] = useState(null),
     [frameSize, setFrameSize] = useState({ width: 640, height: 360 });
@@ -402,10 +413,12 @@ function App() {
       return n;
     });
   }, [scenes]);
-  const ctaEvents = useMemo(
-    () => (project ? findCtaEvents(project, offsets, (s) => sceneCaptions(s, clean)) : []),
-    [project?.cta, scenes, offsets],
+  // v0.4.49: every place the subscribe animation can show; the ones that show.
+  const ctaSpots = useMemo(
+    () => (project ? findCtaSpots(project, offsets, (s) => sceneCaptions(s, clean)) : []),
+    [project?.cta, project?.assets, scenes, offsets],
   );
+  const ctaEvents = useMemo(() => ctaSpots.filter((r) => r.shown).map((r) => [r.start, r.end, r]), [ctaSpots]);
   const nameCards = useMemo(() => effectiveLowerThirds(project), [project?.name_cards, scenes]);
   const clockRef = useRef({ scenes: [], offsets: [] });
   clockRef.current = { scenes, offsets };
@@ -442,7 +455,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.48",
+          version: "0.4.49",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -518,7 +531,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.48",
+                version: "0.4.49",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -969,6 +982,31 @@ function App() {
   function selectVisualScene(scene, index) {
     selectScene(scene, index);
     setSelectedTrack({ kind: "visual", sceneId: scene.id });
+  }
+  // v0.4.49 stickers
+  function addSticker(kind, assetId) {
+    const list = normaliseStickers(project.stickers, project.assets);
+    const st = newSticker(kind, Math.min(time, Math.max(0, duration - 0.5)), assetId, list);
+    queueSave({ stickers: [...list, st] });
+    setStickerId(st.id);
+    setStickerDialog(false);
+    setInspectorTab("stickers");
+    setLayout({ showRight: true });
+    setPlaying(false);
+    notify("Sticker added at the playhead. Drag it in the preview to move it.");
+  }
+  function moveSticker(id, x, y, local) {
+    const list = normaliseStickers(projectRef.current.stickers, projectRef.current.assets);
+    queueSave({
+      stickers: list.map((s) => {
+        if (s.id !== id) return s;
+        if (!s.keyframes.length) return { ...s, x, y };
+        const v = stickerAt(s, local);
+        const near = s.keyframes.find((k) => Math.abs(k.t - local) < 0.05);
+        const at = near ? near.t : Math.round(local * 1000) / 1000;
+        return { ...s, keyframes: normaliseStickerKeys([...s.keyframes.filter((k) => k !== near), { ...(near || {}), size: v.size, opacity: v.raw, x, y, t: at }], s.length, s) };
+      }),
+    });
   }
   function updateScene(fields) {
     if (!selected) return;
@@ -1589,6 +1627,7 @@ function App() {
             ["scene", "Scene", Settings2],
             ["captions", "Captions", FileText],
             ["effects", "Effects", Film],
+            ["stickers", "Stickers", Sticker],
             ["audio", "Audio", AudioLines],
             ["director", "Director", Sparkles],
           ].map(([key, label, Icon]) => (
@@ -1994,6 +2033,12 @@ function App() {
             onProject={queueSave}
             onScene={updateScene}
             ctaEvents={ctaEvents}
+            ctaSpots={ctaSpots}
+            ctaNatural={ctaSpots[0]?.natural || normaliseCta(project.cta).seconds}
+            playhead={time}
+            sceneStart={selected ? offsets[scenes.indexOf(selected)] || 0 : 0}
+            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+            onCrop={(id) => setCropId(id)}
             api={api}
             autoCard={selected ? nameCards[scenes.indexOf(selected)] : null}
             onPlayCta={(at) => {
@@ -2015,6 +2060,17 @@ function App() {
                 report(e);
               }
             }}
+          />
+        ) : inspectorTab === "stickers" ? (
+          <StickerPanel
+            project={project}
+            time={time}
+            selectedId={stickerId}
+            onSelect={setStickerId}
+            onChange={(list) => queueSave({ stickers: list })}
+            onOpenDialog={() => setStickerDialog(true)}
+            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+            disabled={locked}
           />
         ) : inspectorTab === "captions" ? (
           <CaptionStyles
@@ -2784,6 +2840,9 @@ function App() {
                   PROGRAM MONITOR
                 </span>
                 <div>
+                  <button className="btn monitor-stickers" aria-label="Open stickers" disabled={locked || !scenes.length} onClick={() => setStickerDialog(true)}>
+                    <Sticker size={13} /> Stickers
+                  </button>
                   <Badge>
                     {project.is_demo ? "FICTIONAL DEMO" : "EDIT PREVIEW"}
                   </Badge>
@@ -2839,7 +2898,6 @@ function App() {
                     const media = q < 1 ? transitionStyle(trId, q) : {};
                     const fx = normaliseEffects(project.effects);
                     const bar = fx.letterbox ? letterboxBar(frameSize.width, frameSize.height) : 0;
-                    const blurFit = aspectOf(project) === "9:16" && fitOf(project) === "blur";
                     return (
                       <>
                         <div className="fx-under" style={{ background: under.colour || "#000" }}>
@@ -2852,34 +2910,28 @@ function App() {
                           )}
                         </div>
                         <div className="fx-media" style={{ ...media, opacity: (media.opacity ?? 1) * fadeOut }}>
-                          {visual?.kind === "video" ? (
-                            <>
-                              {blurFit && visual.thumbnail && (
-                                <img className="fx-blur-bg" src={visual.thumbnail} alt="" style={{ filter: `${look.css === "none" ? "" : look.css} blur(${(frameSize.width * 0.03).toFixed(1)}px) brightness(0.85) saturate(0.85)` }} />
-                              )}
-                              <video
-                                key={visual.id}
-                                ref={videoRef}
-                                src={visual.url}
-                                muted
-                                playsInline
-                                loop={false}
-                                className={blurFit ? "fx-fit" : undefined}
-                                style={{ filter: look.css }}
-                                onLoadedMetadata={() => setTime((t) => t)}
-                              />
-                            </>
-                          ) : visual && blurFit ? (
-                            <div className="fx-pic" style={{ transform: motionTransform(activeScene?.motion, local / dur) }}>
-                              <img className="fx-blur-bg" src={visual.url} alt="" style={{ filter: `${look.css === "none" ? "" : look.css} blur(${(frameSize.width * 0.03).toFixed(1)}px) brightness(0.85) saturate(0.85)` }} />
-                              <img className="fx-fit" src={visual.url} alt={visual.name} style={{ filter: look.css }} />
-                            </div>
-                          ) : visual ? (
-                            <img
-                              src={visual.url}
-                              alt={visual.name}
-                              style={{ filter: look.css, transform: motionTransform(activeScene?.motion, local / dur) }}
-                            />
+                          {visual && (visual.kind === "video" || visual.kind === "image") ? (
+                            (() => {
+                              // v0.4.49: the media file's crop, the scene's fill, then its
+                              // keyframes or fixed movement — as the export builds it.
+                              const keys = normaliseKeyframes(activeScene?.keyframes, dur);
+                              const cam = keys.length ? cameraTransform(cameraAt(keys, local)) : null;
+                              return (
+                                <PictureLayer
+                                  asset={visual}
+                                  crop={cropOf(visual)}
+                                  fit={pictureFit(project, activeScene, visual)}
+                                  width={frameSize.width}
+                                  height={frameSize.height}
+                                  lookCss={look.css}
+                                  alt={visual.name}
+                                  transform={cam || (visual.kind === "image" ? motionTransform(activeScene?.motion, local / dur) : undefined)}
+                                  origin={cam ? "0 0" : undefined}
+                                  videoRef={videoRef}
+                                  onLoadedMetadata={() => setTime((t) => t)}
+                                />
+                              );
+                            })()
                           ) : (
                             <div className="missing-visual">
                               <ImageIcon size={30} />
@@ -2945,9 +2997,19 @@ function App() {
                     const banner = ev && assets.find((x) => x.id === cc.asset_id);
                     const file = ev && cc.source === "file" && assets.find((x) => x.id === cc.file_id);
                     return ev && (banner || file) ? (
-                      <CtaOverlay project={project} banner={banner} file={file} t={time - ev[0]} width={frameSize.width} height={frameSize.height} playing={playing} onNeedPreview={needPreview} />
+                      <CtaOverlay project={project} banner={banner} file={file} t={time - ev[0]} fade={ctaSpotAlpha(time, ev[0], ev[1], ev[2]?.natural ?? 1e9)} width={frameSize.width} height={frameSize.height} playing={playing} onNeedPreview={needPreview} />
                     ) : null;
                   })()}
+                  <StickerLayer
+                    project={project}
+                    time={time}
+                    width={frameSize.width}
+                    height={frameSize.height}
+                    selectedId={stickerId}
+                    disabled={locked}
+                    onSelect={(id) => { setStickerId(id); setInspectorTab("stickers"); setLayout({ showRight: true }); }}
+                    onMove={(id, x, y, local) => moveSticker(id, x, y, local)}
+                  />
                   {(() => {
                     // v0.4.36 your logo watermark, where the export puts it.
                     const wm = normaliseWatermark(project.watermark);
@@ -3279,6 +3341,19 @@ function App() {
                               <span key={t} style={{ left: `${(t / duration) * 100}%` }}>
                                 {tc(t)}
                               </span>
+                            ))}
+                            {/* v0.4.49: where the subscribe animation and your stickers show */}
+                            {ctaEvents.map(([a, b]) => (
+                              <b key={"cta" + a} className="ruler-mark cta" title={`Subscribe animation ${tc(a)}–${tc(b)}`}
+                                style={{ left: `${(a / duration) * 100}%`, width: `${((b - a) / duration) * 100}%` }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); setInspectorTab("effects"); }} />
+                            ))}
+                            {normaliseStickers(project.stickers, assets).map((st) => (
+                              <b key={"st" + st.id} className={`ruler-mark sticker ${st.id === stickerId ? "on" : ""}`} title={`Sticker ${tc(st.start)}`}
+                                style={{ left: `${(st.start / duration) * 100}%`, width: `${(Math.min(st.length, duration - st.start) / duration) * 100}%` }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(st.start + 0.05); setStickerId(st.id); setInspectorTab("stickers"); }} />
                             ))}
                           </>
                         );
@@ -4530,6 +4605,43 @@ function App() {
             );
           }}
           onError={report}
+        />
+      )}
+      {stickerDialog && (
+        <StickerDialog
+          time={time}
+          assets={assets}
+          onClose={() => setStickerDialog(false)}
+          onAdd={(kind, assetId) => addSticker(kind, assetId)}
+          onUpload={async (file) => {
+            try {
+              const form = new FormData();
+              form.append("files", file);
+              const before = new Set((project.assets || []).map((a) => a.id));
+              let p = await api(`/api/projects/${project.id}/upload`, "POST", form);
+              const added = p.assets.find((a) => !before.has(a.id) && a.kind === "image");
+              if (added) p = await api(`/api/projects/${project.id}/assets/${added.id}`, "PATCH", { sticker: true });
+              setProject(p);
+            } catch (e) {
+              report(e);
+            }
+          }}
+        />
+      )}
+      {cropId && assets.find((a) => a.id === cropId) && (
+        <CropDialog
+          asset={assets.find((a) => a.id === cropId)}
+          fitFor={(crop) => pictureFit(project, selected, { crop })}
+          aspect={aspectOf(project)}
+          api={api}
+          projectId={project.id}
+          notify={notify}
+          onClose={() => setCropId(null)}
+          onSaved={(p) => {
+            setProject(p);
+            setCropId(null);
+            notify("Crop saved. Every scene using this file shows it.");
+          }}
         />
       )}
       {modal === "replace" && selected && (

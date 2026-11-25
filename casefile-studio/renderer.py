@@ -9,6 +9,8 @@ import captionstyle
 import effects
 import cta
 import watermark
+import picture
+import stickers
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from storage import DATA, ROOT, resolve_asset
@@ -503,6 +505,8 @@ def timing_report(t: dict) -> str:
         used.append("watermark")
     if t.get("cta_events"):
         used.append(f"subscribe animation x{t['cta_events']}")
+    if t.get("stickers"):
+        used.append(f"stickers x{t['stickers']}")
     rows = t.get("per_scene") or []
     lines = [
         "CASEFILE render report",
@@ -592,6 +596,7 @@ def render(
         im.save(placeholder)
         # v0.4.29: the subscribe call-to-action, drawn once, overlaid where it falls.
         cta_events = cta.events(project)
+        cta_short = cta.cut_short(project)  # v0.4.49: these end early and fade out
         cta_dir = work / "cta"
         cta_cfg = cta.normalise(project.get("cta"))
         cta_file = None
@@ -619,6 +624,14 @@ def render(
                 wm_png = watermark.layer(project, asset_path(assets.get(wm_cfg["asset_id"])), width, height, work / "watermark.png")
             except (ValueError, OSError, AttributeError, TypeError) as e:
                 warnings.append(f"The logo watermark was left out: {e}")
+        # v0.4.49: your stickers, drawn once for the whole timeline.
+        sticker_layers = []
+        if project.get("stickers"):
+            try:
+                total_len = sum(max(1, round(float(s["duration"]) * FPS)) for s in scenes) / FPS
+                sticker_layers = stickers.prepare(project, assets, width, height, work / "stickers", total_len, asset_path)
+            except (ValueError, OSError, KeyError) as e:
+                warnings.append(f"The stickers were left out: {e}")
         scene_start = 0.0
         name_cards = effects.effective_lower_thirds(project)
         clips = []
@@ -665,6 +678,10 @@ def render(
             motion = scene.get("motion", "slow-zoom")
             is_video = asset and asset.get("kind") == "video"
             is_image = asset and asset.get("kind") == "image"
+            # v0.4.49: your keyframes replace the fixed photo movement.
+            cam_keys = picture.normalise_keyframes(scene.get("keyframes"), duration) if (is_video or is_image) else []
+            if cam_keys and is_image:
+                motion = "keyframes"
             trim_start = max(0.0, float(scene.get("trim_start", 0)))
             asset_dur = float(asset.get("duration", 0) or 0) if asset else 0.0
             # Use the cue's original selected crop end (trim_start + cue duration)
@@ -761,18 +778,17 @@ def render(
                 # narration-coverage check.
                 video_extra = ["-loop", "1", "-framerate", str(FPS)]
             command += video_extra + ["-i", video_input]
-            vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
-            if aspect == "9:16" and effects.fit_of(project) == "blur" and (is_video or is_image) and video_input != str(placeholder):
-                # v0.4.28: the whole picture, centred, over a blurred, darker
-                # copy of itself filling the tall frame.
-                vf = (
-                    f"split[fa][fb];[fa]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
-                    f"boxblur=24:2,eq=brightness=-0.07:saturation=0.85,setsar=1[bgv];"
-                    f"[fb]scale={width}:{height}:force_original_aspect_ratio=decrease,setsar=1[fgv];"
-                    f"[bgv][fgv]overlay=(W-w)/2:(H-h)/2"
-                )
+            # v0.4.49: the media file's crop (only the real photo), then how the
+            # scene fills the frame: cover, or the photo over a blur of itself.
+            footage = (is_video or is_image) and video_input != str(placeholder)
+            fit = picture.fit_of(project, scene, asset) if footage else "cover"
+            vf = (picture.crop_filter(picture.crop_of(asset)) if footage else "") + picture.fit_filter(fit, width, height)
             if is_video:
                 vf += f",fps={FPS},setpts=PTS-STARTPTS,setsar=1"
+                if cam_keys and footage:
+                    vf += "," + picture.camera_filter(cam_keys, width, height, frames, still=False) + ",setsar=1"
+            elif motion == "keyframes":
+                vf += "," + picture.camera_filter(cam_keys, width, height, frames, still=True) + ",setsar=1"
             elif motion != "none":
                 last = max(1, frames - 1)
                 yp = "ih/2-ih/zoom/2"
@@ -832,6 +848,15 @@ def render(
                     continue
                 k = command.count("-i")
                 ra, rb = a - scene_start, b - scene_start
+                # v0.4.49: a place cut short (its own length, the end of its scene
+                # or the next place) fades the animation out instead of stopping.
+                early = ""
+                if (t0, t1) in cta_short:
+                    fo = cta.fade_out_seconds(t0, t1)
+                    fs = t1 - fo  # when the fade starts, on the timeline
+                    if fs < b:
+                        # at the export frame rate first, so a 12 or 25 fps file fades smoothly
+                        early = f",fps={FPS}" + cta.fade_filter(a, t1, fo, ra)
                 if cta_cfg["style"] == "blur":
                     # Blur (and slightly darken) the video behind for these seconds, fading in and out.
                     bs = cta.SPEC["blur"]
@@ -855,16 +880,22 @@ def render(
                     fw = round(width * cta_cfg["size"] / 2) * 2
                     filters += (
                         f"[ctab{k}];[{k}:v]scale={fw}:-2:flags=lanczos,format=rgba,"
-                        f"setpts=PTS-STARTPTS+{ra:.3f}/TB[ctav{k}];"
-                        f"[ctab{k}][ctav{k}]overlay=x=(W-w)/2:y='min(max(0,{cta_cfg['y']}*H-h/2),H-h)':"
+                        f"setpts=PTS-STARTPTS+{ra:.3f}/TB{early}[ctav{k}];"
+                        f"[ctab{k}][ctav{k}]overlay=x='min(max(0,{cta_cfg['x']}*W-w/2),W-w)':y='min(max(0,{cta_cfg['y']}*H-h/2),H-h)':"
                         f"eof_action=pass:enable='between(t,{ra:.3f},{rb:.3f})':format=auto"
                     )
                 else:
                     command += ["-framerate", str(FPS), "-start_number", str(round((a - t0) * FPS)), "-i", str(cta_dir / "f%04d.png")]
                     filters += (
-                        f"[ctab{k}];[{k}:v]format=rgba,setpts=PTS-STARTPTS+{ra:.3f}/TB[ctav{k}];"
-                        f"[ctab{k}][ctav{k}]overlay=0:0:eof_action=pass:format=auto"
+                        f"[ctab{k}];[{k}:v]format=rgba,setpts=PTS-STARTPTS+{ra:.3f}/TB{early}[ctav{k}];"
+                        f"[ctab{k}][ctav{k}]overlay=0:0:eof_action=pass:enable='between(t,{ra:.3f},{rb:.3f})':format=auto"
                     )
+            for layer in sticker_layers:
+                k = command.count("-i")
+                got = stickers.overlay_filters(layer, k, scene_start, scene_len, width, height)
+                if got:
+                    command += got[0]
+                    filters += got[1]
             if wm_png:
                 k = command.count("-i")
                 command += ["-i", str(wm_png)]
@@ -1151,6 +1182,7 @@ def render(
             "effects": effects.normalise_effects(project.get("effects")),
             "watermark": bool(wm_png),
             "cta_events": len(cta_events),
+            "stickers": len(sticker_layers),
             "per_scene": scene_info,
         },
     }

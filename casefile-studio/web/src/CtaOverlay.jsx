@@ -2,13 +2,13 @@ import React from "react";
 import { ctaState, ctaPlacement, ctaCard, ctaBlurFade, ctaFileSeconds, normaliseCta, CTA_FALLBACK, CTA_BLUR } from "./cta.js";
 
 // v0.4.35 The blurred video behind the CTA (the export blurs the same way).
-function Blur({ t, seconds, width, height }) {
+function Blur({ t, seconds, width, height, fade = 1 }) {
   const px = Math.max(2, Math.min(width, height) * CTA_BLUR.radius) * 0.6;
   return (
     <div
       className="cta-blur"
       style={{
-        opacity: ctaBlurFade(t, seconds),
+        opacity: ctaBlurFade(t, seconds) * fade,
         backdropFilter: `blur(${px}px) brightness(${1 + CTA_BLUR.brightness})`,
         WebkitBackdropFilter: `blur(${px}px) brightness(${1 + CTA_BLUR.brightness})`,
       }}
@@ -41,7 +41,7 @@ function FramesCta({ frames, t, style }) {
 }
 
 // v0.4.35 Your own animation file (.mov/.webm with transparency, or .gif), kept in step with the preview clock.
-function FileCta({ file, c, t, width, height, playing, onNeedPreview }) {
+function FileCta({ file, c, t, width, height, playing, onNeedPreview, fade = 1 }) {
   const ref = React.useRef(null);
   const [failed, setFailed] = React.useState(false);
   const seconds = ctaFileSeconds(file);
@@ -67,9 +67,10 @@ function FileCta({ file, c, t, width, height, playing, onNeedPreview }) {
   const ratio = (file.height || 1080) / (file.width || 1920);
   const h = w * ratio;
   const top = Math.min(Math.max(0, c.y * height - h / 2), height - h);
-  const style = { position: "absolute", left: (width - w) / 2, top, width: w, height: h };
+  const left = Math.min(Math.max(0, c.x * width - w / 2), width - w);
+  const style = { position: "absolute", left, top, width: w, height: h };
   return (
-    <div className="cta-layer" aria-hidden="true">
+    <div className="cta-layer" aria-hidden="true" style={{ opacity: fade }}>
       {c.style === "blur" && <Blur t={t} seconds={seconds} width={width} height={height} />}
       {frames ? (
         <FramesCta frames={frames} t={t} style={style} />
@@ -109,18 +110,19 @@ function FileCta({ file, c, t, width, height, playing, onNeedPreview }) {
 }
 
 // v0.4.29 The subscribe animation drawn over the preview, `t` seconds in.
-export default function CtaOverlay({ project, banner, file, t, width, height, playing, onNeedPreview }) {
+// `fade`: 1, or less while a place cut short fades out (v0.4.49).
+export default function CtaOverlay({ project, banner, file, t, width, height, playing, onNeedPreview, fade = 1 }) {
   const c = normaliseCta(project.cta);
   if (c.source === "file") {
     if (!file || t < 0 || t >= ctaFileSeconds(file)) return null;
-    return <FileCta file={file} c={c} t={t} width={width} height={height} playing={playing} onNeedPreview={onNeedPreview} />;
+    return <FileCta file={file} c={c} t={t} width={width} height={height} playing={playing} onNeedPreview={onNeedPreview} fade={fade} />;
   }
   if (!banner || t < 0 || t >= c.seconds) return null;
   const st = ctaState(t, c.seconds);
   const iw = banner.width || 1600;
   const ih = banner.height || 900;
   const blur = c.style === "blur";
-  const box = blur ? ctaCard(width, height, iw, ih, c.size, c.y) : ctaPlacement(width, height, iw, ih);
+  const box = blur ? ctaCard(width, height, iw, ih, c.size, c.y, c.x) : ctaPlacement(width, height, iw, ih);
   const [b0, b1, b2, b3] = c.button || CTA_FALLBACK;
   const bx0 = box.x + b0 * box.w;
   const by0 = box.y + b1 * box.h;
@@ -137,8 +139,8 @@ export default function CtaOverlay({ project, banner, file, t, width, height, pl
   const crop = { left: -(b0 * box.w), top: -(b1 * box.h), width: box.w, height: box.h };
   return (
     <>
-    {blur && <div className="cta-layer" aria-hidden="true"><Blur t={t} seconds={c.seconds} width={width} height={height} /></div>}
-    <div className="cta-layer" style={{ opacity: st.fade }} aria-hidden="true">
+    {blur && <div className="cta-layer" aria-hidden="true"><Blur t={t} seconds={c.seconds} width={width} height={height} fade={fade} /></div>}
+    <div className="cta-layer" style={{ opacity: st.fade * fade }} aria-hidden="true">
       <img
         className={`cta-banner ${blur ? "cta-card" : ""}`}
         src={banner.url}

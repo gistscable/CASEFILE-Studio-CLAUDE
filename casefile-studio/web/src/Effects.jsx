@@ -1,6 +1,7 @@
 import React from "react";
 import { TRANSITIONS, MOTIONS, LOOKS, normaliseEffects, transitionId, transitionLength, normaliseNameCards } from "./effects.js";
 import { normaliseCta } from "./cta.js";
+import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf } from "./picture.js";
 import { normaliseWatermark, watermarkBox, WM_POSITIONS, WM_DEFAULTS } from "./watermark.js";
 
 // v0.4.26 Effects tab in the Edit inspector: the look of the whole video
@@ -15,6 +16,158 @@ function Pct({ label, value, onChange, disabled }) {
       </span>
       <input type="range" aria-label={label} min="0" max="100" value={Math.round(value * 100)} disabled={disabled} onChange={(e) => onChange(Number(e.target.value) / 100)} />
     </label>
+  );
+}
+
+// v0.4.49 A value with − / + buttons (and a typed value), like the Shot Inspector.
+export function Step({ label, value, display, step, min, max, onChange, disabled, typed }) {
+  const clamp = (v) => Math.min(max, Math.max(min, Math.round(v * 1000) / 1000));
+  return (
+    <div className="cs-step">
+      <span>{label}</span>
+      <button aria-label={`${label} less`} disabled={disabled || value <= min} onClick={() => onChange(clamp(value - step))}>−</button>
+      {typed ? (
+        <input aria-label={label} key={value} defaultValue={display} disabled={disabled}
+          onBlur={(e) => { const v = typed(e.target.value); if (v !== null && Number.isFinite(v)) onChange(clamp(v)); }}
+          onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+      ) : (
+        <b>{display}</b>
+      )}
+      <button aria-label={`${label} more`} disabled={disabled || value >= max} onClick={() => onChange(clamp(value + step))}>+</button>
+    </div>
+  );
+}
+
+export const clock = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, "0")}`;
+const pct = (v) => `${Math.round(v * 100)}%`;
+// "1:02.5", "62.5" or "0:57.220" → seconds
+export function parseClock(s) {
+  const m = String(s).trim().match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
+  return m ? Number(m[1] || 0) * 60 + Number(m[2]) : null;
+}
+
+// v0.4.49 Every place the subscribe animation shows: tick it on or off, nudge
+// its start, cut it shorter (it fades out), or stop it at the end of its scene.
+function CtaPlaces({ cta, spots, natural, playhead, disabled, setCta, onPlay }) {
+  const [open, setOpen] = React.useState(null);
+  const setSpot = (r, patch) => {
+    if (r.auto) setCta({ spots: { ...cta.spots, [r.key]: { ...r.spot, ...patch } } });
+    else setCta({ extra: cta.extra.map((e) => (e.id === r.key ? { ...e, ...patch } : e)) });
+  };
+  const shown = spots.filter((r) => r.shown);
+  const add = () => {
+    let n = cta.extra.length + 1;
+    while (cta.extra.some((e) => e.id === `x${n}`)) n++;
+    setCta({ extra: [...cta.extra, { id: `x${n}`, start: Math.round(playhead * 1000) / 1000, on: true, nudge: 0, length: null, scene_end: false }] });
+    setOpen(`x${n}`);
+  };
+  return (
+    <>
+      <div className="section-label sub">
+        <span>WHERE IT SHOWS</span>
+      </div>
+      <p className="cta-shows">
+        {shown.length ? `Shows at ${clock(shown[0].start)}${shown.length > 1 ? ` +${shown.length - 1}` : ""}` : "Not showing anywhere yet"}
+      </p>
+      <div className="cta-places">
+        {spots.map((r) => {
+          const len = r.end - r.start;
+          const expanded = open === r.key;
+          return (
+            <div key={r.key} className={`cta-place ${r.shown ? "on" : ""}`}>
+              <div className="cta-place-row">
+                <input type="checkbox" aria-label={`Show at ${clock(r.start)}`} checked={r.on} disabled={disabled} onChange={(e) => setSpot(r, { on: e.target.checked })} />
+                <button className="cta-place-time" onClick={() => onPlay(r.start)} title="Play it in the preview">
+                  {clock(r.start)}
+                </button>
+                <span className="cta-place-what">
+                  {r.auto ? r.label : "Added by you"} · {len.toFixed(1)} s{r.fade_out ? " · fades out" : ""}
+                  {r.on && !r.shown ? " · overlaps the one before" : ""}
+                </span>
+                <button className="text-link" onClick={() => setOpen(expanded ? null : r.key)}>{expanded ? "Less" : "More"}</button>
+              </div>
+              {expanded && (
+                <div className="cta-place-more">
+                  {r.auto ? (
+                    <Step label="Start" value={r.spot.nudge} display={`${r.spot.nudge >= 0 ? "+" : ""}${r.spot.nudge.toFixed(1)} s`} step={0.1} min={-30} max={30} disabled={disabled}
+                      onChange={(v) => setSpot(r, { nudge: v })} />
+                  ) : (
+                    <Step label="Start" value={r.start} display={clock(r.start)} step={0.1} min={0} max={86400} disabled={disabled}
+                      typed={parseClock} onChange={(v) => setSpot(r, { start: v })} />
+                  )}
+                  <Step label="Length" value={r.spot.length || natural} display={r.spot.length && r.spot.length < natural ? `${r.spot.length.toFixed(1)} s` : `full ${natural.toFixed(1)} s`}
+                    step={0.5} min={0.5} max={natural} disabled={disabled}
+                    onChange={(v) => setSpot(r, { length: v >= natural - 1e-3 ? null : v })} />
+                  <label className="cs-check">
+                    <input type="checkbox" aria-label="Stop at the end of this scene" checked={r.spot.scene_end} disabled={disabled} onChange={(e) => setSpot(r, { scene_end: e.target.checked })} />
+                    Stop at the end of this scene
+                  </label>
+                  <div className="cta-place-actions">
+                    <button className="btn" onClick={() => onPlay(Math.max(0, r.start - 1))}>Play from here</button>
+                    {r.auto ? (
+                      <button className="text-link" disabled={disabled} onClick={() => { const { [r.key]: _, ...rest } = cta.spots; setCta({ spots: rest }); }}>Reset</button>
+                    ) : (
+                      <button className="danger-link" disabled={disabled} onClick={() => setCta({ extra: cta.extra.filter((e) => e.id !== r.key) })}>Remove</button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <button className="btn" disabled={disabled} onClick={add}>+ Add one at the playhead ({clock(playhead)})</button>
+      <p className="micro-note block">
+        CASEFILE lists every scene that says “subscribe”. When one is cut short (by its length, the end of its scene or the next one) it fades out instead of stopping.
+        Captions stay on top. Download MP4 includes it.
+      </p>
+    </>
+  );
+}
+
+// v0.4.49 Your own push-in / pan: keyframes of zoom and position for this scene.
+function PictureKeys({ scene, local, disabled, onScene, onSeek, sceneStart }) {
+  const keys = normaliseKeyframes(scene.keyframes, scene.duration);
+  const cam = cameraAt(keys, local);
+  const at = keys.find((k) => Math.abs(k.t - local) < 0.05);
+  const set = (patch) => onScene({ keyframes: upsertKey(keys, local, { ...cam, ...(at ? { ease: at.ease } : {}), ...patch }, (k) => normaliseKeyframes(k, scene.duration)) });
+  return (
+    <>
+      <div className="section-label sub">
+        <span>KEYFRAMES · YOUR OWN MOVEMENT</span>
+      </div>
+      {!keys.length ? (
+        <p className="micro-note block">Put the playhead where a move starts, click “Add keyframe”, then move the playhead and change zoom or position. The picture moves between your keyframes instead of the movement above.</p>
+      ) : (
+        <p className="micro-note block">At {local.toFixed(2)} s into this scene{at ? " (on a keyframe)" : ""}. Changing a value here {at ? "changes this keyframe" : "adds a keyframe here"}.</p>
+      )}
+      {keys.length > 0 && (
+        <>
+          <Step label="Zoom" value={cam.zoom} display={`${Math.round(cam.zoom * 100)}%`} step={0.05} min={1} max={4} disabled={disabled} onChange={(v) => set({ zoom: v })} />
+          <Step label="Left ↔ right" value={cam.x} display={pct(cam.x)} step={0.02} min={0} max={1} disabled={disabled} onChange={(v) => set({ x: v })} />
+          <Step label="Up ↕ down" value={cam.y} display={pct(cam.y)} step={0.02} min={0} max={1} disabled={disabled} onChange={(v) => set({ y: v })} />
+        </>
+      )}
+      <div className="kf-list">
+        {keys.map((k, i) => (
+          <div key={k.t} className={`kf-item ${at === k ? "on" : ""}`}>
+            <button className="kf-time" onClick={() => onSeek(sceneStart + k.t + 0.001)}>◆ {k.t.toFixed(2)} s</button>
+            <span>{Math.round(k.zoom * 100)}% · {pct(k.x)}, {pct(k.y)}</span>
+            {i < keys.length - 1 && (
+              <button className="text-link" disabled={disabled} title="How it moves to the next keyframe"
+                onClick={() => onScene({ keyframes: keys.map((x) => (x === k ? { ...x, ease: x.ease === "linear" ? "smooth" : "linear" } : x)) })}>
+                {k.ease === "linear" ? "Steady" : "Smooth"}
+              </button>
+            )}
+            <button className="danger-link" aria-label={`Remove keyframe at ${k.t.toFixed(2)} s`} disabled={disabled} onClick={() => onScene({ keyframes: keys.filter((x) => x !== k) })}>×</button>
+          </div>
+        ))}
+      </div>
+      <div className="kf-actions">
+        <button className="btn" disabled={disabled || !!at} onClick={() => set({})}>◆ Add keyframe ({local.toFixed(2)} s)</button>
+        {keys.length > 0 && <button className="text-link" disabled={disabled} onClick={() => onScene({ keyframes: [] })}>Clear keyframes</button>}
+      </div>
+    </>
   );
 }
 
@@ -185,9 +338,10 @@ function Watermark({ project, thumb, disabled, onProject, onUploadLogo }) {
   );
 }
 
-export default function Effects({ project, scene, sceneIndex, thumb, disabled, onProject, onScene, onUploadBanner, onUploadLogo, ctaEvents = [], onPlayCta, api, autoCard }) {
+export default function Effects({ project, scene, sceneIndex, thumb, disabled, onProject, onScene, onUploadBanner, onUploadLogo, ctaEvents = [], ctaSpots = [], ctaNatural = 5, playhead = 0, sceneStart = 0, onSeek, onCrop, onPlayCta, api, autoCard }) {
   const fx = normaliseEffects(project.effects);
   const cta = normaliseCta(project.cta);
+  const sceneAsset = (project.assets || []).find((a) => a.id === scene?.asset_id && (a.kind === "image" || a.kind === "video"));
   const setCta = (patch) => onProject({ cta: { ...cta, ...patch } });
   const images = (project.assets || []).filter((a) => a.kind === "image");
   const banner = images.find((a) => a.id === cta.asset_id);
@@ -336,13 +490,9 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
           )}
           {(ownFile || cta.style === "blur") && (
             <>
-              <Pct label="Size" value={cta.size} disabled={disabled} onChange={(v) => setCta({ size: Math.min(1, Math.max(0.25, v)) })} />
-              <label className="cs-slider">
-                <span>
-                  Height on screen <b>{cta.y < 0.4 ? "upper" : cta.y > 0.6 ? "lower" : "middle"}</b>
-                </span>
-                <input type="range" aria-label="Subscribe animation height" min="15" max="85" value={Math.round(cta.y * 100)} disabled={disabled} onChange={(e) => setCta({ y: Number(e.target.value) / 100 })} />
-              </label>
+              <Step label="Size" value={cta.size} display={pct(cta.size)} step={0.05} min={0.25} max={1} disabled={disabled} onChange={(v) => setCta({ size: v })} />
+              <Step label="Left ↔ right" value={cta.x} display={pct(cta.x)} step={0.05} min={0.1} max={0.9} disabled={disabled} onChange={(v) => setCta({ x: v })} />
+              <Step label="Up ↕ down" value={cta.y} display={pct(cta.y)} step={0.05} min={0.15} max={0.85} disabled={disabled} onChange={(v) => setCta({ y: v })} />
             </>
           )}
           {!ownFile && (
@@ -353,36 +503,16 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
               <input type="range" aria-label="Subscribe animation length" min="30" max="80" value={Math.round(cta.seconds * 10)} disabled={disabled} onChange={(e) => setCta({ seconds: Number(e.target.value) / 10 })} />
             </label>
           )}
-          <label className="field">
-            When
-            <select aria-label="When the subscribe animation shows" value={cta.mode} disabled={disabled} onChange={(e) => setCta({ mode: e.target.value })}>
-              <option value="auto">Automatically, when the narration first says “subscribe”</option>
-              <option value="scenes">On the scenes I tick</option>
-            </select>
-          </label>
-          <p className="micro-note block">
-            {ctaEvents.length
-              ? `Shows at ${ctaEvents.map(([a]) => `${Math.floor(a / 60)}:${String(Math.floor(a % 60)).padStart(2, "0")}`).join(", ")}. ${ownFile ? "Your animation plays once, at its own length" : "The button and cursor stay fully visible"}; captions stay on top. Download MP4 includes it.`
-              : cta.mode === "auto"
-                ? "No scene says “subscribe” yet. Tick a scene below instead, or check the script."
-                : "Tick “Subscribe animation here” on a scene below."}
-          </p>
-          {ctaEvents.length > 0 && (ownFile ? animFile : banner) && (
-            <button className="btn" onClick={() => onPlayCta(ctaEvents[0][0])}>
-              Play it in the preview
-            </button>
+          {(ownFile ? animFile : banner) ? (
+            <CtaPlaces cta={cta} spots={ctaSpots} natural={ctaNatural} playhead={playhead} disabled={disabled} setCta={setCta} onPlay={onPlayCta} />
+          ) : (
+            <p className="micro-note block">{ownFile ? "Upload or choose your animation file first." : "Choose your banner first."}</p>
           )}
         </>
       )}
 
       {scene ? (
         <>
-          {cta.enabled && cta.mode === "scenes" && (
-            <label className="cs-check" style={{ marginTop: 12 }}>
-              <input type="checkbox" aria-label="Subscribe animation on this scene" checked={!!scene.cta} disabled={disabled} onChange={(e) => onScene({ cta: e.target.checked })} />
-              Subscribe animation here (scene {String(sceneIndex + 1).padStart(2, "0")})
-            </label>
-          )}
           <div className="section-label">
             <span>SCENE {String(sceneIndex + 1).padStart(2, "0")} · TRANSITION IN</span>
           </div>
@@ -421,11 +551,30 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
           <p className="micro-note block">Transitions blend into the scene and never move it, so the narration stays in sync.</p>
 
           <div className="section-label">
-            <span>PHOTO MOVEMENT</span>
+            <span>PICTURE · CROP, FILL AND MOVEMENT</span>
           </div>
+          {sceneAsset ? (
+            <>
+              <div className="fx-crop-row">
+                <span>{cropOf(sceneAsset) ? "Cropped" : "Whole picture"} · {sceneAsset.name}</span>
+                <button className="btn" disabled={disabled} onClick={() => onCrop?.(sceneAsset.id)}>Adjust crop…</button>
+              </div>
+              <label className="field">
+                Fill the frame
+                <select aria-label="How the picture fills the frame" value={scene.fit || ""} disabled={disabled} onChange={(e) => onScene({ fit: e.target.value || null })}>
+                  <option value="">{{ "legacy-blur": "Default (blurred background, 9:16)", blur: "Default (cropped: photo over a blur)" }[fitOf(project, { ...scene, fit: null }, sceneAsset)] || "Default (fill the frame)"}</option>
+                  {PIC.fits.map((f) => (
+                    <option key={f.id} value={f.id}>{f.label}</option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <p className="micro-note block">Add a picture or clip to this scene to crop it.</p>
+          )}
           <label className="field">
             Movement
-            <select aria-label="Photo movement" value={scene.motion || "slow-zoom"} disabled={disabled} onChange={(e) => onScene({ motion: e.target.value })}>
+            <select aria-label="Photo movement" value={scene.motion || "slow-zoom"} disabled={disabled || !!scene.keyframes?.length} onChange={(e) => onScene({ motion: e.target.value })}>
               {MOTIONS.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
@@ -433,7 +582,8 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
               ))}
             </select>
           </label>
-          <p className="micro-note block">Movement applies to photos; video plays as filmed.</p>
+          <p className="micro-note block">{scene.keyframes?.length ? "Your keyframes below move the picture instead." : "Movement applies to photos; video plays as filmed (keyframes below move clips too)."}</p>
+          {sceneAsset && <PictureKeys scene={scene} local={Math.max(0, Math.min(scene.duration, playhead - sceneStart))} sceneStart={sceneStart} disabled={disabled} onScene={onScene} onSeek={onSeek} />}
 
           <div className="section-label">
             <span>NAME CARD (LOWER THIRD)</span>
