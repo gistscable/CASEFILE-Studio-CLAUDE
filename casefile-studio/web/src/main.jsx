@@ -96,7 +96,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.47",
+    version: "0.4.48",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -128,7 +128,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.47";
+const APP_VERSION = "0.4.48";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -442,7 +442,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.47",
+          version: "0.4.48",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -518,7 +518,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.47",
+                version: "0.4.48",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -4202,6 +4202,13 @@ function App() {
                           {ex.resolution} · {tc(ex.duration)} · {bytes(ex.size)}{" "}
                           · {ex.audio ? "Audio included" : "Silent video"} ·{" "}
                           {elapsed(ex.created_at)}
+                          {ex.render_seconds
+                            ? ` · rendered in ${
+                                ex.render_seconds >= 60
+                                  ? `${Math.floor(ex.render_seconds / 60)} min ${Math.round(ex.render_seconds % 60)} s`
+                                  : `${Math.round(ex.render_seconds)} s`
+                              }`
+                            : ""}
                         </p>
                         {ex.preflight_url && (
                           <div className="export-companion-links">
@@ -4217,6 +4224,11 @@ function App() {
                             {ex.episode_plan_url && (
                               <a href={ex.episode_plan_url} download>
                                 Frozen episode plan
+                              </a>
+                            )}
+                            {ex.render_report_url && (
+                              <a href={ex.render_report_url} download>
+                                Render report
                               </a>
                             )}
                           </div>
