@@ -604,8 +604,21 @@ timed every ffmpeg call of `renderer.render`, 6 × 10 s mixed scenes at 1080p):
   Re-cut progress: warns when running as x86-64 on an ARM kernel (`/proc/cpuinfo` has
   "CPU implementer"/no `vendor_id`) or with ≤2 CPUs. `Local Runs.md` has the Docker checks.
 - Re-cut itself is unchanged: it already uses all cores (x264 auto threads, 1.93 of 2 busy, 75 fps
-  at 1080p here = ~6 min for 18 min of video). An hour on an M-series Mac is not explained by the
-  code; it points at an emulated amd64 image or a low Docker CPU limit — ask for the checks above.
+  at 1080p here). The user then corrected: Re-cut takes 5-6 min (18 → 22 min video) — fine; only
+  the Export takes over an hour. Their Docker is fine: `linux/arm64`, `aarch64`, 8 CPUs (MacBook Air).
+  Re-cut ≈ 96 fps on their 8 CPUs vs 75 fps on 2 sandbox vCPUs, so their cores are slow per core
+  (Air efficiency cores, VM, no fan) — and the old Export used only ~2 of them. That is the likely
+  main cause; v0.4.48 runs 4 scenes at a time there. Not yet confirmed on their Mac.
+- Rebuilt their older 158-scene guide episode (`data/projects/1a5bbba59d244274.json`) with
+  synthetic media of the same resolutions/lengths (`/tmp/bench/replica.py`): old code 0.64x
+  realtime on 2 vCPUs. Feature costs per 10 s 1080p video scene (old code, incl. ~3 s final mux):
+  base 5.2 s, watermark 5.9, **grain 0.5 13.3 (2.5x)**, vignette 7.3, letterbox 5.5. Gap cards
+  (VISUAL NEEDED, motion none) now also take the decode-once path: 5.6 → 4.0 s, identical frames.
+- **Render report**: `render()` returns `timing` (machine, workers, prepare/scenes/join/sound
+  seconds, settings, per-scene seconds + what it is); `write_export` pops it, writes
+  `exports/<id>/render-report.txt` (`renderer.timing_report`, slowest scenes first) and stores
+  `render_seconds` + `render_report_url` on the export; the export list shows "rendered in …"
+  and a "Render report" link. Ask the user for this file after their next export.
 Notes: ffmpeg 7.0.2 (imageio-ffmpeg 0.6.0) fails every xfade transition ("current rate of 1/0") with
 or without this change (setpts unsets the rate there); 6.0 and 9.0.2 pass. Adding `fps=24` before
 xfade fixed 7.0 but changed frames at a loop seam, so it was not shipped. x264 output can differ in

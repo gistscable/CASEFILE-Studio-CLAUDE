@@ -1489,6 +1489,12 @@ def write_export(project, options, progress, cancelled):
             info = renderer.render(project, options, out, progress, cancelled)
             if cancelled():
                 raise RuntimeError("Render cancelled. No output was published.")
+            # v0.4.48: where the time went, for "why is my render slow?"
+            timing = info.pop("timing", None)
+            if timing:
+                (folder / "render-report.txt").write_text(renderer.timing_report(timing))
+                info["render_seconds"] = timing["total"]
+                info["render_report_url"] = f"/exports/{export_id}/render-report.txt"
             report = editorial.inspect(project)
             (folder / "captions.srt").write_text(renderer.project_srt(project))
             (folder / "sources.md").write_text(source_notes(project))

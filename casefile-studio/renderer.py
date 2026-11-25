@@ -1,7 +1,7 @@
 """Deterministic FFmpeg renderer. No AI calls, shell interpolation, or remote media."""
 
 from __future__ import annotations
-import json, math, os, re, shutil, subprocess, tempfile, textwrap
+import json, math, os, re, shutil, subprocess, tempfile, textwrap, time
 from pathlib import Path
 from typing import Callable
 from editorial import strip_references
@@ -450,6 +450,7 @@ def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, ca
     stop = threading.Event()
     stopped = lambda: stop.is_set() or cancelled()
     done = [0]
+    seconds = [0.0] * total
     at_once = f" · {workers} at a time" if workers > 1 else ""
 
     def report():
@@ -457,10 +458,12 @@ def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, ca
 
     def work(chain):
         for i in chain:
+            started = time.monotonic()
             for cmd in steps[i]:
                 if stopped():
                     raise RuntimeError("Cancelled by you. No output was published.")
                 run(cmd, stopped)
+            seconds[i] = time.monotonic() - started
             with lock:
                 done[0] += 1
                 report()
@@ -469,7 +472,7 @@ def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, ca
     if workers <= 1:
         for chain in chains.values():
             work(chain)
-        return
+        return seconds
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scene") as pool:
         futures = [pool.submit(work, c) for c in chains.values()]
         finished, _ = wait(futures, return_when=FIRST_EXCEPTION)
@@ -480,6 +483,44 @@ def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, ca
                 f.cancel()
             wait(futures)
             raise first
+    return seconds
+
+
+def timing_report(t: dict) -> str:
+    """v0.4.48: render-report.txt — where the render's time went, slowest scenes first."""
+    def mmss(x):
+        x = float(x)
+        return f"{int(x // 60)} min {x % 60:04.1f} s" if x >= 60 else f"{x:.1f} s"
+    fx = t.get("effects") or {}
+    used = [f"look {t.get('look')}"]
+    if fx.get("grain"):
+        used.append(f"film grain {fx['grain']} (costly: noise on every pixel, and harder to encode)")
+    if fx.get("vignette"):
+        used.append(f"vignette {fx['vignette']}")
+    if fx.get("letterbox"):
+        used.append("letterbox")
+    if t.get("watermark"):
+        used.append("watermark")
+    if t.get("cta_events"):
+        used.append(f"subscribe animation x{t['cta_events']}")
+    rows = t.get("per_scene") or []
+    lines = [
+        "CASEFILE render report",
+        f"Machine: {t.get('arch')}, {t.get('cpus')} CPUs, {t.get('workers')} scene(s) at a time"
+        + (" — RUNNING TRANSLATED (Intel code on another chip)" if t.get("emulated") else ""),
+        f"Video: {mmss(t.get('video_seconds', 0))} at {t.get('resolution')}, {len(rows)} scenes",
+        f"Total: {mmss(t.get('total', 0))} ({float(t.get('total', 0)) / max(0.01, float(t.get('video_seconds', 0) or 0.01)):.2f} x the video's length)",
+        f"  preparing {mmss(t.get('prepare', 0))} · scenes {mmss(t.get('scenes', 0))} · joining {mmss(t.get('join', 0))}"
+        f" · sound and MP4 {mmss(t.get('sound_and_mp4', 0))}",
+        f"Settings: {', '.join(used)}",
+        "",
+        "Slowest scenes (and seconds of work for each second of video):",
+    ]
+    ranked = sorted(rows, key=lambda r: -r.get("seconds", 0))
+    for r in ranked[:25]:
+        lines.append(f"  scene {r['n']:>3}  {r.get('seconds', 0):6.1f} s for {r.get('length', 0):5.1f} s"
+                     f"  ({r.get('seconds', 0) / max(0.04, r.get('length', 0)):.2f}x)  {r.get('what', '')}  · {r.get('title', '')[:50]}")
+    return "\n".join(lines) + "\n"
 
 
 def asset_path(asset):
@@ -529,6 +570,8 @@ def render(
     # frame boundary so adjoining scenes share an exact frame boundary.
     total = sum(round(float(s["duration"]) * FPS) / FPS for s in scenes)
     warnings: list[str] = []
+    began = time.monotonic()
+    scene_info: list[dict] = []  # v0.4.48: for the render report
     with tempfile.TemporaryDirectory(prefix="casefile-render-") as folder:
         work = Path(folder)
         placeholder = work / "placeholder.png"
@@ -705,16 +748,18 @@ def render(
             # v0.4.48: a still picture with no motion is decoded and scaled once and
             # the frame repeated (loop filter below). Reading it with -loop 1 decoded
             # and scaled the full-size photo again for every frame: 4-5x slower.
-            still = motion == "none" and is_image
-            if motion == "none" and video_input == str(placeholder):
+            # (Also a VISUAL NEEDED gap card. The empty-crop fallback of a video scene
+            # keeps -loop 1: its filters include fps=, which needs a stream of frames.)
+            still = motion == "none" and (is_image or (not is_video and video_input == str(placeholder)))
+            if still:
+                video_extra = ["-framerate", str(FPS)]  # one frame, at the export frame rate
+            elif motion == "none" and video_input == str(placeholder):
                 # Every still input — a bound image, a VISUAL NEEDED gap card,
                 # or the empty-crop placeholder fallback — must loop for the
                 # full scene. Reading one PNG is a single frame, which would
                 # silently shorten the exported video and fail the final
                 # narration-coverage check.
                 video_extra = ["-loop", "1", "-framerate", str(FPS)]
-            elif still:
-                video_extra = ["-framerate", str(FPS)]  # one frame, at the export frame rate
             command += video_extra + ["-i", video_input]
             vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
             if aspect == "9:16" and effects.fit_of(project) == "blur" and (is_video or is_image) and video_input != str(placeholder):
@@ -873,9 +918,21 @@ def render(
                 command += ["-map", "[lastpic]", "-frames:v", str(frames), "-update", "1", "-q:v", "2", str(work / f"last{i}.jpg")]
             steps.append(command)
             scene_steps.append(steps)
+            if is_video or is_image:
+                what = f"{asset.get('width') or '?'}x{asset.get('height') or '?'} {asset['kind']}"
+            else:
+                what = "gap card"
+            extras = [motion if not is_video else "", "looped crop" if len(steps) > 1 else "",
+                      f"transition {blend:.1f}s" if blend > 0 else ""]
+            scene_info.append({"n": i + 1, "title": scene.get("title", ""), "length": frames / FPS,
+                               "what": ", ".join(x for x in [what, *extras] if x and x != "none")})
             clips.append(outclip)
             scene_start += frames / FPS
-        run_scenes(scene_steps, chain_of, workers, progress, cancelled)
+        prepared = time.monotonic()
+        per_scene = run_scenes(scene_steps, chain_of, workers, progress, cancelled)
+        scenes_done = time.monotonic()
+        for row, secs in zip(scene_info, per_scene):
+            row["seconds"] = round(secs, 2)
         progress(86, "Assembling the timeline")
         listing = work / "concat.txt"
         listing.write_text("\n".join(f"file '{p.as_posix()}'" for p in clips))
@@ -898,6 +955,7 @@ def render(
             ],
             cancelled,
         )
+        t_joined = time.monotonic()
         progress(92, "Mixing audio and preparing the MP4")
         narration = assets.get(project.get("narration_id"))
         music = assets.get(project.get("music_id"))
@@ -1060,6 +1118,7 @@ def render(
         command += ["-t", str(total), "-movflags", "+faststart", str(out)]
         run(command, cancelled)
         progress(99, "Writing captions and export notes")
+        mixed = time.monotonic()
     if (project.get("episode") or {}).get("guide"):
         finished = probe(out)
         video_seconds = finished.get("video_duration") or finished["duration"]
@@ -1078,4 +1137,20 @@ def render(
         "audio": bool(audio),
         "size": out.stat().st_size,
         "warnings": warnings,
+        "timing": {
+            **machine(),
+            "workers": workers,
+            "total": round(time.monotonic() - began, 1),
+            "prepare": round(prepared - began, 1),
+            "scenes": round(scenes_done - prepared, 1),
+            "join": round(t_joined - scenes_done, 1),
+            "sound_and_mp4": round(mixed - t_joined, 1),
+            "video_seconds": round(total, 2),
+            "resolution": options["resolution"],
+            "look": project.get("look", "noir"),
+            "effects": effects.normalise_effects(project.get("effects")),
+            "watermark": bool(wm_png),
+            "cta_events": len(cta_events),
+            "per_scene": scene_info,
+        },
     }

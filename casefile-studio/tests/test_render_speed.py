@@ -147,3 +147,34 @@ def test_machine_note():
     assert "--platform linux/arm64" in note
     assert "2 CPUs" in renderer.machine_note({"arch": "aarch64", "cpus": 2, "emulated": False})
     assert renderer.machine_note({"arch": "aarch64", "cpus": 8, "emulated": False}) == ""
+
+
+def test_render_report(media, tmp_path, monkeypatch):
+    monkeypatch.setenv("CASEFILE_RENDER_JOBS", "2")
+    project = {"id": "speed", "title": "Speed", "look": "noir", "assets": media, "scenes": scenes(), "music_volume": 0,
+               "effects": {"grain": 0.2}}
+    info = renderer.render(project, {"resolution": "480p", "draft": True, "captions": False}, tmp_path / "r.mp4",
+                           lambda *a: None, lambda: False)
+    t = info["timing"]
+    assert t["workers"] == 2 and len(t["per_scene"]) == 5
+    assert all(r["seconds"] > 0 for r in t["per_scene"])
+    assert t["total"] >= t["scenes"] > 0
+    text = renderer.timing_report(t)
+    assert "Slowest scenes" in text and "film grain 0.2" in text and "looped crop" in text and "gap card" not in text
+    assert "transition 0.5s" in text
+
+
+def test_export_writes_the_render_report(isolated, media):
+    import app as server
+
+    _, root = isolated
+    project = storage.new_project("Report check")
+    project.update(assets=media, scenes=scenes()[:2], look="natural")
+    storage.save_project(project)
+    record = server.write_export(project, {"resolution": "480p", "draft": True, "captions": False},
+                                 lambda *a, **k: None, lambda: False)
+    assert record["render_seconds"] > 0
+    assert record["render_report_url"].endswith("/render-report.txt")
+    report = server.DATA / "exports" / record["id"] / "render-report.txt"
+    assert "Slowest scenes" in report.read_text()
+    assert "timing" not in record

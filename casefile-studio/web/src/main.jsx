@@ -4202,6 +4202,13 @@ function App() {
                           {ex.resolution} · {tc(ex.duration)} · {bytes(ex.size)}{" "}
                           · {ex.audio ? "Audio included" : "Silent video"} ·{" "}
                           {elapsed(ex.created_at)}
+                          {ex.render_seconds
+                            ? ` · rendered in ${
+                                ex.render_seconds >= 60
+                                  ? `${Math.floor(ex.render_seconds / 60)} min ${Math.round(ex.render_seconds % 60)} s`
+                                  : `${Math.round(ex.render_seconds)} s`
+                              }`
+                            : ""}
                         </p>
                         {ex.preflight_url && (
                           <div className="export-companion-links">
@@ -4217,6 +4224,11 @@ function App() {
                             {ex.episode_plan_url && (
                               <a href={ex.episode_plan_url} download>
                                 Frozen episode plan
+                              </a>
+                            )}
+                            {ex.render_report_url && (
+                              <a href={ex.render_report_url} download>
+                                Render report
                               </a>
                             )}
                           </div>
