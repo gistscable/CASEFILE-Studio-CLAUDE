@@ -64,3 +64,23 @@ finished message says so ("has 6:19 of picture but 74:17 of sound… the sound a
 out"), and an insert placed after the picture ends is refused with the same explanation. A piece
 whose picture runs a few frames short holds its last frame (up to 2 s), so later shots never
 shift. Clip files are measured the same way. Tests: `tests/test_recut_lengths.py`.
+
+## Clips with broken timestamps (v0.4.43)
+
+Some downloaded clips (cut sections from YouTube are the usual case) have timestamps that stop
+advancing or jump backwards part-way through. The re-cut used to cut each clip by its timestamps,
+so "stop after 14.86 seconds" never triggered: the clip's sound ran on to the end of its file
+(a 22:05 re-cut came out with 36:54 of sound) and the picture join stalled after the clip
+("The re-cut's picture (2:04) and sound (36:54) came out different lengths").
+
+Now:
+- Every clip file's packets are read first; broken timestamps are spotted, and such clips are cut
+  by frame and sample number from the start of the file, never by their times.
+- Every clip's and every video stretch's sound is cut by sample count, so it is exactly as long as
+  its picture whatever the file's timestamps say.
+- Each piece is checked (frames and samples) before the join. A clip that still comes out wrong is
+  retried the other way; if that fails too, the message names the clip, its file and its times, and
+  says to fetch or upload that file again, instead of "send this message to support".
+- The picture check reads broken clips by frame number as well.
+
+Tests: `tests/test_recut_lengths.py`.

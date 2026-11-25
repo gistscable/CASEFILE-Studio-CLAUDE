@@ -166,43 +166,67 @@ def parse(text):
     return out
 
 
-_ENDS = {}
+_SCANS = {}
 
 
-def _stream_end(path, kind, start=0.0):
-    """Where the file's first video ("v") or audio ("a") stream really ends, in
-    seconds from the start of the file, read from its packets.
+def _scan(path, kind, start=0.0):
+    """Read the packets of the file's first video ("v") or audio ("a") stream.
 
-    The container's duration is the longest of its tracks, and a declared track
-    duration can be wrong too. A finished video whose sound runs on past the
-    picture (or with a stray late packet) made the re-cut plan its last stretch
-    to that length: the sound was padded to it, the picture ran out of frames,
-    and the two halves came out minutes apart."""
+    Returns {"end": where the stream really ends (seconds from the start of the
+    file), "broken": True when its timestamps jump backwards or do not add up}.
+
+    v0.4.42: the container's duration is the longest of its tracks, and a declared
+    track duration can be wrong too, so the end is read from the packets.
+    v0.4.43: a downloaded clip whose timestamps restart part-way through made the
+    re-cut's "stop after N seconds" never trigger: the clip's sound ran on to the
+    end of the file and the picture stalled. Such files are spotted here and cut
+    by counting frames and samples instead (see _clip_command)."""
     p = Path(path)
     try:
         st = p.stat()
         key = (str(p.resolve()), kind, st.st_size, st.st_mtime_ns)
     except OSError:
         key = None
-    if key in _ENDS:
-        return _ENDS[key]
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"{kind}:0", "-show_entries", "packet=pts_time,duration_time",
+    if key in _SCANS:
+        return _SCANS[key]
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"{kind}:0", "-show_entries", "packet=pts_time,dts_time,duration_time",
                         "-of", "csv=p=0", str(path)], capture_output=True, text=True)
-    end = None
+    end, first, total, prev_dts, back, stuck, count = None, None, 0.0, None, 0, 0, 0
     for line in r.stdout.splitlines():
-        parts = line.strip().split(",")
+        parts = (line.strip().split(",") + ["", "", ""])[:3]
         try:
             pts = float(parts[0])
-        except (ValueError, IndexError):
+        except ValueError:
             continue
         try:
-            d = float(parts[1])
-        except (ValueError, IndexError):
+            dts = float(parts[1])
+        except ValueError:
+            dts = pts
+        try:
+            d = float(parts[2])
+        except ValueError:
             d = 0.0
+        if prev_dts is not None and dts < prev_dts - 0.5:  # frame reordering never goes back this far
+            back += 1
+        elif prev_dts is not None and dts == prev_dts:
+            stuck += 1
+        count += 1
+        prev_dts = dts
+        first = pts if first is None else min(first, pts)
+        total += d
         end = max(end or 0.0, pts + d - start)
+    span = (end + start - first) if end is not None and first is not None else 0.0
+    broken = back > 0 or stuck > max(5, 0.05 * count) or (total > 1.0 and span > 0 and abs(total - span) > max(1.0, 0.02 * total))
+    # A broken file's real length is what its packets add up to, not its last timestamp.
+    # (unknown when the packets carry no durations: the container's length is used then).
+    result = {"end": (total if total > 1.0 else None) if broken else end, "broken": broken}
     if key is not None:
-        _ENDS[key] = end
-    return end
+        _SCANS[key] = result
+    return result
+
+
+def _stream_end(path, kind, start=0.0):
+    return _scan(path, kind, start)["end"]
 
 
 def _probe(path):
@@ -225,13 +249,15 @@ def _probe(path):
         start = float(fmt.get("start_time") or 0)
     except ValueError:
         start = 0.0
-    picture = _stream_end(path, "v", start) if video else None
-    sound = _stream_end(path, "a", start) if has_audio else None
+    vs = _scan(path, "v", start) if video else {"end": None, "broken": False}
+    au = _scan(path, "a", start) if has_audio else {"end": None, "broken": False}
+    picture, sound = vs["end"], au["end"]
     # v0.4.42: the picture sets the length of a video. Falls back to the container's
     # duration only when the packets could not be read.
     duration = picture if picture else container
     return {
         "duration": duration, "container_duration": container, "picture": picture, "sound": sound,
+        "timing_broken": bool(vs["broken"] or au["broken"]),
         "has_video": bool(video), "has_audio": has_audio,
         "width": int(video["width"]) if video else 0, "height": int(video["height"]) if video else 0,
     }
@@ -298,11 +324,17 @@ def check(base_path, inserts):
 _PW, _PH = 64, 36
 
 
-def _thumbs(path, t, w, h, count=1):
-    """Grey 64x36 thumbnails of the centre of the picture, `count` frames from t."""
+def _thumbs(path, t, w, h, count=1, by_frame=False):
+    """Grey 64x36 thumbnails of the centre of the picture, `count` frames from t.
+
+    by_frame (v0.4.43): find the frame by its number rather than by seeking, for
+    files whose timestamps are broken (the way the re-cut cut them)."""
     vf = (f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},"
           f"crop=iw*0.6:ih*0.6:iw*0.2:ih*0.15,scale={_PW}:{_PH},format=gray")
-    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", str(path), "-frames:v", str(count), "-vf", vf,
+    seek = ["-ss", f"{max(0.0, t):.3f}"]
+    if by_frame:
+        seek, vf = [], f"select=gte(n\\,{max(0, round(t * _src_fps(path)))}),{vf}"
+    r = subprocess.run(["ffmpeg", "-v", "error", *seek, "-i", str(path), "-frames:v", str(count), "-vf", vf,
                         "-f", "rawvideo", "-"], capture_output=True)
     n = _PW * _PH
     return [r.stdout[i:i + n] for i in range(0, len(r.stdout) - n + 1, n)]
@@ -328,7 +360,7 @@ def picture_check(out_path, base_path, placed, w, h, proof_dir=None):
         worst, worst_base, proof_at, looked = 0.0, None, spots[0], 0
         for x in spots:
             got = _thumbs(out_path, pos + x, w, h)
-            want = _thumbs(ins["path"], ins["start"] + x - 1.0 / FPS, w, h, count=3)
+            want = _thumbs(ins["path"], ins["start"] + x - 1.0 / FPS, w, h, count=3, by_frame=ins.get("timing") == "frame-count")
             if not got or not want:
                 continue
             looked += 1
@@ -368,8 +400,11 @@ def _src_fps(path):
 def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, attempt, pic, snd):
     """One inserted clip: its own picture (plus cutaways, logo and name card) and its own sound.
 
-    attempt "timestamps" (used) trusts the file's frame times; "frame-count"
-    lays the frames out at the file's frame rate instead."""
+    attempt "timestamps" trusts the file's frame times and seeks with -ss;
+    "frame-count" (v0.4.43, used for files whose timestamps are broken) decodes
+    from the start of the file and cuts by frame and sample number, so the
+    file's times are never consulted. Either way the sound is cut by sample
+    count, so it is exactly as long as the picture."""
     fade = min(0.08, exact / 4)
     card = ""
     cuts = [c for c in ins.get("cutaways") or [] if c["from"] < exact - 0.05]
@@ -380,7 +415,14 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
             ass = work / f"card{k}.ass"
             ass.write_text(captionstyle.ass([], w, h, None, [style], events), encoding="utf-8")
             card = "," + captionstyle.filter_arg(ass.as_posix())
-    timing = "setpts=PTS-STARTPTS" if attempt == "timestamps" else f"setpts=N/({_src_fps(ins['path'])}*TB)"
+    samples = round(exact * 48000)
+    if attempt == "timestamps":
+        seek, timing, a_in = ["-ss", f"{ins['start']:.3f}"], "setpts=PTS-STARTPTS", f"asetpts=PTS-STARTPTS,{afmt}"
+    else:
+        fps = _src_fps(ins["path"])
+        seek = []
+        timing = f"trim=start_frame={round(ins['start'] * fps)},setpts=N/({fps}*TB)"
+        a_in = f"{afmt},asetpts=N/SR/TB,atrim=start_sample={round(ins['start'] * 48000)},asetpts=N/SR/TB"
     inputs, graph, last = [], [f"[0:v]{timing},{vfmt}[v0]"], "v0"
     for j, c in enumerate(cuts, 1):
         a, b = c["from"], min(c["to"], exact)
@@ -404,11 +446,28 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
         graph.append(f"[{last}][{len(cuts) + 1}:v]overlay=0:0:format=auto[vl]")
         last = "vl"
     graph.append(f"[{last}]null{card}[vout]")
-    graph.append(f"[0:a]asetpts=PTS-STARTPTS,{afmt},loudnorm=I=-16:TP=-1.5:LRA=11,{afmt},afade=t=in:d={fade:.3f},"
-                 f"afade=t=out:st={max(0, exact - fade):.3f}:d={fade:.3f},apad,atrim=duration={exact:.6f}[aout]")
-    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{ins['start']:.3f}", "-i", str(ins["path"]), *inputs,
+    graph.append(f"[0:a]{a_in},loudnorm=I=-16:TP=-1.5:LRA=11,{afmt},asetpts=N/SR/TB,afade=t=in:d={fade:.3f},"
+                 f"afade=t=out:st={max(0, exact - fade):.3f}:d={fade:.3f},apad,atrim=end_sample={samples}[aout]")
+    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *seek, "-i", str(ins["path"]), *inputs,
             "-filter_complex", ";".join(graph), "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic),
             "-map", "[aout]", *aenc, str(snd)]
+
+
+def _piece_lengths(pic, snd):
+    """(video frames, audio samples) actually in a finished piece."""
+    r = subprocess.run(["ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0", "-show_entries", "stream=nb_read_packets",
+                        "-of", "csv=p=0", str(pic)], capture_output=True, text=True).stdout.strip()
+    try:
+        frames = int(r.split(",")[0])
+    except ValueError:
+        frames = 0
+    try:
+        import wave
+        with wave.open(str(snd), "rb") as wf:
+            samples = wf.getnframes()
+    except (OSError, EOFError, Exception):
+        samples = max(0, (Path(snd).stat().st_size - 44) // 4) if Path(snd).exists() else 0
+    return frames, samples
 
 
 def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lambda: False, logo=None, proof_dir=None, check_picture=True, checks=None):
@@ -518,14 +577,32 @@ def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lam
                 if has_end:
                     fades += f",afade=t=out:st={max(0, exact - 0.03):.3f}:d=0.03"
                 cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{a:.3f}", "-i", str(base_path),
-                       "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout];[0:a]asetpts=PTS-STARTPTS,{afmt}{fades},apad,atrim=duration={exact:.6f}[aout]",
+                       "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout];[0:a]asetpts=PTS-STARTPTS,{afmt}{fades},apad,atrim=end_sample={round(exact * 48000)}[aout]",
                        "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic),
                        "-map", "[aout]", *aenc, str(snd)]
                 run(cmd, length, f"Re-cutting the video · part {n + 1} of {len(plan)}")
             else:
                 ins = src
                 label = f"Adding clip {k + 1} of {len(inserts)} · part {n + 1} of {len(plan)}"
-                run(_clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, "timestamps", pic, snd), length, label)
+                # v0.4.43: a clip file with broken timestamps is cut by frame and sample number.
+                modes = ["frame-count", "timestamps"] if _probe(ins["path"]).get("timing_broken") else ["timestamps", "frame-count"]
+                for mode in modes:
+                    run(_clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, mode, pic, snd), length, label)
+                    got = _piece_lengths(pic, snd)
+                    if got == (frames, round(exact * 48000)):
+                        ins["timing"] = mode
+                        break
+                else:
+                    name = Path(ins["path"]).name
+                    raise RecutError(f"Clip {k + 1} ({ins.get('file') or name}, {clock(ins['start'])}–{clock(ins['end'])}) could not be cut to "
+                                     f"{clock(exact)}: it came out as {clock(got[0] / FPS)} of picture and {clock(got[1] / 48000)} of sound. "
+                                     f"The file {name} looks damaged; fetch or upload it again. Nothing was saved.")
+            if kind == "base":
+                got = _piece_lengths(pic, snd)
+                if got != (frames, round(exact * 48000)):
+                    raise RecutError(f"Part {n + 1} of the video to re-cut ({clock(src)}–{clock(src + exact)}) came out as {clock(got[0] / FPS)} of picture "
+                                     f"and {clock(got[1] / 48000)} of sound instead of {clock(exact)}. The video file may be damaged; render or upload it "
+                                     "again. Nothing was saved.")
             # Every piece must be plain 4:2:0 H.264 High, or Apple's players freeze on it.
             fmt = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,profile,pix_fmt,width,height",
                                   "-of", "csv=p=0", str(pic)], capture_output=True, text=True).stdout.strip()
