@@ -106,3 +106,20 @@ def test_piece_lengths_reads_frames_and_samples(tmp_path):
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(clip), "-map", "0:v", "-r", "24", "-frames:v", "48", "-c:v", "libx264", str(pic),
                     "-map", "0:a", "-af", "aresample=48000,atrim=end_sample=96000", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(snd)], check=True)
     assert recut._piece_lengths(pic, snd) == (48, 96000)
+
+
+def test_picture_and_sound_are_made_by_separate_single_output_runs(tmp_path):
+    """v0.4.44: one ffmpeg run writing picture and sound from a single graph came out
+    wrong on Debian's ffmpeg 7.1 (an 18-minute stretch gave 1:48 of picture and 36
+    minutes of sound). Each piece is now two runs with one output each, and each run
+    reads only the stretch it needs."""
+    vcmd, acmd = recut._base_commands("base.mp4", 10.0, 5.0, 120, "fps=24", "aformat=sample_rates=48000", "", ["-an"], ["-vn"],
+                                      tmp_path / "p.mp4", tmp_path / "s.wav")
+    for cmd in (vcmd, acmd):
+        assert cmd.count("-map") == 1 and cmd[cmd.index("-t") + 1] == "6.000"
+    assert str(tmp_path / "p.mp4") in vcmd and str(tmp_path / "s.wav") not in vcmd
+    assert str(tmp_path / "s.wav") in acmd and str(tmp_path / "p.mp4") not in acmd
+    ins = {"start": 2.0, "end": 6.0, "path": "clip.mp4"}
+    v2, a2 = recut._clip_command(ins, 4.0, 96, 320, 180, "fps=24", "aformat=sample_rates=48000", ["-an"], ["-vn"], tmp_path, 0, None,
+                                 "timestamps", tmp_path / "p.mp4", tmp_path / "s.wav")
+    assert v2.count("-map") == 1 and a2.count("-map") == 1 and "-t" in v2 and "-t" in a2

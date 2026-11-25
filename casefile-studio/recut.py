@@ -399,6 +399,7 @@ def _src_fps(path):
 
 def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, attempt, pic, snd):
     """One inserted clip: its own picture (plus cutaways, logo and name card) and its own sound.
+    Returns two commands, (picture, sound); see _base_commands for why they are separate.
 
     attempt "timestamps" trusts the file's frame times and seeks with -ss;
     "frame-count" (v0.4.43, used for files whose timestamps are broken) decodes
@@ -417,7 +418,9 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
             card = "," + captionstyle.filter_arg(ass.as_posix())
     samples = round(exact * 48000)
     if attempt == "timestamps":
-        seek, timing, a_in = ["-ss", f"{ins['start']:.3f}"], "setpts=PTS-STARTPTS", f"asetpts=PTS-STARTPTS,{afmt}"
+        # Read only the stretch that is needed (plus a margin), so nothing can run on past it.
+        seek = ["-ss", f"{ins['start']:.3f}", "-t", f"{exact + 1:.3f}"]
+        timing, a_in = "setpts=PTS-STARTPTS", f"asetpts=PTS-STARTPTS,{afmt}"
     else:
         fps = _src_fps(ins["path"])
         seek = []
@@ -446,11 +449,35 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
         graph.append(f"[{last}][{len(cuts) + 1}:v]overlay=0:0:format=auto[vl]")
         last = "vl"
     graph.append(f"[{last}]null{card}[vout]")
-    graph.append(f"[0:a]{a_in},loudnorm=I=-16:TP=-1.5:LRA=11,{afmt},asetpts=N/SR/TB,afade=t=in:d={fade:.3f},"
-                 f"afade=t=out:st={max(0, exact - fade):.3f}:d={fade:.3f},apad,atrim=end_sample={samples}[aout]")
-    return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *seek, "-i", str(ins["path"]), *inputs,
-            "-filter_complex", ";".join(graph), "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic),
-            "-map", "[aout]", *aenc, str(snd)]
+    sound = (f"[0:a]{a_in},loudnorm=I=-16:TP=-1.5:LRA=11,{afmt},asetpts=N/SR/TB,afade=t=in:d={fade:.3f},"
+             f"afade=t=out:st={max(0, exact - fade):.3f}:d={fade:.3f},apad,atrim=end_sample={samples}[aout]")
+    head = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *seek, "-i", str(ins["path"])]
+    return ([*head, *inputs, "-filter_complex", ";".join(graph), "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic)],
+            [*head, "-filter_complex", sound, "-map", "[aout]", *aenc, str(snd)])
+
+
+def _base_commands(base_path, a, exact, frames, vfmt, afmt, fades, venc, aenc, pic, snd):
+    """One stretch of the video to re-cut: (picture command, sound command).
+
+    v0.4.44: picture and sound are made by two separate ffmpeg runs, each with one
+    output, the way the main export makes them. One run writing both from a single
+    filter graph came out wrong on some ffmpeg builds (Debian's 7.1 in the Docker
+    image): an 18-minute stretch gave 1:48 of picture and 36 minutes of sound.
+    Each run also reads only the stretch it needs (-t), so neither can run on."""
+    head = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{a:.3f}", "-t", f"{exact + 1:.3f}", "-i", str(base_path)]
+    return ([*head, "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout]", "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic)],
+            [*head, "-filter_complex", f"[0:a]asetpts=PTS-STARTPTS,{afmt}{fades},apad,atrim=end_sample={round(exact * 48000)}[aout]",
+             "-map", "[aout]", *aenc, str(snd)])
+
+
+_VERSION = []
+
+
+def _ffmpeg_version():
+    if not _VERSION:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-version"], capture_output=True, text=True).stdout.split("\n")[0]
+        _VERSION.append(" ".join(out.split()[:3]) or "ffmpeg ?")
+    return _VERSION[0]
 
 
 def _piece_lengths(pic, snd):
@@ -576,18 +603,19 @@ def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lam
                 fades = ",afade=t=in:d=0.03" if a > 0 else ""  # a short fade at each cut avoids a click
                 if has_end:
                     fades += f",afade=t=out:st={max(0, exact - 0.03):.3f}:d=0.03"
-                cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{a:.3f}", "-i", str(base_path),
-                       "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout];[0:a]asetpts=PTS-STARTPTS,{afmt}{fades},apad,atrim=end_sample={round(exact * 48000)}[aout]",
-                       "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic),
-                       "-map", "[aout]", *aenc, str(snd)]
-                run(cmd, length, f"Re-cutting the video · part {n + 1} of {len(plan)}")
+                vcmd, acmd = _base_commands(base_path, a, exact, frames, vfmt, afmt, fades, venc, aenc, pic, snd)
+                label = f"Re-cutting the video · part {n + 1} of {len(plan)}"
+                run(vcmd, length, label)
+                run(acmd, 0.0, label)
             else:
                 ins = src
                 label = f"Adding clip {k + 1} of {len(inserts)} · part {n + 1} of {len(plan)}"
                 # v0.4.43: a clip file with broken timestamps is cut by frame and sample number.
                 modes = ["frame-count", "timestamps"] if _probe(ins["path"]).get("timing_broken") else ["timestamps", "frame-count"]
                 for mode in modes:
-                    run(_clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, mode, pic, snd), length, label)
+                    vcmd, acmd = _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, mode, pic, snd)
+                    run(vcmd, length, label)
+                    run(acmd, 0.0, label)
                     got = _piece_lengths(pic, snd)
                     if got == (frames, round(exact * 48000)):
                         ins["timing"] = mode
@@ -596,13 +624,13 @@ def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lam
                     name = Path(ins["path"]).name
                     raise RecutError(f"Clip {k + 1} ({ins.get('file') or name}, {clock(ins['start'])}–{clock(ins['end'])}) could not be cut to "
                                      f"{clock(exact)}: it came out as {clock(got[0] / FPS)} of picture and {clock(got[1] / 48000)} of sound. "
-                                     f"The file {name} looks damaged; fetch or upload it again. Nothing was saved.")
+                                     f"The file {name} looks damaged; fetch or upload it again. Nothing was saved. ({_ffmpeg_version()})")
             if kind == "base":
                 got = _piece_lengths(pic, snd)
                 if got != (frames, round(exact * 48000)):
                     raise RecutError(f"Part {n + 1} of the video to re-cut ({clock(src)}–{clock(src + exact)}) came out as {clock(got[0] / FPS)} of picture "
-                                     f"and {clock(got[1] / 48000)} of sound instead of {clock(exact)}. The video file may be damaged; render or upload it "
-                                     "again. Nothing was saved.")
+                                     f"and {clock(got[1] / 48000)} of sound instead of {clock(exact)}. Nothing was saved. Please send this message "
+                                     f"to support. ({_ffmpeg_version()})")
             # Every piece must be plain 4:2:0 H.264 High, or Apple's players freeze on it.
             fmt = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,profile,pix_fmt,width,height",
                                   "-of", "csv=p=0", str(pic)], capture_output=True, text=True).stdout.strip()
