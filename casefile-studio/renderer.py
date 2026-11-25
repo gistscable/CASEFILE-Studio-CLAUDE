@@ -1,7 +1,7 @@
 """Deterministic FFmpeg renderer. No AI calls, shell interpolation, or remote media."""
 
 from __future__ import annotations
-import json, math, shutil, subprocess, tempfile, textwrap
+import json, math, re, shutil, subprocess, tempfile, textwrap
 from pathlib import Path
 from typing import Callable
 from editorial import strip_references
@@ -79,7 +79,55 @@ def probe(path: Path) -> dict:
         "height": (video or {}).get("height"),
         "has_audio": bool(audio),
         "has_video": bool(video),
+        # v0.4.47: what the browser needs to know to play it in the preview.
+        "codec": (video or {}).get("codec_name"),
+        "alpha": _has_alpha(video),
     }
+
+
+def _has_alpha(video):
+    if not video:
+        return False
+    fmt = str(video.get("pix_fmt") or "")
+    return bool(re.match(r"(yuva|rgba|argb|bgra|abgr|gbrap|ya\d|pal8)", fmt)) or str(
+        (video.get("tags") or {}).get("alpha_mode") or (video.get("tags") or {}).get("ALPHA_MODE") or "") == "1"
+
+
+# v0.4.47 Codecs every current browser plays in a <video>. ProRes, QuickTime Animation, HEVC with
+# transparency, DNxHD and the like (most transparent .MOV files) do not play in Chrome or Firefox.
+BROWSER_CODECS = {"h264", "vp8", "vp9", "av1"}
+PREVIEW_MAX_SECONDS = 15.0  # a CTA animation plays at most 15 s (effectsSpec file_max_seconds)
+PREVIEW_FPS = 15
+PREVIEW_WIDTH = 640
+
+
+def needs_preview(info):
+    """Does this uploaded video need a browser-safe copy for the edit preview?"""
+    return bool(info and info.get("has_video") and info.get("codec") and info["codec"] not in BROWSER_CODECS)
+
+
+def preview_frames(path: Path, folder: Path, seconds=PREVIEW_MAX_SECONDS):
+    """v0.4.47 The first `seconds` of a video as WebP stills with their transparency, 15 a second.
+
+    Every browser shows a WebP with alpha (Safari/WebKit, DuckDuckGo, Chrome, Firefox), which is not true
+    of any transparent video format, and the preview shows the still for its clock time, so it stays in
+    step when paused or scrubbed. For the edit preview only: exports use the original file."""
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-t", f"{float(seconds):.3f}", "-an",
+                        "-vf", f"fps={PREVIEW_FPS},scale='min({PREVIEW_WIDTH},iw)':-2,format=rgba", str(folder / "%04d.png")],
+                       capture_output=True, text=True, timeout=600)
+    pngs = sorted(folder.glob("*.png"))
+    if r.returncode or not pngs:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise ValueError("Casefile could not make a preview of this video: " + ((r.stderr or "").strip().splitlines() or ["no frames"])[-1][:200])
+    size = None
+    for n, png in enumerate(pngs):
+        with Image.open(png) as im:
+            size = im.size
+            im.save(folder / f"{n:04d}.webp", "WEBP", quality=80, method=4)
+        png.unlink()
+    return {"count": len(pngs), "fps": PREVIEW_FPS, "width": size[0], "height": size[1]}
 
 
 def waveform(path: Path, bins=160):

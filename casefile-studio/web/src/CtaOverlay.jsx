@@ -16,13 +16,49 @@ function Blur({ t, seconds, width, height }) {
   );
 }
 
+// v0.4.47 Uploads the page has asked the server about (once per page load).
+const ASKED = new Set();
+
+// v0.4.47 A transparent .MOV (ProRes, QuickTime Animation…) plays in no browser's <video> with its
+// transparency, so the server turns its first seconds into WebP stills (which every browser shows,
+// see-through parts included) and the preview shows the still for the clock time: in step when
+// paused or scrubbed. The export still uses your original file.
+function FramesCta({ frames, t, style }) {
+  const urls = React.useMemo(
+    () => Array.from({ length: frames.count }, (_, i) => `${frames.base}${String(i).padStart(4, "0")}.webp`),
+    [frames.base, frames.count],
+  );
+  const keep = React.useRef([]);
+  React.useEffect(() => {
+    keep.current = urls.map((u) => {
+      const im = new Image();
+      im.src = u;
+      return im;
+    });
+  }, [urls]);
+  const i = Math.min(frames.count - 1, Math.max(0, Math.floor(t * frames.fps)));
+  return <img className="cta-file" src={urls[i]} alt="" style={style} />;
+}
+
 // v0.4.35 Your own animation file (.mov/.webm with transparency, or .gif), kept in step with the preview clock.
-function FileCta({ file, c, t, width, height, playing }) {
+function FileCta({ file, c, t, width, height, playing, onNeedPreview }) {
   const ref = React.useRef(null);
+  const [failed, setFailed] = React.useState(false);
   const seconds = ctaFileSeconds(file);
+  const frames = file.preview_frames;
+  const gif = /\.gif$/i.test(file.url || "");
+  const ask = () => {
+    if (frames || ASKED.has(file.id) || !onNeedPreview) return;
+    ASKED.add(file.id);
+    onNeedPreview(file.id);
+  };
+  // Uploaded before v0.4.47: the server has not looked at the codec yet, so ask it once.
+  React.useEffect(() => {
+    if (!gif && !file.codec) ask();
+  }, [file.id, file.codec, gif]);
   React.useEffect(() => {
     const v = ref.current;
-    if (!v || v.tagName !== "VIDEO") return;
+    if (!v || v.tagName !== "VIDEO" || v.readyState < 1) return;
     if (Math.abs(v.currentTime - t) > 0.25) v.currentTime = Math.max(0, t);
     if (playing && v.paused) v.play().catch(() => {});
     if (!playing && !v.paused) v.pause();
@@ -35,21 +71,49 @@ function FileCta({ file, c, t, width, height, playing }) {
   return (
     <div className="cta-layer" aria-hidden="true">
       {c.style === "blur" && <Blur t={t} seconds={seconds} width={width} height={height} />}
-      {/\.gif$/i.test(file.url || "") ? (
+      {frames ? (
+        <FramesCta frames={frames} t={t} style={style} />
+      ) : gif ? (
         <img key={file.id} className="cta-file" src={file.url} alt="" style={style} />
       ) : (
-        <video ref={ref} className="cta-file" src={file.url} muted playsInline preload="auto" style={style} />
+        <video
+          ref={ref}
+          className="cta-file"
+          src={file.url}
+          muted
+          playsInline
+          preload="auto"
+          style={style}
+          onLoadedMetadata={(e) => {
+            setFailed(false);
+            e.currentTarget.currentTime = Math.max(0, t);
+            if (playing) e.currentTarget.play().catch(() => {});
+          }}
+          onError={() => {
+            setFailed(true);
+            ask();
+          }}
+        />
+      )}
+      {!frames && (failed || file.preview_error) && (
+        <span className="cta-note" style={{ left: style.left, top: style.top, width: w }}>
+          {file.preview_error
+            ? "This animation can’t be shown in the preview. The export still uses it."
+            : file.codec
+              ? "Your browser can’t play this animation. The export still uses it."
+              : "Preparing your animation for the preview…"}
+        </span>
       )}
     </div>
   );
 }
 
 // v0.4.29 The subscribe animation drawn over the preview, `t` seconds in.
-export default function CtaOverlay({ project, banner, file, t, width, height, playing }) {
+export default function CtaOverlay({ project, banner, file, t, width, height, playing, onNeedPreview }) {
   const c = normaliseCta(project.cta);
   if (c.source === "file") {
     if (!file || t < 0 || t >= ctaFileSeconds(file)) return null;
-    return <FileCta file={file} c={c} t={t} width={width} height={height} playing={playing} />;
+    return <FileCta file={file} c={c} t={t} width={width} height={height} playing={playing} onNeedPreview={onNeedPreview} />;
   }
   if (!banner || t < 0 || t >= c.seconds) return null;
   const st = ctaState(t, c.seconds);

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import base64, copy, hmac, json, os, re, shutil, threading, time, uuid
+import asyncio, base64, copy, hmac, json, os, re, shutil, subprocess, threading, time, uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.46", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.47", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -862,6 +862,10 @@ async def upload(
                         renderer.thumbnail, path, thumb
                     )
                     asset["thumbnail"] = f"/media/{id}/{thumb.name}"
+                    # v0.4.47: a transparent .MOV (ProRes, Animation…) does not play in the browser;
+                    # short ones (likely a CTA animation) get preview stills right away.
+                    if renderer.needs_preview(info) and info["duration"] <= 60:
+                        await __import__("asyncio").to_thread(make_preview, id, asset, path)
                 if info["has_audio"]:
                     asset["waveform"] = await __import__("asyncio").to_thread(
                         renderer.waveform, path
@@ -910,6 +914,54 @@ async def upload(
                 # already saved; the user can run First draft manually.
                 pass
         return save_project(p)
+
+
+def make_preview(project_id, asset, path):
+    """v0.4.47 Give a video the browser cannot play (a transparent .MOV) WebP stills for the edit preview."""
+    folder = path.with_name(path.stem + "-frames")
+    try:
+        info = renderer.preview_frames(path, folder)
+    except (ValueError, OSError, subprocess.TimeoutExpired) as e:
+        asset["preview_error"] = str(e)[:300]
+        return asset
+    asset.pop("preview_error", None)
+    asset["preview_frames"] = {**info, "base": f"/media/{project_id}/{folder.name}/"}
+    return asset
+
+
+@app.post("/api/projects/{id}/assets/{asset_id}/preview")
+async def asset_preview(id: str, asset_id: str):
+    """v0.4.47 Check a video uploaded before v0.4.47 and make its preview stills if the browser
+    cannot play it. Returns the asset (with `codec`, so the page asks only once)."""
+    with LOCK:
+        p = project_or_404(id)
+        asset = copy.deepcopy(next((a for a in p["assets"] if a["id"] == asset_id), None))
+    if not asset or asset.get("kind") != "video":
+        raise HTTPException(404, "Video not found.")
+    if asset.get("preview_frames"):
+        return asset
+    try:
+        path = renderer.asset_path(asset)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if not asset.get("codec"):
+        info = await asyncio.to_thread(renderer.probe, path)
+        asset.update(codec=info["codec"], alpha=info["alpha"])
+    if renderer.needs_preview(asset):
+        await asyncio.to_thread(make_preview, id, asset, path)
+    with LOCK:
+        p = project_or_404(id)
+        for a in p["assets"]:
+            if a["id"] == asset_id:
+                for k in ("codec", "alpha", "preview_frames", "preview_error"):
+                    if k in asset:
+                        a[k] = asset[k]
+                    else:
+                        a.pop(k, None)
+                save_project(p)
+    if asset.get("preview_error"):
+        raise HTTPException(422, asset["preview_error"])
+    return asset
 
 
 @app.patch("/api/projects/{id}/assets/{asset_id}")

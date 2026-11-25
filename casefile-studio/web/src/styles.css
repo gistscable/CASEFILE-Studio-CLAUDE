@@ -1028,11 +1028,20 @@ b {
   container-type: inline-size;
   box-shadow: 0 10px 30px #0002;
 }
-.video-frame:fullscreen {
-  width: 100vw !important;
-  height: 100vh !important;
-  display: grid;
-  place-items: center;
+/* v0.4.47 the monitor goes fullscreen; the frame inside keeps its shape and is centred */
+.monitor-screen:fullscreen {
+  background: #000;
+}
+.monitor-screen:-webkit-full-screen {
+  background: #000;
+}
+.monitor-screen:fullscreen .video-frame {
+  border: 0;
+  box-shadow: none;
+}
+.monitor-screen:-webkit-full-screen .video-frame {
+  border: 0;
+  box-shadow: none;
 }
 .video-frame > img,
 .video-frame > video {
@@ -6218,4 +6227,16 @@ body.resizing-row * {
   height: 72px;
   object-fit: cover;
   border-radius: 4px;
+}
+/* v0.4.47 shown while the preview copy of your animation is being made */
+.cta-note {
+  position: absolute;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  color: #f2efe6;
+  background: rgba(0, 0, 0, 0.62);
+  border-radius: 6px;
+  box-sizing: border-box;
 }

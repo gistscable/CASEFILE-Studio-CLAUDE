@@ -96,7 +96,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.46",
+    version: "0.4.47",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -128,7 +128,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.46";
+const APP_VERSION = "0.4.47";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -442,7 +442,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.46",
+          version: "0.4.47",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -518,7 +518,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.46",
+                version: "0.4.47",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -593,7 +593,8 @@ function App() {
     const r = project?.aspect === "9:16" ? 9 / 16 : 16 / 9; // width / height
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      let w = Math.min(width - 40, (height - 12) * r);
+      const full = document.fullscreenElement === entries[0].target || document.webkitFullscreenElement === entries[0].target;
+      let w = full ? Math.min(width, height * r) : Math.min(width - 40, (height - 12) * r);
       setFrameSize({
         width: Math.max(r < 1 ? 90 : 180, w),
         height: Math.max(101, w / r),
@@ -1527,14 +1528,26 @@ function App() {
       report(e);
     }
   }
+  // v0.4.47 A video the browser cannot play (a transparent .MOV) gets a WebM preview copy, made once.
+  function needPreview(assetId) {
+    const id = project.id;
+    const merge = (patch) =>
+      setProject((p) => (p && p.id === id ? { ...p, assets: p.assets.map((x) => (x.id === assetId ? { ...x, ...patch } : x)) } : p));
+    api(`/api/projects/${id}/assets/${assetId}/preview`, "POST")
+      .then((a) => merge(a))
+      .catch((e) => {
+        merge({ preview_error: e.message || String(e) });
+        report(e);
+      });
+  }
   function fullscreen() {
-    const frame = document.querySelector(".video-frame");
-    if (frame?.requestFullscreen)
-      frame
-        .requestFullscreen()
-        .catch(() =>
-          notify("Fullscreen is unavailable in this embedded preview.", "info"),
-        );
+    // v0.4.47 Fullscreen the monitor, not the frame: the monitor's size watcher then sizes the frame
+    // for the whole screen (kept 16:9 or 9:16), so the watermark, CTA, captions and titles, which are
+    // all placed from that size, grow with the picture instead of staying where the small frame was.
+    const el = screenRef.current || document.querySelector(".monitor-screen");
+    const go = el && (el.requestFullscreen || el.webkitRequestFullscreen);
+    if (!go) return notify("Fullscreen is unavailable in this embedded preview.", "info");
+    Promise.resolve(go.call(el)).catch(() => notify("Fullscreen is unavailable in this embedded preview.", "info"));
   }
 
   if (!project)
@@ -2932,7 +2945,7 @@ function App() {
                     const banner = ev && assets.find((x) => x.id === cc.asset_id);
                     const file = ev && cc.source === "file" && assets.find((x) => x.id === cc.file_id);
                     return ev && (banner || file) ? (
-                      <CtaOverlay project={project} banner={banner} file={file} t={time - ev[0]} width={frameSize.width} height={frameSize.height} playing={playing} />
+                      <CtaOverlay project={project} banner={banner} file={file} t={time - ev[0]} width={frameSize.width} height={frameSize.height} playing={playing} onNeedPreview={needPreview} />
                     ) : null;
                   })()}
                   {(() => {
