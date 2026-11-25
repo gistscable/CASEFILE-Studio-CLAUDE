@@ -11,3 +11,4 @@ All are free to use, embed and redistribute in videos:
 | LiberationSans-Bold.ttf, LiberationSerif-Bold.ttf, LiberationMono-Bold.ttf | Liberation 2.x | SIL Open Font License 1.1 |
 | Carlito-Bold.ttf | Carlito | SIL Open Font License 1.1 |
 | Caladea-Bold.ttf | Caladea | Apache License 2.0 |
+| Oswald-Bold.ttf, Oswald-Medium.ttf, Oswald-Regular.ttf | Oswald (The Oswald Project Authors, github.com/googlefonts/OswaldFont), motion graphics v0.4.52 | SIL Open Font License 1.1 |

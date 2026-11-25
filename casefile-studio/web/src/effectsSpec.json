@@ -551,5 +551,273 @@
         "y": 0.8
       }
     ]
+  },
+  "motion": {
+    "version": 1,
+    "fps": 24,
+    "preview_width": 1280,
+    "templates": [
+      {
+        "id": "findings",
+        "label": "Investigative findings",
+        "heading": "KEY FINDINGS",
+        "line_label": "Finding",
+        "max_lines": 6
+      },
+      {
+        "id": "timeline",
+        "label": "Chronological timeline",
+        "heading": "TIMELINE",
+        "line_label": "Event",
+        "max_lines": 8
+      },
+      {
+        "id": "contrast",
+        "label": "Contradictory statements",
+        "heading": "CONFLICTING ACCOUNTS",
+        "line_label": "Statement",
+        "max_lines": 6
+      },
+      {
+        "id": "legal",
+        "label": "Legal outcome",
+        "heading": "LEGAL OUTCOME",
+        "line_label": "Outcome",
+        "max_lines": 6
+      }
+    ],
+    "layouts": {
+      "findings": [
+        [
+          "auto",
+          "Automatic"
+        ],
+        [
+          "stack",
+          "Stacked"
+        ],
+        [
+          "split",
+          "Title left, findings right"
+        ],
+        [
+          "center",
+          "Centred"
+        ]
+      ],
+      "timeline": [
+        [
+          "auto",
+          "Automatic"
+        ],
+        [
+          "horizontal",
+          "Across"
+        ],
+        [
+          "vertical",
+          "Down"
+        ]
+      ],
+      "contrast": [
+        [
+          "auto",
+          "Automatic"
+        ],
+        [
+          "columns",
+          "Two columns"
+        ],
+        [
+          "rows",
+          "Rows"
+        ]
+      ],
+      "legal": [
+        [
+          "auto",
+          "Automatic"
+        ],
+        [
+          "list",
+          "List"
+        ]
+      ]
+    },
+    "legal_labels": [
+      "ALLEGED",
+      "ARRESTED",
+      "CHARGED",
+      "PLEA",
+      "VERDICT",
+      "CONVICTED",
+      "ACQUITTED",
+      "SENTENCED",
+      "DISMISSED"
+    ],
+    "contrast_kinds": [
+      [
+        "statement",
+        "Statement"
+      ],
+      [
+        "finding",
+        "Finding"
+      ]
+    ],
+    "backgrounds": [
+      [
+        "charcoal",
+        "Dark charcoal"
+      ],
+      [
+        "footage",
+        "The footage, darkened"
+      ],
+      [
+        "photo",
+        "A photo from the project"
+      ]
+    ],
+    "fonts": [
+      [
+        "oswald",
+        "Oswald (condensed)"
+      ],
+      [
+        "inter",
+        "Inter"
+      ],
+      [
+        "dejavu",
+        "DejaVu Sans"
+      ]
+    ],
+    "enters": [
+      [
+        "mask",
+        "Rise from a mask"
+      ],
+      [
+        "slide",
+        "Slide in"
+      ],
+      [
+        "fade",
+        "Fade in"
+      ]
+    ],
+    "exits": [
+      [
+        "fade",
+        "Fade out"
+      ],
+      [
+        "slide",
+        "Slide out"
+      ],
+      [
+        "mask",
+        "Drop into a mask"
+      ]
+    ],
+    "accents": [
+      [
+        "#a3161c",
+        "Deep red"
+      ],
+      [
+        "#7d1418",
+        "Oxblood"
+      ],
+      [
+        "#b8862f",
+        "Brass"
+      ],
+      [
+        "#d8d2c4",
+        "Bone"
+      ]
+    ],
+    "text_colors": [
+      [
+        "#f2efe8",
+        "Off-white"
+      ],
+      [
+        "#ffffff",
+        "White"
+      ],
+      [
+        "#e6dccb",
+        "Warm white"
+      ]
+    ],
+    "defaults": {
+      "background": "charcoal",
+      "font": "oswald",
+      "size": 1.0,
+      "accent": "#a3161c",
+      "text_color": "#f2efe8",
+      "align": "left",
+      "x": 0.0,
+      "y": 0.0,
+      "speed": 1.0,
+      "enter": "mask",
+      "exit": "fade",
+      "hide_captions": true,
+      "dim": 0.72
+    },
+    "limits": {
+      "length": [
+        3.0,
+        90.0
+      ],
+      "size": [
+        0.7,
+        1.4
+      ],
+      "speed": [
+        0.5,
+        2.0
+      ],
+      "xy": [
+        -0.2,
+        0.2
+      ],
+      "dim": [
+        0.3,
+        0.95
+      ],
+      "items": 40,
+      "text": 220,
+      "title": 120,
+      "heading": 60,
+      "label": 40
+    },
+    "timing": {
+      "background_in": 0.6,
+      "background_out": 0.7,
+      "heading": 0.2,
+      "title": 0.45,
+      "divider": 0.95,
+      "intro_end": 1.5,
+      "enter": 0.65,
+      "line_stagger": 0.09,
+      "exit": 0.6,
+      "exit_stagger": 0.04,
+      "hold": 2.5,
+      "lead": 1.5
+    },
+    "suggest": {
+      "max": 5,
+      "min_gap": 75.0,
+      "edge_start": 0.08,
+      "edge_end": 0.08,
+      "window": [
+        8.0,
+        45.0
+      ]
+    }
   }
 }

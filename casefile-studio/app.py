@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
 import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers, history
+import motion as motiongfx
 from storage import (
     ROOT,
     DATA,
@@ -31,7 +32,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.51", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.52", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -592,6 +593,7 @@ async def update_project(id: str, request: Request):
             "name_cards",
             "watermark",
             "stickers",
+            "motion",
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
@@ -664,6 +666,8 @@ async def update_project(id: str, request: Request):
             p["cta"] = new
         if "stickers" in changes:
             p["stickers"] = stickers.normalise(changes["stickers"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
+        if "motion" in changes:
+            p["motion"] = motiongfx.normalise(changes["motion"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "watermark" in changes:
             p["watermark"] = watermark.normalise(changes["watermark"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "aspect" in changes:
@@ -1041,6 +1045,85 @@ def sticker_frame(kind: str, frame: int):
     except KeyError:
         raise HTTPException(404, "Unknown sticker.")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ------------------------------------------------------------------ v0.4.52 motion graphics
+
+def _motion_photo(p, item):
+    if item.get("background") != "photo" or not item.get("photo_id"):
+        return None
+    a = next((x for x in p.get("assets", []) if x["id"] == item["photo_id"] and x.get("kind") == "image"), None)
+    try:
+        return str(renderer.asset_path(a)) if a else None
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+@app.get("/api/projects/{id}/motion/narration")
+def motion_narration(id: str):
+    """The narration's sentences with their times on the timeline (to choose a passage)."""
+    p = project_or_404(id)
+    words = motiongfx.timeline_words(p)
+    return {"sentences": [{"text": s["text"], "start": round(s["t"], 3), "end": round(s["e"], 3), "scene": s["scene"]}
+                          for s in motiongfx.sentences(words)],
+            "exact": bool(((p.get("episode") or {}).get("timings") or {}).get("words"))}
+
+
+@app.post("/api/projects/{id}/motion/draft")
+async def motion_draft(id: str, request: Request):
+    """A graphic made from the narration between `start` and `end` (not saved: the editor adds it)."""
+    body = await request.json()
+    p = project_or_404(id)
+    if body.get("template") not in motiongfx.TEMPLATES:
+        raise HTTPException(422, "Choose a template.")
+    try:
+        start, end = float(body["start"]), float(body["end"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(422, "Choose a passage of the narration.")
+    item = motiongfx.draft(p, body["template"], start, end, item_id=body.get("id") or None)
+    if not item:
+        raise HTTPException(422, "There is no narration in this passage.")
+    return {"item": item}
+
+
+@app.post("/api/projects/{id}/motion/suggest")
+def motion_suggest(id: str):
+    """Read the whole narration and propose graphics (replaces the earlier suggestions you have not
+    approved or edited; can be undone)."""
+    with LOCK:
+        p = project_or_404(id)
+        checkpoint(p)
+        cur = motiongfx.normalise(p.get("motion"))
+        keep = [x for x in cur["items"] if x["status"] != "suggested"]
+        new = motiongfx.suggest(p, keep)
+        p["motion"] = motiongfx.normalise({"enabled": cur["enabled"], "items": keep + new})
+        p = save_project(p)
+    return {"project": p, "added": len(new)}
+
+
+@app.post("/api/projects/{id}/motion/plan")
+async def motion_plan(id: str, request: Request):
+    """The preview frames of one graphic (the editor plays them; drawn in the background)."""
+    body = await request.json()
+    p = project_or_404(id)
+    item = motiongfx.normalise_item(body.get("item"))
+    if not item:
+        raise HTTPException(422, "Not a motion graphic.")
+    try:
+        out = motiongfx.preview_plan(DATA, p, item, _motion_photo(p, item))
+    except (OSError, ValueError) as e:
+        raise HTTPException(422, f"Could not prepare the preview: {e}")
+    motiongfx.warm(DATA, out["hash"], out["unique"], paused=lambda: RENDER_LOCK._value == 0)
+    return out
+
+
+@app.get("/api/motion/{h}/{k}.webp")
+def motion_frame(h: str, k: int):
+    try:
+        path = motiongfx.preview_frame(DATA, h, k)
+    except (KeyError, FileNotFoundError, ValueError):
+        raise HTTPException(404, "Not prepared.")
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.delete("/api/projects/{id}/assets/{asset_id}")

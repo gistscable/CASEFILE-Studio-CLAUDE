@@ -13,6 +13,9 @@ import PictureLayer from "./PictureLayer.jsx";
 import StickerLayer from "./StickerLayer.jsx";
 import StickerDialog from "./StickerDialog.jsx";
 import StickerPanel from "./StickerPanel.jsx";
+import MotionPanel from "./MotionPanel.jsx";
+import MotionLayer from "./MotionLayer.jsx";
+import { graphicAt, normaliseMotion } from "./motion.js";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
@@ -78,6 +81,7 @@ import {
   PanelRight,
   Circle,
   RefreshCw,
+  Type,
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
@@ -105,7 +109,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.51",
+    version: "0.4.52",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -137,7 +141,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.51";
+const APP_VERSION = "0.4.52";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -390,6 +394,8 @@ function App() {
     [toast, setToast] = useState(null),
   [command, setCommand] = useState("");
   const [stickerId, setStickerId] = useState(null),
+    [motionId, setMotionId] = useState(null),
+    [motionStatus, setMotionStatus] = useState(""),
     [stickerDialog, setStickerDialog] = useState(false),
     [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
@@ -472,7 +478,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.51",
+          version: "0.4.52",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -548,7 +554,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.51",
+                version: "0.4.52",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -1677,6 +1683,7 @@ function App() {
             ["captions", "Captions", FileText],
             ["effects", "Effects", Film],
             ["stickers", "Stickers", Sticker],
+            ["motion", "Motion", Type],
             ["audio", "Audio", AudioLines],
             ["director", "Director", Sparkles],
           ].map(([key, label, Icon]) => (
@@ -2119,6 +2126,26 @@ function App() {
             onChange={(list) => queueSave({ stickers: list })}
             onOpenDialog={() => setStickerDialog(true)}
             onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+            disabled={locked}
+          />
+        ) : inspectorTab === "motion" ? (
+          <MotionPanel
+            project={project}
+            time={time}
+            playing={playing}
+            selectedId={motionId}
+            onSelect={setMotionId}
+            onChange={(m) => queueSave({ motion: m })}
+            onSuggest={async () => {
+              await flushSave();
+              const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", {});
+              acceptProject(r.project);
+              notify(r.added ? `${r.added} motion graphic${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : "Nothing in the narration calls for a motion graphic.", "info");
+            }}
+            onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
+            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+            onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
+            previewStatus={motionStatus}
             disabled={locked}
           />
         ) : inspectorTab === "captions" ? (
@@ -3066,6 +3093,16 @@ function App() {
                     onMove={(id, x, y, local) => moveSticker(id, x, y, local)}
                   />
                   {(() => {
+                    // v0.4.52 a motion graphic: the one you are editing, else the approved ones
+                    const g = graphicAt(project.motion, time, inspectorTab === "motion" ? motionId : null);
+                    return g ? (
+                      <div className={`motion-wrap ${g.exported ? "" : "draft"}`}>
+                        <MotionLayer projectId={project.id} item={g.item} time={time} width={frameSize.width} height={frameSize.height} playing={playing} onStatus={setMotionStatus} />
+                        {!g.exported && <span className="motion-draft-tag">{g.item.status === "approved" ? "Approved · export is off" : "Preview · not approved"}</span>}
+                      </div>
+                    ) : null;
+                  })()}
+                  {(() => {
                     // v0.4.36 your logo watermark, where the export puts it.
                     const wm = normaliseWatermark(project.watermark);
                     const logo = wm.enabled && assets.find((x) => x.id === wm.asset_id && x.kind === "image");
@@ -3073,7 +3110,7 @@ function App() {
                     const b = watermarkBox(frameSize.width, frameSize.height, logo.width || 1, logo.height || 1, wm.position, wm.size);
                     return <img className="film-watermark" alt="" src={logo.url} style={{ left: b.x, top: b.y, width: b.w, height: b.h, opacity: wm.opacity }} />;
                   })()}
-                  {project.captions && activeScene && (() => {
+                  {project.captions && activeScene && !(graphicAt(project.motion, time, inspectorTab === "motion" ? motionId : null)?.item.hide_captions) && (() => {
                     const cap = captionAt(activeScene, time - (offsets[activeIndex] || 0), project.caption_style, clean);
                     if (!cap) return null;
                     const css = captionCss(project.caption_style, frameSize.width, frameSize.height);
@@ -3403,6 +3440,13 @@ function App() {
                                 style={{ left: `${(a / duration) * 100}%`, width: `${((b - a) / duration) * 100}%` }}
                                 onPointerDown={(e) => e.stopPropagation()}
                                 onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); setInspectorTab("effects"); }} />
+                            ))}
+                            {normaliseMotion(project.motion).items.map((g) => (
+                              <b key={"mg" + g.id} className={`ruler-mark motion ${g.status} ${g.id === motionId ? "on" : ""}`}
+                                title={`Motion graphic (${g.status}) ${tc(g.start)}–${tc(g.end)}`}
+                                style={{ left: `${(g.start / duration) * 100}%`, width: `${(Math.min(g.end, duration) - g.start) / duration * 100}%` }}
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(g.start + 0.05); setMotionId(g.id); setInspectorTab("motion"); setLayout({ showRight: true }); }} />
                             ))}
                             {normaliseStickers(project.stickers, assets).map((st) => (
                               <b key={"st" + st.id} className={`ruler-mark sticker ${st.id === stickerId ? "on" : ""}`} title={`Sticker ${tc(st.start)}`}

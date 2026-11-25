@@ -38,7 +38,7 @@ FIELDS = (
     "script", "script_dirty", "script_origin", "script_approved_hash",
     "scenes", "assets", "look", "captions", "narration_id", "music_id", "music_volume", "review",
     "episode", "caption_style", "effects", "aspect", "vertical_fit", "cta", "name_cards",
-    "watermark", "stickers",
+    "watermark", "stickers", "motion",
 )
 MISSING = "__casefile_missing__"
 # Of a media file only what you edit is undone; its preview stills, codec, thumbnail… are made by
@@ -321,6 +321,31 @@ def _stickers_name(b, a):
     return what, "stickers:" + ",".join(changed) + ":" + ",".join(keys)
 
 
+def _motion_name(b, a):
+    b, a = b if isinstance(b, dict) else {}, a if isinstance(a, dict) else {}
+    if bool(b.get("enabled")) != bool(a.get("enabled")) and b.get("items") == a.get("items"):
+        return ("Motion graphics on" if a.get("enabled") else "Motion graphics off"), None
+    was, now, added, removed, changed, keys = _changed_items(b.get("items"), a.get("items"))
+    if added and all(now[i].get("status") == "suggested" for i in added):
+        return (f"Suggest {len(added)} motion graphic{'s' if len(added) != 1 else ''}"), None
+    if added:
+        return ("Add motion graphic" if len(added) == 1 else f"Add {len(added)} motion graphics"), None
+    if removed:
+        return ("Remove motion graphic" if len(removed) == 1 else f"Remove {len(removed)} motion graphics"), None
+    if not changed:
+        return "Motion graphics", None
+    k = set(keys)
+    if k == {"status"}:
+        st = {now[i].get("status") for i in changed}
+        return ("Approve motion graphic" if st == {"approved"} else "Unapprove motion graphic"), None
+    what = ("Motion graphic text" if k <= {"heading", "title", "lines"} else
+            "Motion graphic timing" if k <= {"start", "end", "lines"} else
+            "Motion graphic style" if k <= {"font", "size", "accent", "text_color", "align", "x", "y", "speed",
+                                             "enter", "exit", "background", "photo_id", "dim", "layout", "hide_captions"} else
+            "Edit motion graphic")
+    return what, "motion:" + ",".join(changed) + ":" + ",".join(keys)
+
+
 def _cta_name(b, a):
     b, a = b if isinstance(b, dict) else {}, a if isinstance(a, dict) else {}
     keys = sorted(k for k in set(b) | set(a) if b.get(k) != a.get(k))
@@ -376,6 +401,8 @@ def describe(before, after):
             parts.append(_stickers_name(b, a))
         elif k == "cta":
             parts.append(_cta_name(b, a))
+        elif k == "motion":
+            parts.append(_motion_name(b, a))
         elif k == "assets":
             parts.append(_assets_name(_view(k, b), _view(k, a)))
         elif k in FIELD_WORDS:

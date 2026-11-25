@@ -11,6 +11,7 @@ import cta
 import watermark
 import picture
 import stickers
+import motion as motiongfx
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from storage import DATA, ROOT, resolve_asset
@@ -323,14 +324,38 @@ def ass_time(sec):
     return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
 
 
-def write_ass(scene, path, width, height, style=None, captions=True, lower=None):
+def hide_cues(cues, windows, keep=0.3):
+    """Captions with the parts inside `windows` [(start, end), scene seconds] taken out
+    (v0.4.52: a motion graphic on screen already shows the words). A piece left shorter
+    than `keep` seconds is dropped."""
+    out = []
+    for c in cues:
+        pieces = [(c["start"], c["end"])]
+        for a, b in windows:
+            nxt = []
+            for s, e in pieces:
+                if b <= s or a >= e:
+                    nxt.append((s, e))
+                    continue
+                if a - s >= keep:
+                    nxt.append((s, a))
+                if e - b >= keep:
+                    nxt.append((b, e))
+            pieces = nxt
+        out += [{**c, "start": s, "end": e} for s, e in pieces]
+    return out
+
+
+def write_ass(scene, path, width, height, style=None, captions=True, lower=None, hide=()):
     """Burned-in captions in the project's caption style (v0.4.25) and the
     scene's lower-third name card (v0.4.26; `lower` from
-    effects.effective_lower_thirds, v0.4.30)."""
+    effects.effective_lower_thirds, v0.4.30). `hide`: scene seconds without captions."""
     lift = bool(scene.get("source_label") and scene.get("asset_id"))
     card = lower if lower is not None else scene.get("lower_third")
     lt_style, lt_events = effects.lower_third_ass(card, float(scene.get("duration", 5)), width, height, lift)
     cues = scene_captions(scene) if captions else []
+    if hide and cues:
+        cues = hide_cues(cues, hide)
     path.write_text(captionstyle.ass(cues, width, height, style, [lt_style] if lt_style else [], lt_events), encoding="utf-8")
 
 
@@ -588,6 +613,10 @@ def timing_report(t: dict) -> str:
         used.append(f"subscribe animation x{t['cta_events']}")
     if t.get("stickers"):
         used.append(f"stickers x{t['stickers']}")
+    if t.get("motion_graphics"):
+        mg = t["motion_graphics"]
+        used.append(f"motion graphics x{len(mg)} ({sum(m['drawn'] for m in mg)} new drawings, "
+                    f"{sum(m['unique'] - m['drawn'] for m in mg)} from the cache)")
     rows = t.get("per_scene") or []
     lines = [
         "CASEFILE render report",
@@ -713,6 +742,25 @@ def render(
                 sticker_layers = stickers.prepare(project, assets, width, height, work / "stickers", total_len, asset_path)
             except (ValueError, OSError, KeyError) as e:
                 warnings.append(f"The stickers were left out: {e}")
+        # v0.4.52: approved motion graphics, drawn once at the export size (cached by content).
+        motion_layers, motion_hide = [], []
+        if motiongfx.exported(project):
+            progress(4, "Drawing the motion graphics")
+            try:
+                def photo_of(aid):
+                    a = assets.get(aid)
+                    return str(asset_path(a)) if a and a.get("kind") == "image" else None
+
+                motion_layers = motiongfx.prepare(project, width, height, DATA, work / "motion", photo_of, cancelled=cancelled)
+                motion_hide = motiongfx.caption_gaps(project)
+                motiongfx.prune(DATA)  # the cache stays under ~2 GB (the oldest graphics go first)
+                for t0, t1 in cta_events:
+                    if any(t0 < m["end"] and t1 > m["start"] for m in motion_layers):
+                        warnings.append("A motion graphic is on screen with the subscribe animation; the graphic covers it.")
+                        break
+            except (ValueError, OSError, KeyError) as e:
+                warnings.append(f"The motion graphics were left out: {e}")
+                motion_layers, motion_hide = [], []
         scene_start = 0.0
         name_cards = effects.effective_lower_thirds(project)
         clips = []
@@ -977,6 +1025,12 @@ def render(
                 if got:
                     command += got[0]
                     filters += got[1]
+            for layer in motion_layers:
+                k = command.count("-i")
+                got = motiongfx.overlay_filters(layer, k, scene_start, scene_len)
+                if got:
+                    command += got[0]
+                    filters += got[1]
             if wm_png:
                 k = command.count("-i")
                 command += ["-i", str(wm_png)]
@@ -984,7 +1038,9 @@ def render(
             want_captions = options.get("captions", True) and bool(scene.get("narration") or scene.get("captions"))
             if want_captions or i in name_cards:
                 ass = work / f"{i}.ass"
-                write_ass(scene, ass, width, height, project.get("caption_style"), want_captions, name_cards.get(i, False))
+                hide = [(max(0.0, a - scene_start), min(scene_len, b - scene_start)) for a, b in motion_hide
+                        if a < scene_start + scene_len and b > scene_start]
+                write_ass(scene, ass, width, height, project.get("caption_style"), want_captions, name_cards.get(i, False), hide)
                 filters += "," + captionstyle.filter_arg(ass.as_posix())
             # Optional transitions (off by default). A transition fades this scene in at
             # its start and out at its end over `transition_duration` seconds. It never
@@ -1264,6 +1320,7 @@ def render(
             "watermark": bool(wm_png),
             "cta_events": len(cta_events),
             "stickers": len(sticker_layers),
+            "motion_graphics": [{k: m[k] for k in ("id", "frames", "unique", "drawn")} for m in motion_layers],
             "per_scene": scene_info,
         },
     }
