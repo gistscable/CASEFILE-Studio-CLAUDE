@@ -623,3 +623,40 @@ Notes: ffmpeg 7.0.2 (imageio-ffmpeg 0.6.0) fails every xfade transition ("curren
 or without this change (setpts unsets the rate there); 6.0 and 9.0.2 pass. Adding `fps=24` before
 xfade fixed 7.0 but changed frames at a loop seam, so it was not shipped. x264 output can differ in
 the last bits between any two runs on ffmpeg 9 (PSNR 64–81 dB), so the parallel test compares PSNR.
+
+## v0.4.49: CTA places and lengths, Stickers, Adjust crop, keyframes
+
+User asked for four things in one release (all agreed in an ask_user round):
+1. **CTA timing**: "My CTA .MOV only knows the entry point … it lingers to the next scene."
+   `cta.spots(project)` (mirrored by `ctaSpots` in `web/src/cta.js`, tested equal) lists every
+   place: chapter heads ∪ narration containing "subscri" ∪ old `cta: true` scenes (key `"s:<scene id>"`),
+   plus `cta.extra` = places added at the playhead (`{id, start, …}`). Each has `on`, `nudge`
+   (−30..30 s), `length` (0.5..15 s or None = the animation's own length) and `scene_end`. Only the
+   first found place is on by default (as before). start = scene offset + cue_start + nudge; end =
+   min(start + min(natural, length), scene end if scene_end, total). A place overlapping the previous
+   shown one is skipped and the UI says "overlaps the one before". When cut short it **fades out**
+   (`fade_out_seconds` = min(spec, length/3)); the export fades the overlay at the export frame rate
+   (`fps=24` before `fade`, so a 12/25 fps .MOV fades smoothly through a scene cut — tested with a
+   ProRes 4444 alpha .mov). `cta.x` (left↔right) is new. UI: Effects → "Where it shows".
+2. **Stickers** (`stickers.py`, `web/src/stickers.js`, StickerDialog/StickerPanel/StickerLayer):
+   `project.stickers = [{id, kind, asset_id?, start, length, x, y, size, opacity, keyframes}]`
+   (x/y centre, size = fraction of frame width, keyframe t relative to the sticker start). Built-ins are
+   drawn with PIL (`CATALOG`; animated ones cycle at 24 fps), served as
+   `GET /api/stickers/{kind}/{frame}.png`, "Yours" = uploaded images flagged `asset.sticker`. Stickers
+   show at once (no fade in, so they appear where they were added) and fade out briefly at their end.
+   Drag in the preview; −/+ in the Stickers inspector tab; "Stickers" button on the monitor.
+3. **Adjust crop** (`picture.py`, `web/src/picture.js`, CropDialog, PictureLayer): the crop belongs
+   to the media file, `asset.crop = [x0, y0, x1, y1]` (normalised; whole picture = key removed).
+   `POST /api/projects/{id}/assets/{aid}/autocrop` finds black bars / plain borders (images and
+   videos). Each scene picks `scene.fit`: "cover" or "blur" (photo centred over a darker blur of
+   itself). **A cropped file defaults to "blur"** unless the scene picks cover; 9:16 projects keep the
+   old blurred background ("legacy-blur") when the scene has not chosen. Scene motion runs after the
+   fill. Base-fill scenes are ordinary scenes, so the crop applies to them too (tested).
+4. **Keyframes**: `scene.keyframes = [{t, zoom, x, y, ease}]` (x/y = view centre) replaces the fixed
+   motion; sticker keyframes `[{t, x, y, size, opacity, ease}]`. `picture.interpolate` /
+   `interpolate` in JS are the same (linear or smooth), FFmpeg gets `picture.expr` (tested by
+   evaluating the expression in Python against the JS values).
+Tests: `tests/test_overlays_v049.py` (18, incl. real renders), `tests/js/picture.test.mjs`. Full suite
+482 passed, 1 skipped; JS 34 pass. Checked in Chromium (Playwright + @sparticuz/chromium): CTA places,
+length/fade label, add at playhead; sticker add, drag (moves exactly with the mouse), −/+, upload;
+Automatic crop, drag a corner, save; fill select; picture keyframe — no page errors.

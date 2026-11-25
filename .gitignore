@@ -19,7 +19,9 @@ node_modules/
 #   for git — rendered outputs are committed under data/exports/ instead)
 # - browser-sessions/: browser-side recovery snapshots, machine-local
 # - recovery-backups/: transient pre-repair safety copies
+# - cache/: sticker frames and auto-crop samples, made again on demand
 casefile-studio/data/media/
 casefile-studio/data/browser-sessions/
 casefile-studio/data/recovery-backups/
 casefile-studio/data/fetch-work/
+casefile-studio/data/cache/

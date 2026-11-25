@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
-import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill
+import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers
 from storage import (
     ROOT,
     DATA,
@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.48", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.49", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -270,6 +270,12 @@ def sanitize_scene(scene, asset_ids):
         0.0, min(600.0, float(scene.get("transition_duration", 0) or 0))
     )
     out["show_title"] = bool(scene.get("show_title", True))
+    # v0.4.49: how the picture fills the frame, and your own camera keyframes.
+    if scene.get("fit") in picture.FITS:
+        out["fit"] = scene["fit"]
+    keys = picture.normalise_keyframes(scene.get("keyframes"), out["duration"])
+    if keys:
+        out["keyframes"] = keys
     if scene.get("cta") is True:
         out["cta"] = True
     if scene.get("replaced") is True:
@@ -584,6 +590,7 @@ async def update_project(id: str, request: Request):
             "cta",
             "name_cards",
             "watermark",
+            "stickers",
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
@@ -654,6 +661,8 @@ async def update_project(id: str, request: Request):
                 except (ValueError, OSError):
                     new["button"] = None
             p["cta"] = new
+        if "stickers" in changes:
+            p["stickers"] = stickers.normalise(changes["stickers"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "watermark" in changes:
             p["watermark"] = watermark.normalise(changes["watermark"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "aspect" in changes:
@@ -975,8 +984,49 @@ async def update_asset(id: str, asset_id: str, request: Request):
         for key in ["name", "license"]:
             if key in body:
                 asset[key] = str(body[key])[: 1000 if key == "license" else 180]
-        p["review"]["rights"] = False
+                p["review"]["rights"] = False
+        if "sticker" in body and asset.get("kind") == "image":
+            asset["sticker"] = body["sticker"] is True  # v0.4.49: listed under Stickers · Yours
+        if "crop" in body:
+            # v0.4.49: keep only the real photo; every scene using this file gets it.
+            if asset.get("kind") not in ("image", "video"):
+                raise HTTPException(422, "Only pictures and clips can be cropped.")
+            box = picture.normalise_crop(body["crop"])
+            if box:
+                asset["crop"] = box
+            else:
+                asset.pop("crop", None)
+            p["review"]["picture"] = False
         return save_project(p)
+
+
+@app.post("/api/projects/{id}/assets/{asset_id}/autocrop")
+def auto_crop(id: str, asset_id: str):
+    """v0.4.49 Suggest a crop that cuts away black bars and plain borders (not saved)."""
+    with LOCK:
+        p = project_or_404(id)
+        asset = copy.deepcopy(next((a for a in p["assets"] if a["id"] == asset_id), None))
+    if not asset or asset.get("kind") not in ("image", "video"):
+        raise HTTPException(404, "Picture not found.")
+    try:
+        path = renderer.asset_path(asset)
+        if asset["kind"] == "image":
+            box = picture.detect_crop(path)
+        else:
+            box = picture.detect_crop_video(path, asset.get("duration") or asset.get("video_duration"), DATA / "cache" / "autocrop" / asset_id)
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        raise HTTPException(422, f"Could not look at this picture: {e}")
+    return {"crop": box or [0.0, 0.0, 1.0, 1.0], "found": bool(box)}
+
+
+@app.get("/api/stickers/{kind}/{frame}.png")
+def sticker_frame(kind: str, frame: int):
+    """v0.4.49 A built-in sticker drawn by the export's own code, for the preview."""
+    try:
+        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers")
+    except KeyError:
+        raise HTTPException(404, "Unknown sticker.")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.delete("/api/projects/{id}/assets/{asset_id}")
