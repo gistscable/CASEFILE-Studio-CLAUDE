@@ -84,3 +84,14 @@ Now:
 - The picture check reads broken clips by frame number as well.
 
 Tests: `tests/test_recut_lengths.py`.
+
+## Picture and sound made separately (v0.4.44)
+
+Each piece of the re-cut (a stretch of the video, or a clip) used to be made by one ffmpeg run that
+wrote both the picture and the sound from a single filter graph. On Debian's ffmpeg 7.1 (the one in
+the Docker image) that came out wrong for long stretches: an 18-minute stretch gave 1:48 of picture
+and 36 minutes of sound ("Part 1 of the video to re-cut … came out as 1:48.12 of picture and
+36:16.40 of sound"). Now picture and sound are two runs with one output each, the way the main
+export is made, and each run reads only the stretch it needs (`-t`), so neither can run on. Error
+messages for a wrong piece name the ffmpeg version. Tested end to end with a 16-insert list on an
+18:26 video with ffmpeg 6.0, 7.0 and 9.0 (result 22:05, as the list predicts).
