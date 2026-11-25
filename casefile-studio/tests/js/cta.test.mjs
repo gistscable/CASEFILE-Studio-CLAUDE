@@ -23,3 +23,15 @@ test("banner placement and events", () => {
   assert.deepEqual(ctaEvents({ scenes, cta: { enabled: false, asset_id: "b" } }, [0, 4], caps), []);
   assert.equal(normaliseCta({ opacity: 5 }).opacity, 1);
 });
+
+test("v0.4.50 preview stills sit in their part of the card; old soft stills are made again", async () => {
+  const { ctaStillBox, ctaStillsCurrent, CTA_PREVIEW_VERSION } = await import("../../web/src/cta.js");
+  const card = { left: 100, top: 50, width: 600, height: 337.5 };
+  const b = ctaStillBox(card, { box: [0.25, 0.4, 0.75, 0.6] });
+  assert.deepEqual([b.left, b.top, b.width, b.height].map((v) => +v.toFixed(3)), [250, 185, 300, 67.5]);
+  assert.deepEqual(ctaStillBox(card, { count: 45, fps: 15 }), card); // old stills: the whole card
+  assert.equal(CTA_PREVIEW_VERSION, 2);
+  assert.equal(ctaStillsCurrent({ version: 2 }), true);
+  assert.equal(ctaStillsCurrent({ count: 45, fps: 15 }), false);
+  assert.equal(ctaStillsCurrent(undefined), false);
+});

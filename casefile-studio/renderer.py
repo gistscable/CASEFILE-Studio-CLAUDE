@@ -1,7 +1,7 @@
 """Deterministic FFmpeg renderer. No AI calls, shell interpolation, or remote media."""
 
 from __future__ import annotations
-import json, math, os, re, shutil, subprocess, tempfile, textwrap, time
+import json, math, os, re, shutil, subprocess, tempfile, textwrap, threading, time
 from pathlib import Path
 from typing import Callable
 from editorial import strip_references
@@ -98,9 +98,15 @@ def _has_alpha(video):
 # v0.4.47 Codecs every current browser plays in a <video>. ProRes, QuickTime Animation, HEVC with
 # transparency, DNxHD and the like (most transparent .MOV files) do not play in Chrome or Firefox.
 BROWSER_CODECS = {"h264", "vp8", "vp9", "av1"}
-PREVIEW_MAX_SECONDS = 15.0  # a CTA animation plays at most 15 s (effectsSpec file_max_seconds)
-PREVIEW_FPS = 15
-PREVIEW_WIDTH = 640
+PREVIEW_MAX_SECONDS = float(cta.SPEC["file_max_seconds"])  # a CTA animation plays at most 15 s
+# v0.4.50 The preview stills were 640 px wide, 15 a second and lossy WebP: soft and smeared on a
+# Retina screen, where the CTA is drawn ~950 px wide (~1800 px fullscreen). They are now the part of
+# the frame the animation uses, at the file's own resolution, 24 a second (as the export), lossless.
+PREVIEW_VERSION = cta.SPEC["preview_version"]  # stills older than this are made again
+PREVIEW_FPS = FPS
+PREVIEW_MAX_PIXELS = 1280 * 720  # per still, so a full-frame animation stays light in the browser
+PREVIEW_FIND_WIDTH = 480  # the quick pass that finds where the animation is drawn
+PREVIEW_LOSSY_ABOVE = 400_000  # bytes: once a still is this big (noisy, photo-like), the rest are lossy
 
 
 def needs_preview(info):
@@ -108,28 +114,103 @@ def needs_preview(info):
     return bool(info and info.get("has_video") and info.get("codec") and info["codec"] not in BROWSER_CODECS)
 
 
-def preview_frames(path: Path, folder: Path, seconds=PREVIEW_MAX_SECONDS):
-    """v0.4.47 The first `seconds` of a video as WebP stills with their transparency, 15 a second.
+def _raw_frames(path: Path, seconds, vf, w, h):
+    """RGBA frames of `path` through `vf`, one at a time, without writing them to disk."""
+    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-t", f"{float(seconds):.3f}", "-an",
+           "-vf", vf + ",format=rgba", "-f", "rawvideo", "-pix_fmt", "rgba", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    size = w * h * 4
+    try:
+        while True:
+            buf = proc.stdout.read(size)
+            if len(buf) < size:
+                break
+            yield np.frombuffer(buf, dtype=np.uint8).reshape(h, w, 4)
+    finally:
+        proc.stdout.close()
+        err = proc.stderr.read().decode("utf-8", "replace")
+        proc.stderr.close()
+        if proc.wait(timeout=600):
+            raise ValueError("Casefile could not make a preview of this video: " + ((err or "").strip().splitlines() or ["no frames"])[-1][:200])
 
-    Every browser shows a WebP with alpha (Safari/WebKit, DuckDuckGo, Chrome, Firefox), which is not true
-    of any transparent video format, and the preview shows the still for its clock time, so it stays in
-    step when paused or scrubbed. For the edit preview only: exports use the original file."""
+
+def preview_area(path: Path, width, height, seconds=PREVIEW_MAX_SECONDS):
+    """(x0, y0, x1, y1) in pixels: the part of the frame the animation ever draws on (not fully
+    transparent), with a small margin; the whole frame when it is never transparent."""
+    fw = min(PREVIEW_FIND_WIDTH, width)
+    fh = max(1, round(height * fw / width))
+    seen = None
+    for f in _raw_frames(path, seconds, f"fps={PREVIEW_FPS},scale={fw}:{fh}:flags=area", fw, fh):
+        a = f[:, :, 3] > 0
+        seen = a if seen is None else (seen | a)
+    if seen is None:
+        raise ValueError("Casefile could not make a preview of this video: no frames")
+    if seen.all() or not seen.any():
+        return 0, 0, width, height
+    ys, xs = np.nonzero(seen)
+    k = width / fw
+    x0 = max(0, math.floor((xs.min() - 1) * k))
+    y0 = max(0, math.floor((ys.min() - 1) * height / fh))
+    x1 = min(width, math.ceil((xs.max() + 2) * k))
+    y1 = min(height, math.ceil((ys.max() + 2) * height / fh))
+    return x0, y0, x1, y1
+
+
+def preview_frames(path: Path, folder: Path, seconds=PREVIEW_MAX_SECONDS):
+    """v0.4.47 The first `seconds` of a video as WebP stills with their transparency, for the edit
+    preview (every browser shows a WebP with alpha, Safari/WebKit and DuckDuckGo included, which is
+    not true of any transparent video format). The preview shows the still for its clock time, so
+    it stays in step when paused or scrubbed. Exports use the original file.
+
+    v0.4.50: only the part of the frame the animation uses (`box`, as fractions of the frame), at the
+    file's own resolution (up to PREVIEW_MAX_PIXELS a still), 24 a second, lossless."""
+    info = probe(path)
+    W, H = int(info.get("width") or 0), int(info.get("height") or 0)
+    if not info.get("has_video") or W < 2 or H < 2:
+        raise ValueError("Casefile could not make a preview of this video: no picture found")
+    x0, y0, x1, y1 = preview_area(path, W, H, seconds)
+    cw, ch = x1 - x0, y1 - y0
+    k = min(1.0, math.sqrt(PREVIEW_MAX_PIXELS / (cw * ch)))
+    sw, sh = max(1, round(cw * k)), max(1, round(ch * k))
     shutil.rmtree(folder, ignore_errors=True)
     folder.mkdir(parents=True)
-    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(path), "-t", f"{float(seconds):.3f}", "-an",
-                        "-vf", f"fps={PREVIEW_FPS},scale='min({PREVIEW_WIDTH},iw)':-2,format=rgba", str(folder / "%04d.png")],
-                       capture_output=True, text=True, timeout=600)
-    pngs = sorted(folder.glob("*.png"))
-    if r.returncode or not pngs:
+    vf = f"fps={PREVIEW_FPS},crop={cw}:{ch}:{x0}:{y0}" + (f",scale={sw}:{sh}:flags=lanczos" if (sw, sh) != (cw, ch) else "")
+    # Lossless (exact edges and colours, and small for flat graphics) until a still comes out big;
+    # from then on lossy, so a full-frame, noisy animation does not take minutes. Pillow encodes
+    # WebP outside Python's lock, so a few threads share the work.
+    from concurrent.futures import ThreadPoolExecutor
+    lossy = threading.Event()
+
+    def save(n, f):
+        out = folder / f"{n:04d}.webp"
+        im = Image.fromarray(f, "RGBA")
+        if not lossy.is_set():
+            im.save(out, "WEBP", lossless=True, quality=60, method=4)
+            if out.stat().st_size <= PREVIEW_LOSSY_ABOVE:
+                return
+            lossy.set()
+        im.save(out, "WEBP", quality=80, alpha_quality=100, method=2)
+
+    n = 0
+    workers = max(1, min(4, os.cpu_count() or 1))
+    try:
+        with ThreadPoolExecutor(workers) as pool:
+            pending = []
+            for f in _raw_frames(path, seconds, vf, sw, sh):
+                pending.append(pool.submit(save, n, f.copy()))
+                n += 1
+                if len(pending) >= workers * 2:  # keep only a few frames in memory
+                    pending.pop(0).result()
+            for p in pending:
+                p.result()
+    except (ValueError, OSError):
         shutil.rmtree(folder, ignore_errors=True)
-        raise ValueError("Casefile could not make a preview of this video: " + ((r.stderr or "").strip().splitlines() or ["no frames"])[-1][:200])
-    size = None
-    for n, png in enumerate(pngs):
-        with Image.open(png) as im:
-            size = im.size
-            im.save(folder / f"{n:04d}.webp", "WEBP", quality=80, method=4)
-        png.unlink()
-    return {"count": len(pngs), "fps": PREVIEW_FPS, "width": size[0], "height": size[1]}
+        raise
+    if not n:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise ValueError("Casefile could not make a preview of this video: no frames")
+    box = [round(x0 / W, 5), round(y0 / H, 5), round(x1 / W, 5), round(y1 / H, 5)]
+    return {"count": n, "fps": PREVIEW_FPS, "width": sw, "height": sh, "box": box, "version": PREVIEW_VERSION}
 
 
 def waveform(path: Path, bins=160):

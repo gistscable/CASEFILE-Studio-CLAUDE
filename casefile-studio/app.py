@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.49", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.50", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -941,13 +941,14 @@ def make_preview(project_id, asset, path):
 @app.post("/api/projects/{id}/assets/{asset_id}/preview")
 async def asset_preview(id: str, asset_id: str):
     """v0.4.47 Check a video uploaded before v0.4.47 and make its preview stills if the browser
-    cannot play it. Returns the asset (with `codec`, so the page asks only once)."""
+    cannot play it. Returns the asset (with `codec`, so the page asks only once).
+    v0.4.50: stills from before v0.4.50 (640 px, soft) are made again, sharp."""
     with LOCK:
         p = project_or_404(id)
         asset = copy.deepcopy(next((a for a in p["assets"] if a["id"] == asset_id), None))
     if not asset or asset.get("kind") != "video":
         raise HTTPException(404, "Video not found.")
-    if asset.get("preview_frames"):
+    if (asset.get("preview_frames") or {}).get("version", 1) >= renderer.PREVIEW_VERSION:
         return asset
     try:
         path = renderer.asset_path(asset)

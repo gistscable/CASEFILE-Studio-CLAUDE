@@ -660,3 +660,30 @@ Tests: `tests/test_overlays_v049.py` (18, incl. real renders), `tests/js/picture
 482 passed, 1 skipped; JS 34 pass. Checked in Chromium (Playwright + @sparticuz/chromium): CTA places,
 length/fade label, add at playhead; sticker add, drag (moves exactly with the mouse), −/+, upload;
 Automatic crop, drag a corner, save; fill select; picture keyframe — no page errors.
+
+## v0.4.50: sharp CTA .MOV in the edit preview
+
+User: "Why is the CTA .MOV not sharp… low quality? Is that from the engine or do I have to render first?"
+Measured (1920x1080 ProRes 4444 alpha test file with small text and 1 px lines):
+- **Export was already sharp**: original file, lanczos to the card size, x264 CRF 20; 33.8 dB vs the
+  file composited perfectly (40.1 dB is the yuv420p ceiling), visually identical. Unchanged.
+- **The edit preview was soft**: since v0.4.47 a transparent .MOV is shown as WebP stills, which were
+  ≤640 px wide, 15/s, lossy q80 (4:2:0, smears red edges). The CTA (size 0.62) is drawn ~950 device
+  px wide on a Retina monitor and ~1800 fullscreen, i.e. 1.5x / 2.8x enlarged.
+Fix (`renderer.preview_frames`, v2 stills, `cta.preview_version` in effectsSpec.json):
+- a quick pass at 480 px finds the part of the frame the animation ever draws on (alpha > 0, union
+  over all frames, small margin; whole frame if never transparent): `box` as frame fractions;
+- that part is cut at the file's own resolution (≤ PREVIEW_MAX_PIXELS = 1280x720 per still), 24/s
+  (the export rate), streamed from ffmpeg as raw RGBA (no PNGs), saved **lossless** WebP; once a still
+  is > 400 KB (noisy/photo-like) the rest of that file is lossy q80; encoded on ≤4 threads.
+- CtaOverlay `FramesCta` places the still with `ctaStillBox(card, frames)`; URLs carry `?v=<version>`
+  so cached old stills are never reused; FileCta asks `POST …/preview` once for old (version < 2)
+  stills, which the endpoint now remakes (old ones show meanwhile).
+Numbers (2-vCPU sandbox): typical CTA 1.4 s, 0.24 MB for 48 stills; fullscreen Retina 31.2 → 41.7 dB,
+monitor 33.4 → 36.3 dB vs the real file. Worst case (15 s full-frame 1080p noise): 72 s / 44 MB (old
+code 41 s / 2.8 MB); ~27 s of that is just decoding the ProRes. Browser check (Chromium, DPR 2): old
+stills shown, one POST, swapped to 904x212 v2 stills placed exactly per `box`, no errors.
+Known, pre-existing: overlays are laid out from `frameSize` (the frame incl. its 1 px border) inside
+a layer 2 px smaller, so every overlay sits ~1 px off in the preview (0.3%); exports unaffected.
+Tests: test_cta_file.py (sharp lossless stills, opaque file = whole frame, pixel budget, old stills
+remade), tests/js/cta.test.mjs. Suite 484 passed, 1 skipped; JS 35 pass.

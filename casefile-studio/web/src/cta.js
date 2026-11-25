@@ -205,3 +205,13 @@ export function ctaSpotAlpha(t, start, end, natural) {
 }
 
 export const CTA_FALLBACK = C.fallback_button;
+
+// v0.4.50 Preview stills of a transparent .MOV hold only the part of the frame the animation uses
+// (`box`, fractions of the frame, see renderer.preview_frames); place them there on the card.
+// Stills from before v0.4.50 have no box and fill the card (and are made again, sharp).
+export const CTA_PREVIEW_VERSION = C.preview_version;
+export const ctaStillsCurrent = (frames) => (frames?.version || 1) >= CTA_PREVIEW_VERSION;
+export function ctaStillBox(card, frames) {
+  const [x0, y0, x1, y1] = frames?.box || [0, 0, 1, 1];
+  return { left: card.left + x0 * card.width, top: card.top + y0 * card.height, width: (x1 - x0) * card.width, height: (y1 - y0) * card.height };
+}

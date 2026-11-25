@@ -307,6 +307,7 @@
       "fade_out": 0.5
     },
     "file_max_seconds": 15,
+    "preview_version": 2,
     "place_length": [
       0.5,
       15
