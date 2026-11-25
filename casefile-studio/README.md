@@ -229,6 +229,12 @@ sudo apt-get update
 sudo apt-get install ffmpeg fonts-dejavu-core
 ```
 
+macOS (no Docker needed; the DejaVu fonts bundled in `web/assets/fonts` are used when the system has none):
+```bash
+brew install python@3.12 ffmpeg
+```
+See `Local Runs.md` at the repo root for the full native setup, including bringing over data from the Docker volume.
+
 ### 2. Install Python dependencies
 ```bash
 cd casefile-studio
