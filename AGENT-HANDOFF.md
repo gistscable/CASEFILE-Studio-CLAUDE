@@ -550,3 +550,32 @@ with a message (STALL_SECONDS). The user's v0.4.40 re-cut was never saved (cause
 watchdog will name the step if it recurs).
 Tests: tests/test_recut_motion.py checks logo + name-card pieces are High/yuv420p/bt709 and move.
 Lesson: Playwright Chromium is not Safari. Check H.264 profile/pix_fmt of anything users play on Macs.
+
+
+## v0.4.47: your own CTA .MOV shows in the edit preview; fullscreen preview keeps overlays in place
+
+Two preview-only bugs (exports were fine):
+1. A transparent .MOV CTA (ProRes 4444, QuickTime Animation/qtrle, PNG-in-MOV…) showed nothing in
+   the edit preview: the page put the original file in a `<video>`, and browsers cannot decode those
+   codecs (Chromium: MEDIA_ERR_SRC_NOT_SUPPORTED). No transparent *video* format plays with its
+   alpha in every browser (VP9-alpha WebM is Chrome/Firefox; HEVC-alpha needs Apple's encoder;
+   the user browses with DuckDuckGo = WebKit), so the preview now uses **WebP stills**:
+   - `renderer.probe` also returns `codec` and `alpha`; `needs_preview` = video codec not in
+     {h264, vp8, vp9, av1}; `preview_frames(path, folder)` = first 15 s at 15 fps, ≤640 px wide,
+     `<stem>-frames/0000.webp…` with alpha (Pillow WebP).
+   - Upload: such videos up to 60 s get `asset.preview_frames = {count, fps, width, height, base}`.
+   - `POST /api/projects/{id}/assets/{asset_id}/preview`: for uploads from before v0.4.47 (no
+     `codec`); probes, makes the stills if needed, stores `codec`/`alpha` (so it is asked once).
+   - CtaOverlay `FramesCta` shows still `floor(t * fps)` (in step when paused/scrubbed), preloads
+     all; old uploads show "Preparing your animation for the preview…" until the stills arrive.
+   - The export still uses the original file (renderer unchanged).
+2. Fullscreen preview: `requestFullscreen` was called on `.video-frame`, which grew to the screen,
+   but every overlay (watermark, CTA, captions, titles, name cards) is placed in pixels from
+   `frameSize`, computed by the ResizeObserver on `.monitor-screen` — unchanged in fullscreen, so
+   overlays stayed where the small frame was. Now `.monitor-screen` goes fullscreen; its observer
+   recomputes `frameSize` for the screen (no 40 px margin when fullscreen), 16:9/9:16 kept, black bars.
+Verified in a real Chromium (headless, @sparticuz/chromium + playwright): CTA stills on screen with
+solid box / transparent corner pixels, stills advance at 15 fps with the clock; fullscreen 1900x1100
+→ frame 1900x1069, watermark at the top-right at full scale, CTA centred at 62%; exit restores.
+Note: headless Chromium here does not paint `<video>` frames into screenshots or canvases; read
+`currentSrc`/`readyState` for videos and pixels only from images.

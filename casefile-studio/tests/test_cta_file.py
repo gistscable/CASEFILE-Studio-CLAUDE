@@ -123,3 +123,55 @@ def test_casefile_banner_as_a_card_over_blur(tmp_path):
     assert f[200, 427].max() < 60  # the banner card is solid (dark), not see-through
     side = f[100, 40:140].mean(axis=1)  # outside the card: blurred video
     assert side.std() < 25 and side.mean() > 40
+
+
+def test_a_transparent_mov_gets_preview_stills_that_keep_its_transparency(tmp_path):
+    """v0.4.47 No browser plays a transparent ProRes or QuickTime Animation .MOV with its transparency,
+    so the edit preview showed nothing. The preview now shows WebP stills (15 a second, see-through
+    parts kept), which every browser shows; the export still uses the original."""
+    mov = animation(tmp_path, "mov")
+    info = renderer.probe(mov)
+    assert info["codec"] == "prores" and info["alpha"] and renderer.needs_preview(info)
+    got = renderer.preview_frames(mov, tmp_path / "sub-frames")
+    assert got == {"count": 45, "fps": 15, "width": 320, "height": 180}  # 3 s at 15 a second
+    stills = sorted((tmp_path / "sub-frames").iterdir())
+    assert len(stills) == 45 and all(f.suffix == ".webp" for f in stills)
+    with Image.open(stills[20]) as im:
+        im = im.convert("RGBA")
+        middle, corner = im.getpixel((160, 90)), im.getpixel((10, 10))
+    assert middle[3] > 240 and middle[0] > 180 and middle[1] < 70  # the red box, solid
+    assert corner[3] < 15  # the edge, still transparent
+    webm = renderer.probe(animation(tmp_path, "webm"))
+    assert webm["codec"] == "vp9" and webm["alpha"] and not renderer.needs_preview(webm)
+    assert not renderer.needs_preview({"has_video": True, "codec": "h264"})
+
+
+def test_upload_makes_the_preview_stills_and_old_uploads_get_them_on_request(isolated, tmp_path):
+    import app as server
+    c, _ = isolated
+    mov, webm = animation(tmp_path, "mov"), animation(tmp_path, "webm")
+    p = c.post("/api/projects", json={"title": "CTA file"}).json()
+    r = c.post(f"/api/projects/{p['id']}/upload", files=[("files", ("Subscribe.MOV", open(mov, "rb"), "video/quicktime")),
+                                                        ("files", ("sub.webm", open(webm, "rb"), "video/webm"))])
+    assert r.status_code == 200
+    a, w = r.json()["assets"]
+    stored = renderer.asset_path(a)
+    folder = stored.with_name(stored.stem + "-frames")
+    assert a["alpha"] is True and a["preview_frames"]["count"] == 45 and a["preview_frames"]["base"].endswith(f"/{folder.name}/")
+    assert (folder / "0000.webp").is_file() and (folder / "0044.webp").is_file()
+    assert "preview_frames" not in w and w["codec"] == "vp9"
+    # An upload from before v0.4.47 has no codec and no stills: the page asks once.
+    with server.LOCK:
+        proj = server.project_or_404(p["id"])
+        for asset in proj["assets"]:
+            for k in ("codec", "alpha", "preview_frames"):
+                asset.pop(k, None)
+        server.save_project(proj)
+    got = c.post(f"/api/projects/{p['id']}/assets/{a['id']}/preview")
+    assert got.status_code == 200 and got.json()["preview_frames"]["count"] == 45
+    saved = c.get(f"/api/projects/{p['id']}").json()["assets"]
+    assert saved[0]["preview_frames"] == got.json()["preview_frames"] and saved[0]["codec"] == "prores"
+    plays = c.post(f"/api/projects/{p['id']}/assets/{w['id']}/preview")  # a WebM plays already: just noted
+    assert plays.status_code == 200 and plays.json()["codec"] == "vp9" and "preview_frames" not in plays.json()
+    assert c.get(f"/api/projects/{p['id']}").json()["assets"][1]["codec"] == "vp9"
+    assert c.post(f"/api/projects/{p['id']}/assets/nope/preview").status_code == 404
