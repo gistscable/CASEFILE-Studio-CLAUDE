@@ -14,8 +14,16 @@ import numpy as np
 from storage import DATA, ROOT, resolve_asset
 
 FPS = 24
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+
+def _font(name):
+    """The system DejaVu font (Linux/Docker), else the copy bundled with the app (macOS, Windows)."""
+    system = Path("/usr/share/fonts/truetype/dejavu") / name
+    return str(system if system.exists() else ROOT / "web/assets/fonts" / name)
+
+
+FONT = _font("DejaVuSans.ttf")
+BOLD = _font("DejaVuSans-Bold.ttf")
 
 
 def plain(text: str) -> str:
