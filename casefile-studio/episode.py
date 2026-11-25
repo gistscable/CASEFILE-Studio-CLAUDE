@@ -2089,6 +2089,7 @@ def build(project, allow_placeholders=False, inspection=False, _fill_boost=0):
             "The approved clips do not cover the full timeline. Supply more coverage or explicitly allow marked gaps for a review-only plan."
         )
     apply_overrides(project, scenes)  # the producer's transitions, replacements, name cards…
+    keep_scene_ids(project.get("scenes") or [], scenes)
     plan = {
         "input_digest": input_digest(project),
         "timeline_digest": timeline_digest(scenes),
@@ -2131,6 +2132,7 @@ def build(project, allow_placeholders=False, inspection=False, _fill_boost=0):
 OVERRIDE_FIELDS = (
     "transition", "transition_duration", "motion", "lower_third", "cta",
     "asset_id", "trim_start", "replaced", "source_label", "fit", "keyframes",
+    "show_title",  # v0.4.51: the "Show scene title" switch was lost by the rebuild after each edit
 )
 
 
@@ -2159,6 +2161,22 @@ def record_overrides(project, old_scenes, new_scenes):
         diff = {f: s.get(f) for f in OVERRIDE_FIELDS if not same(s.get(f), o.get(f))}
         if diff:
             ov.setdefault(scene_key(o), {}).update(diff)
+
+
+def keep_scene_ids(old_scenes, new_scenes):
+    """v0.4.51: a rebuild (after every scene edit on a guide project) keeps the id of a scene that is
+    still the same scene (same guide card, same start in the narration). Before, every scene got a
+    new id each time: the editor lost the selected scene and undo saw 158 "new" scenes."""
+    keys = {}
+    for s in old_scenes:
+        if isinstance(s, dict) and s.get("id"):
+            keys.setdefault(scene_key(s), []).append(s["id"])
+    used = set()
+    for s in new_scenes:
+        ids = keys.get(scene_key(s)) or []
+        if len(ids) == 1 and ids[0] not in used:
+            s["id"] = ids[0]
+            used.add(ids[0])
 
 
 def apply_overrides(project, scenes):

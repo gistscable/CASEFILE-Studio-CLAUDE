@@ -340,6 +340,31 @@ def run(
     cancelled: Callable,
     export_fn: Callable,
 ):
+    """v0.4.51: the whole run (it saves many times) is one undo step, "Make video"."""
+    import history
+
+    with store.LOCK:
+        before = history.take(store.get_project(project_id))
+    try:
+        return _run(project_id, options, config, progress, cancelled, export_fn)
+    finally:
+        with store.LOCK:
+            try:
+                latest = store.get_project(project_id)
+            except OSError:
+                latest = None
+            if latest is not None and history.record(latest, before, "Make video"):
+                store.save_project(latest)
+
+
+def _run(
+    project_id: str,
+    options: Options,
+    config: dict | None,
+    progress: Callable,
+    cancelled: Callable,
+    export_fn: Callable,
+):
     run_id = store.uid()
     completed = []
 
@@ -400,10 +425,6 @@ def run(
             round(start + (end - start) * max(0, min(100, value)) / 100), message
         )
 
-    with store.LOCK:
-        initial = load()
-        store.checkpoint(initial)
-        store.save_project(initial)
     try:
         save("prepare", "Checking your starting material")
         progress(2, "Checking starting material and editorial gates")

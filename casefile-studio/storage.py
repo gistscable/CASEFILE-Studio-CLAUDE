@@ -57,11 +57,19 @@ def get_project(id):
     if not re.fullmatch(r"[a-f0-9]{16}", id):
         raise FileNotFoundError("Project not found")
     with LOCK:
-        return json.loads((DATA / "projects" / f"{id}.json").read_text())
+        import history
+
+        return history.adopt(json.loads((DATA / "projects" / f"{id}.json").read_text()))
 
 
 def save_project(project):
     with LOCK:
+        import history
+
+        # v0.4.51: a begun undo step is stored (only what changed) in data/history/<id>.json,
+        # no longer as whole copies inside the project file.
+        history.finish(project)
+        project.pop("undo", None)
         project["updated_at"] = now()
         atomic_json(DATA / "projects" / f"{project['id']}.json", project)
     return project
@@ -143,25 +151,12 @@ def word_count(text):
     return len(re.findall(r"\b[\w’'-]+\b", text))
 
 
-def checkpoint(project):
-    fields = [
-        "script",
-        "script_dirty",
-        "script_origin",
-        "script_approved_hash",
-        "scenes",
-        "assets",
-        "look",
-        "captions",
-        "narration_id",
-        "music_id",
-        "music_volume",
-        "review",
-        "episode",
-    ]
-    history = project.get("undo", [])[-7:]
-    history.append({k: __import__("copy").deepcopy(project.get(k)) for k in fields})
-    project["undo"] = history
+def checkpoint(project, label=None):
+    """Begin an undo step: the next save_project stores what this edit changed (history.py).
+    `label` names it ("Build timeline"); without one it is named from the change itself."""
+    import history
+
+    history.begin(project, label)
 
 
 def add_message(project, role, text):
