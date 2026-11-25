@@ -1,7 +1,7 @@
 """Deterministic FFmpeg renderer. No AI calls, shell interpolation, or remote media."""
 
 from __future__ import annotations
-import json, math, re, shutil, subprocess, tempfile, textwrap
+import json, math, os, re, shutil, subprocess, tempfile, textwrap
 from pathlib import Path
 from typing import Callable
 from editorial import strip_references
@@ -375,6 +375,113 @@ def run(cmd, cancelled: Callable[[], bool]):
             proc.communicate()
 
 
+def available_cpus() -> int:
+    """CPUs this process may use (inside Docker: what Docker Desktop gives it)."""
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        return max(1, os.cpu_count() or 1)
+
+
+def machine(arch: str | None = None, cpuinfo: str | None = None) -> dict:
+    """v0.4.48: what the render runs on. `emulated` is True when this is an
+    Intel (x86-64) build running on another chip (e.g. an amd64 Docker image on
+    an Apple-silicon Mac, translated by Rosetta or QEMU), which makes FFmpeg
+    several times slower than a native build."""
+    import platform
+
+    arch = (arch or platform.machine()).lower()
+    emulated = False
+    if arch in ("x86_64", "amd64", "i386", "i686"):
+        info = cpuinfo
+        if info is None:
+            try:
+                info = Path("/proc/cpuinfo").read_text(errors="replace")
+            except OSError:
+                info = ""
+        # Translated x86 programs still read the real (ARM) kernel's CPU list.
+        emulated = bool(info) and (
+            "CPU implementer" in info or "VirtualApple" in info or "vendor_id" not in info
+        )
+    return {"arch": arch, "cpus": available_cpus(), "emulated": emulated}
+
+
+def machine_note(info: dict | None = None) -> str:
+    """A short warning for progress messages, or "" when nothing is wrong."""
+    info = info or machine()
+    if info["emulated"]:
+        return (" · Slow: CASEFILE is running as Intel (x86-64) code translated on another chip. "
+                "Rebuild it for this Mac: docker build --platform linux/arm64 -t casefile-studio .")
+    if info["cpus"] <= 2:
+        return (f" · Only {info['cpus']} CPU{'s' if info['cpus'] > 1 else ''} available; "
+                "renders are slow (Docker Desktop: Settings → Resources gives it more).")
+    return ""
+
+
+def render_workers(chains: int) -> int:
+    """How many scenes to encode at the same time. Each scene's FFmpeg uses about
+    two cores, so a Mac with 8-12 cores rendered one scene at a time left most of
+    them idle. CASEFILE_RENDER_JOBS overrides (1 = the old one-at-a-time)."""
+    forced = os.environ.get("CASEFILE_RENDER_JOBS", "").strip()
+    if forced:
+        try:
+            return max(1, min(16, int(forced), chains))
+        except ValueError:
+            pass
+    try:  # about 250 MB per 1080p scene encoder; keep well inside the memory there is
+        mem_gb = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2**30
+    except (ValueError, OSError, AttributeError):
+        mem_gb = 4.0
+    return max(1, min(chains, 6, available_cpus() // 2, int(mem_gb)))
+
+
+def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, cancelled: Callable):
+    """Run each scene's FFmpeg commands. Scenes in one chain (a transition blends
+    in the previous scene's last frame) run in order; separate chains run side
+    by side, `workers` at a time."""
+    import threading
+    from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
+
+    chains: dict[int, list[int]] = {}
+    for i, head in enumerate(chain_of):
+        chains.setdefault(head, []).append(i)
+    total = len(steps)
+    lock = threading.Lock()
+    stop = threading.Event()
+    stopped = lambda: stop.is_set() or cancelled()
+    done = [0]
+    at_once = f" · {workers} at a time" if workers > 1 else ""
+
+    def report():
+        progress(5 + int(79 * done[0] / total), f"Rendering scenes · {done[0]} of {total} done{at_once}")
+
+    def work(chain):
+        for i in chain:
+            for cmd in steps[i]:
+                if stopped():
+                    raise RuntimeError("Cancelled by you. No output was published.")
+                run(cmd, stopped)
+            with lock:
+                done[0] += 1
+                report()
+
+    report()
+    if workers <= 1:
+        for chain in chains.values():
+            work(chain)
+        return
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="scene") as pool:
+        futures = [pool.submit(work, c) for c in chains.values()]
+        finished, _ = wait(futures, return_when=FIRST_EXCEPTION)
+        first = next((f.exception() for f in futures if f.done() and f.exception()), None)
+        if first:
+            stop.set()
+            for f in futures:
+                f.cancel()
+            wait(futures)
+            raise first
+
+
 def asset_path(asset):
     try:
         p = resolve_asset(asset.get("path"))
@@ -472,6 +579,20 @@ def render(
         scene_start = 0.0
         name_cards = effects.effective_lower_thirds(project)
         clips = []
+        # v0.4.48: every scene's FFmpeg commands are prepared first, then run
+        # several scenes at a time (run_scenes). A scene with a transition
+        # blends in the previous scene's last frame, so it runs after it.
+        blends = [
+            effects.transition_length(s, float(s["duration"])) if i > 0 and effects.xfade_name(s) else 0.0
+            for i, s in enumerate(scenes)
+        ]
+        chain_of: list[int] = []
+        for i in range(len(scenes)):
+            chain_of.append(chain_of[i - 1] if blends[i] > 0 else i)
+        workers = render_workers(len(set(chain_of)))
+        enc_threads = str(max(2, min(8, available_cpus() // workers)))
+        scene_steps: list[list[list[str]]] = []
+        progress(5, f"Preparing {len(scenes)} scenes")
         for i, scene in enumerate(scenes):
             if cancelled():
                 raise RuntimeError("Cancelled by you. No output was published.")
@@ -479,10 +600,7 @@ def render(
             # snap only the encoded frame count to the 24 fps frame boundary.
             duration = float(scene["duration"])
             frames = max(1, round(duration * FPS))
-            progress(
-                5 + int(79 * i / len(scenes)),
-                f"Rendering scene {i + 1} of {len(scenes)} · {scene.get('title', '')}",
-            )
+            steps: list[list[str]] = []
             asset = assets.get(scene.get("asset_id"))
             src = (
                 asset_path(asset)
@@ -534,17 +652,20 @@ def render(
                     # repetition so the clip runs exactly `duration`.
                     reps = max(1, math.ceil(duration / crop_len))
                     crop = work / f"crop{i}.mp4"
-                    run(
+                    # v0.4.48: seek on the input (-ss before -i). After -i, FFmpeg
+                    # decoded the source from 0:00 up to the crop every time.
+                    # Re-encoding still makes the cut exact to the frame.
+                    steps.append(
                         [
                             "ffmpeg",
                             "-hide_banner",
                             "-loglevel",
                             "error",
                             "-y",
-                            "-i",
-                            str(src),
                             "-ss",
                             str(trim_start),
+                            "-i",
+                            str(src),
                             "-t",
                             str(crop_len),
                             "-c:v",
@@ -555,13 +676,12 @@ def render(
                             "20",
                             "-an",
                             str(crop),
-                        ],
-                        cancelled,
+                        ]
                     )
                     listing = work / f"croploop{i}.txt"
                     listing.write_text("\n".join(f"file '{crop.as_posix()}'" for _ in range(reps)))
                     looped = work / f"croploop{i}.mp4"
-                    run(
+                    steps.append(
                         [
                             "ffmpeg",
                             "-hide_banner",
@@ -577,19 +697,24 @@ def render(
                             "-c",
                             "copy",
                             str(looped),
-                        ],
-                        cancelled,
+                        ]
                     )
                     video_input = str(looped)
                 else:
                     video_extra = ["-ss", str(trim_start)]
-            if motion == "none" and (is_image or video_input == str(placeholder)):
+            # v0.4.48: a still picture with no motion is decoded and scaled once and
+            # the frame repeated (loop filter below). Reading it with -loop 1 decoded
+            # and scaled the full-size photo again for every frame: 4-5x slower.
+            still = motion == "none" and is_image
+            if motion == "none" and video_input == str(placeholder):
                 # Every still input — a bound image, a VISUAL NEEDED gap card,
                 # or the empty-crop placeholder fallback — must loop for the
                 # full scene. Reading one PNG is a single frame, which would
                 # silently shorten the exported video and fail the final
                 # narration-coverage check.
                 video_extra = ["-loop", "1", "-framerate", str(FPS)]
+            elif still:
+                video_extra = ["-framerate", str(FPS)]  # one frame, at the export frame rate
             command += video_extra + ["-i", video_input]
             vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
             if aspect == "9:16" and effects.fit_of(project) == "blur" and (is_video or is_image) and video_input != str(placeholder):
@@ -627,6 +752,8 @@ def render(
                 vf += f",zoompan=z='{z}':x='{xp}':y='{yp}':d={frames}:s={width}x{height}:fps={FPS},setsar=1"
             else:
                 vf += ",setsar=1"
+            if still:
+                vf += ",loop=loop=-1:size=1"
             for part in effects.picture_filters(project.get("look", "noir"), project.get("effects"), width, height):
                 vf += "," + part
             command += ["-i", str(overlay)]
@@ -635,7 +762,7 @@ def render(
             # titles and captions are drawn on top afterwards, so text never
             # blends with the previous scene's text.
             xfade = effects.xfade_name(scene)
-            blend = effects.transition_length(scene, duration) if xfade and i > 0 and (work / f"last{i - 1}.jpg").exists() else 0.0
+            blend = blends[i]
             keep_last = i + 1 < len(scenes) and bool(effects.xfade_name(scenes[i + 1]))
             # Number frames in order (never drop or repeat one) so every scene
             # keeps its exact frame count, with or without a transition.
@@ -735,7 +862,7 @@ def render(
                 "-crf",
                 "20",
                 "-threads",
-                "2",
+                enc_threads,
                 "-video_track_timescale",
                 "12288",
                 str(outclip),
@@ -744,9 +871,11 @@ def render(
                 # The next scene blends in from this scene's last picture frame.
                 # (written over on every frame, so the file ends as the last one)
                 command += ["-map", "[lastpic]", "-frames:v", str(frames), "-update", "1", "-q:v", "2", str(work / f"last{i}.jpg")]
-            run(command, cancelled)
+            steps.append(command)
+            scene_steps.append(steps)
             clips.append(outclip)
             scene_start += frames / FPS
+        run_scenes(scene_steps, chain_of, workers, progress, cancelled)
         progress(86, "Assembling the timeline")
         listing = work / "concat.txt"
         listing.write_text("\n".join(f"file '{p.as_posix()}'" for p in clips))

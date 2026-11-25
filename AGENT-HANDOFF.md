@@ -579,3 +579,34 @@ solid box / transparent corner pixels, stills advance at 15 fps with the clock; 
 → frame 1900x1069, watermark at the top-right at full scale, CTA centred at 62%; exit restores.
 Note: headless Chromium here does not paint `<video>` frames into screenshots or canvases; read
 `currentSrc`/`readyState` for videos and pixels only from images.
+
+
+## v0.4.48: faster export (same frames), and a warning when the machine itself is the problem
+
+User: "Why is my rendering so slow?" Both Export and Re-cut; Docker on an Apple-silicon Mac;
+18-minute 1080p 16:9 video takes over an hour. Measured in a 2-vCPU sandbox (`/tmp/bench/bench.py`
+timed every ffmpeg call of `renderer.render`, 6 × 10 s mixed scenes at 1080p):
+- **A still photo with motion "none"** was read with `-loop 1`, so the full-size photo was decoded
+  and scaled again for every frame: 23.5 s for a 10 s scene vs ~5 s for a zoompan scene. Now it is
+  read once (`-framerate 24`, no `-loop`) and repeated with `loop=loop=-1:size=1` → 3.9 s. (The
+  `-framerate` matters: without it the link is 25 fps and xfade into the scene fails.)
+- **A looped video crop** used `-i src -ss trim` (decodes from 0:00 to the crop). Now `-ss` before
+  `-i`; identical frames (framemd5), 9.6 s → 1.3 s at 5.5 min into a source.
+- **Scenes ran one at a time**, each FFmpeg capped at `-threads 2` + `-filter_complex_threads 1`
+  (~1.8 cores busy), so a 8–12-core Mac sat mostly idle. Scene commands are now built first and run
+  by `run_scenes()`: `render_workers()` = min(chains, 6, cpus // 2, RAM GB), `CASEFILE_RENDER_JOBS`
+  overrides; x264 gets `max(2, min(8, cpus // workers))` threads. A scene with an xfade transition
+  needs the previous scene's `last{i-1}.jpg`, so such scenes form a chain run in order; chains run
+  in parallel. A failure or cancel stops the other scenes (shared `stopped()` passed to `run`).
+- Old vs new on the bench project with transitions: 79.3 s → 38.6 s on 2 cores, **picture
+  bit-identical (PSNR inf) and audio identical (md5)**. More cores → more gain (not measurable here).
+- `renderer.machine()` / `machine_note()`; `app.with_machine_note(progress)` wraps Export and
+  Re-cut progress: warns when running as x86-64 on an ARM kernel (`/proc/cpuinfo` has
+  "CPU implementer"/no `vendor_id`) or with ≤2 CPUs. `Local Runs.md` has the Docker checks.
+- Re-cut itself is unchanged: it already uses all cores (x264 auto threads, 1.93 of 2 busy, 75 fps
+  at 1080p here = ~6 min for 18 min of video). An hour on an M-series Mac is not explained by the
+  code; it points at an emulated amd64 image or a low Docker CPU limit — ask for the checks above.
+Notes: ffmpeg 7.0.2 (imageio-ffmpeg 0.6.0) fails every xfade transition ("current rate of 1/0") with
+or without this change (setpts unsets the rate there); 6.0 and 9.0.2 pass. Adding `fps=24` before
+xfade fixed 7.0 but changed frames at a loop seam, so it was not shipped. x264 output can differ in
+the last bits between any two runs on ffmpeg 9 (PSNR 64–81 dB), so the parallel test compares PSNR.

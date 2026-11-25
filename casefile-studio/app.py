@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.47", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.48", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1467,7 +1467,17 @@ def export(id: str, options: ExportOptions):
     )
 
 
+def with_machine_note(progress):
+    """v0.4.48: progress messages say so when the render runs as translated Intel
+    code (an amd64 image on an Apple-silicon Mac) or with only 1-2 CPUs."""
+    note = renderer.machine_note()
+    if not note:
+        return progress
+    return lambda percent, message, **extra: progress(percent, message + note, **extra)
+
+
 def write_export(project, options, progress, cancelled):
+    progress = with_machine_note(progress)
     export_id = uid()
     folder = DATA / "exports" / export_id
     folder.mkdir(parents=True, exist_ok=True)
@@ -3122,6 +3132,7 @@ async def recut_render(id: str, request: Request):
     length_note = recut.mismatch_note(base_info)
 
     def work(progress, cancelled):
+        progress = with_machine_note(progress)
         folder = DATA / "media" / id / "recut"
         folder.mkdir(parents=True, exist_ok=True)
         rid = uid()
