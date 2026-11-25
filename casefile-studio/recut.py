@@ -397,6 +397,22 @@ def _src_fps(path):
     return 30.0
 
 
+# v0.4.45: never rebuild a picture filter graph part-way through a file.
+# A finished export is scene files joined without re-encoding, and their colour
+# tags differ (YouTube clips are tagged bt709, photos and cards are untagged).
+# ffmpeg 7 and later rebuild the whole filter graph when the tags change; the
+# rebuilt setpts/fps start counting from zero again, every later frame looks
+# earlier than the ones already written, and they are all dropped: an 18:26
+# video gave 1:48 of picture (where the first tagged scene starts). ffmpeg 6
+# did not rebuild for colour tags, which is why it only showed up in Docker
+# (Debian's ffmpeg 7.1). The scaler copes with the changes on its own.
+NO_REINIT = ["-reinit_filter", "0"]
+# Every piece's frames carry the same colour tags (ffmpeg 8+ writes the frames' own
+# tags and ignores -color_primaries etc. on the encoder), so the joined re-cut is
+# one uniform stream on every ffmpeg version.
+TAGS = "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+
+
 def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, logo, attempt, pic, snd):
     """One inserted clip: its own picture (plus cutaways, logo and name card) and its own sound.
     Returns two commands, (picture, sound); see _base_commands for why they are separate.
@@ -436,7 +452,7 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
             pic_f = (f"scale={zw}:{zh}:force_original_aspect_ratio=increase,crop={zw}:{zh},"
                      f"crop={w}:{h}:x='({zw}-{w})/2*min(1,t/{d:.3f})':y='({zh}-{h})/2*min(1,t/{d:.3f})',fps={FPS}")
         else:
-            inputs += ["-ss", f"{c['start']:.3f}", "-t", f"{d + 0.2:.3f}", "-i", str(c["path"])]
+            inputs += [*NO_REINIT, "-ss", f"{c['start']:.3f}", "-t", f"{d + 0.2:.3f}", "-i", str(c["path"])]
             pic_f = f"fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
         graph.append(f"[{j}:v]{pic_f},setsar=1,format=yuv420p,setpts=PTS-STARTPTS+{a:.3f}/TB[c{j}]")
         graph.append(f"[{last}][c{j}]overlay=0:0:enable='between(t,{a:.3f},{b - 0.001:.3f})':eof_action=pass[v{j}]")
@@ -448,11 +464,11 @@ def _clip_command(ins, exact, frames, w, h, vfmt, afmt, venc, aenc, work, k, log
         inputs += ["-i", str(lp)]
         graph.append(f"[{last}][{len(cuts) + 1}:v]overlay=0:0:format=auto[vl]")
         last = "vl"
-    graph.append(f"[{last}]null{card}[vout]")
+    graph.append(f"[{last}]null{card},{TAGS}[vout]")
     sound = (f"[0:a]{a_in},loudnorm=I=-16:TP=-1.5:LRA=11,{afmt},asetpts=N/SR/TB,afade=t=in:d={fade:.3f},"
              f"afade=t=out:st={max(0, exact - fade):.3f}:d={fade:.3f},apad,atrim=end_sample={samples}[aout]")
     head = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *seek, "-i", str(ins["path"])]
-    return ([*head, *inputs, "-filter_complex", ";".join(graph), "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic)],
+    return ([*head[:-2], *NO_REINIT, *head[-2:], *inputs, "-filter_complex", ";".join(graph), "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic)],
             [*head, "-filter_complex", sound, "-map", "[aout]", *aenc, str(snd)])
 
 
@@ -464,8 +480,10 @@ def _base_commands(base_path, a, exact, frames, vfmt, afmt, fades, venc, aenc, p
     filter graph came out wrong on some ffmpeg builds (Debian's 7.1 in the Docker
     image): an 18-minute stretch gave 1:48 of picture and 36 minutes of sound.
     Each run also reads only the stretch it needs (-t), so neither can run on."""
-    head = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{a:.3f}", "-t", f"{exact + 1:.3f}", "-i", str(base_path)]
-    return ([*head, "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout]", "-map", "[vout]", "-frames:v", str(frames), *venc, str(pic)],
+    seek = ["-ss", f"{a:.3f}", "-t", f"{exact + 1:.3f}"]
+    head = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *seek, "-i", str(base_path)]
+    return ([*head[:-2], *NO_REINIT, *head[-2:], "-filter_complex", f"[0:v]setpts=PTS-STARTPTS,{vfmt}[vout]", "-map", "[vout]",
+             "-frames:v", str(frames), *venc, str(pic)],
             [*head, "-filter_complex", f"[0:a]asetpts=PTS-STARTPTS,{afmt}{fades},apad,atrim=end_sample={round(exact * 48000)}[aout]",
              "-map", "[aout]", *aenc, str(snd)])
 
@@ -515,7 +533,7 @@ def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lam
     afmt = "aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo"
     # v0.4.42: a picture that runs a few frames short holds its last frame (up to 2 s), so the
     # piece still has its exact frame count and every later shot stays where its sound is.
-    vfmt = (f"fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p,"
+    vfmt = (f"fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p,{TAGS},"
             f"tpad=stop_mode=clone:stop_duration=2")
     snap = lambda t: round(t * FPS) / FPS  # cut on a frame, picture and sound together
     # Pieces of the original video that are kept: (start, end or None for "to the end").
