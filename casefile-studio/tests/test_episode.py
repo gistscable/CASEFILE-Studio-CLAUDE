@@ -796,7 +796,6 @@ def test_guide_director_preserves_narration_but_supports_look_captions_and_music
     p.update(
         created_at=storage.now(),
         updated_at=storage.now(),
-        undo=[],
         messages=[],
         exports=[],
     )

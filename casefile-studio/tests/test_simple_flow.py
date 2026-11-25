@@ -130,9 +130,7 @@ def test_repeated_preview_reuses_current_plan_and_does_not_churn_scene_ids(isola
     assert [s["id"] for s in first["project"]["scenes"]] == [
         s["id"] for s in second["project"]["scenes"]
     ]
-    assert len(first["project"].get("undo", [])) == len(
-        second["project"].get("undo", [])
-    )
+    assert first["project"]["history"]["undo"] == second["project"]["history"]["undo"]
 
 
 def test_preview_availability_does_not_follow_outside_workspace_paths(isolated):

@@ -42,6 +42,7 @@ import {
   VolumeX,
   Maximize2,
   Undo2,
+  Redo2,
   Layers,
   FolderOpen,
   Settings2,
@@ -97,14 +98,14 @@ import {
 import { ProductionModal, PreflightModal } from "./ProductionTools.jsx";
 
 function downloadProjectSnapshot(project, onBlocked) {
-  const { undo, ...snapshot } = project;
+  const { undo, history, ...snapshot } = project;
   if (window.top !== window && onBlocked) {
     rememberSetup(project).catch(() => {});
     onBlocked({ kind: "setup", url: window.location.href });
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.50",
+    version: "0.4.51",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -136,7 +137,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.50";
+const APP_VERSION = "0.4.51";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -233,6 +234,19 @@ function Button({ icon: Icon, children, kind = "", className = "", ...props }) {
       <span>{children}</span>
     </button>
   );
+}
+const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+// v0.4.51 "Undo: Move sticker (⌘Z)"
+function historyLabel(project, which) {
+  const list = project?.history?.[which] || [];
+  const keys = which === "undo" ? (IS_MAC ? "⌘Z" : "Ctrl+Z") : IS_MAC ? "⇧⌘Z" : "Ctrl+Shift+Z";
+  if (!list.length) return `${which === "undo" ? "Nothing to undo" : "Nothing to redo"} (${keys})`;
+  return `${which === "undo" ? "Undo" : "Redo"}: ${list[list.length - 1]} (${keys})`;
+}
+function isTyping(el) {
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === "TEXTAREA") return true;
+  return el.tagName === "INPUT" && !["range", "checkbox", "radio", "button", "submit", "color", "file"].includes((el.type || "").toLowerCase());
 }
 function IconButton({ icon: Icon, label, className = "", ...props }) {
   return (
@@ -381,6 +395,9 @@ function App() {
   const [selectedTrack, setSelectedTrack] = useState(null),
     [mediaId, setMediaId] = useState(null),
     [frameSize, setFrameSize] = useState({ width: 640, height: 360 });
+  const historyRef = useRef(() => {}),
+    historyBusy = useRef(false),
+    gesture = useRef(false);
   const pending = useRef({}),
     saveTimer = useRef(null),
     savePromise = useRef(null),
@@ -455,7 +472,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.50",
+          version: "0.4.51",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -531,7 +548,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.50",
+                version: "0.4.51",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -647,6 +664,15 @@ function App() {
   }, [project?.messages, inspectorTab]);
   useEffect(() => {
     const f = (e) => {
+      // v0.4.51: ⌘Z / Ctrl+Z undo, ⇧⌘Z / Ctrl+Shift+Z / Ctrl+Y redo — except while typing,
+      // where the text box keeps its own undo. After clicking a button or a slider it works.
+      const k = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === "z" || (k === "y" && e.ctrlKey && !e.metaKey))) {
+        if (isTyping(document.activeElement)) return;
+        e.preventDefault();
+        if (!e.repeat) historyRef.current(k === "y" || e.shiftKey ? "redo" : "undo");
+        return;
+      }
       if (
         ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(
           document.activeElement?.tagName,
@@ -801,6 +827,7 @@ function App() {
     pending.current = { ...pending.current, ...fields };
     setSaving("pending");
     clearTimeout(saveTimer.current);
+    if (gesture.current) return; // still dragging: saved when the drag ends
     saveTimer.current = setTimeout(() => flushSave().catch(report), 650);
   }
   async function flushSave() {
@@ -1180,6 +1207,7 @@ function App() {
     const pps = content.getBoundingClientRect().width / duration,
       startX = event.clientX,
       baseScenes = scenes;
+    gesture.current = true; // v0.4.51: saved once, on release: one undo step
     const update = (e) => {
       let delta = Math.round(((e.clientX - startX) / pps) * 10) / 10,
         fields;
@@ -1218,9 +1246,18 @@ function App() {
     const finish = () => {
       window.removeEventListener("pointermove", update);
       window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("blur", finish);
+      gesture.current = false;
+      if (Object.keys(pending.current).length) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => flushSave().catch(report), 150);
+      }
     };
     window.addEventListener("pointermove", update);
     window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
+    window.addEventListener("blur", finish, { once: true });
   }
   function splitAtPlayhead() {
     if (!activeScene || locked) return;
@@ -1267,18 +1304,29 @@ function App() {
     setSelectedId(right.id);
     notify("Scene split at the playhead. Review the cut and captions.");
   }
-  async function undo() {
+  // v0.4.51 Undo / redo any edit. Unsaved changes are saved first (so they are the step undone);
+  // the playhead stays where it is.
+  async function stepHistory(which) {
+    if (!project || locked || historyBusy.current) return;
+    historyBusy.current = true;
     try {
-      await flushSave();
-      const p = await api(`/api/projects/${project.id}/undo`, "POST", {});
+      const saved = await flushSave();
+      const list = (saved || projectRef.current)?.history?.[which] || [];
+      if (!list.length) {
+        notify(which === "undo" ? "Nothing to undo." : "Nothing to redo.", "info");
+        return;
+      }
+      const name = list[list.length - 1];
+      const p = await api(`/api/projects/${project.id}/${which}`, "POST", {});
       acceptProject(p);
-      setTime(0);
-      setPlaying(false);
-      notify("Previous saved edit restored.");
+      notify(`${which === "undo" ? "Undone" : "Redone"}: ${name}`);
     } catch (e) {
       report(e);
+    } finally {
+      historyBusy.current = false;
     }
   }
+  historyRef.current = stepHistory;
   async function direct(e, text) {
     e?.preventDefault();
     const instruction = (text || command).trim();
@@ -2425,9 +2473,15 @@ function App() {
             </button>
             <IconButton
               icon={Undo2}
-              label="Undo last saved edit"
-              onClick={undo}
-              disabled={locked || !project.undo?.length}
+              label={historyLabel(project, "undo")}
+              onClick={() => stepHistory("undo")}
+              disabled={locked || !project.history?.undo?.length}
+            />
+            <IconButton
+              icon={Redo2}
+              label={historyLabel(project, "redo")}
+              onClick={() => stepHistory("redo")}
+              disabled={locked || !project.history?.redo?.length}
             />
             <Button icon={Plus} onClick={() => setModal("new")}>
               New project

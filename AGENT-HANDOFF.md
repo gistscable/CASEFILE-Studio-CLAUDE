@@ -687,3 +687,38 @@ Known, pre-existing: overlays are laid out from `frameSize` (the frame incl. its
 a layer 2 px smaller, so every overlay sits ~1 px off in the preview (0.3%); exports unaffected.
 Tests: test_cta_file.py (sharp lossless stills, opaque file = whole frame, pixel budget, old stills
 remade), tests/js/cta.test.mjs. Suite 484 passed, 1 skipped; JS 35 pass.
+
+## v0.4.51: Undo and Redo for every edit
+
+User: "Now we need to work on the undo and redo button." Before: no redo; 8 steps; only script/scene
+edits and a few actions made a step (CTA, stickers, crop, effects, watermark, caption style… could not
+be undone); undo jumped the playhead to 0:00; the 8 whole copies lived inside the project file
+(Bismilah: 15.9 MB of its 18.4 MB, written on every save and sent to the browser after every edit).
+Now (`history.py`; `storage.checkpoint(p, label)` begins a step, `storage.save_project` finishes it):
+- **Every edit** is a step: every PATCH field, asset PATCH (crop, rename), reuse-timings, the action
+  endpoints (named: "Build timeline", "Upload", "Delete media", "Approve script", "Build episode"…),
+  "Direct your edit", and a whole Make-video run as one step. Nothing changed (incl. only the guide
+  rebuild's `plan.built_at`) = no step. Sources, exports, messages are not undone (approval safety).
+- Only what changed is stored: whole fields; scenes by id; assets by id and only `name/license/crop/
+  sticker` (`ASSET_KEYS`, so remade preview stills/thumbnails never come back old); episode by key.
+- Steps live in `data/history/<id>.json` (git-ignored; deleted with the project; not in exports,
+  downloads, recovery backups). The project keeps only names: `project.history = {undo:[…], redo:[…]}`.
+  50 undo steps (`LIMIT`), 40 MB cap. A new edit clears redo. The same control again within
+  `MERGE_SECONDS` 1.5 s (−/+ clicks, typing, a slider) merges into one step; an edit that returns to
+  where it started removes the step. v0.4.50 `undo` copies become "Earlier edit" steps on first load.
+- Names come from the change: "Scene 4 · title card", "Move sticker", "Resize CTA", "Crop · photo.jpg".
+- `POST /undo`, `POST /redo` (400 when empty). Approval is cleared if the restored script no longer matches.
+Front end: Undo + Redo buttons ("Undo: Move sticker (⌘Z)"), ⌘Z / ⇧⌘Z / Ctrl+Z / Ctrl+Shift+Z /
+Ctrl+Y (ignored only while typing in a text box; works after clicking a button or slider), pending
+edits saved first, playhead stays, toast "Undone: …". The timeline trim drag saved on every move: it
+now saves once on release (`gesture` ref), so a drag is one step (stickers/CTA/captions already did).
+Found while testing on Bismilah (pre-existing, fixed): every scene save on a guide project rebuilds
+the timeline, which (a) gave all scenes new ids (the editor lost the selected scene; undo saw 158 new
+scenes) → `episode.keep_scene_ids` keeps the id of the same scene (scene_key); (b) reset "Show scene
+title" (not in OVERRIDE_FIELDS) → added. Note: the first save of an old guide project also settles its
+inspection flags (`inspection_only`, `source_window_basis`) — that rides along in that first step.
+Speed (Bismilah, 158 scenes): edit 0.3 s, scene edit with rebuild 0.45 s, undo 0.2 s; project file
+1.9 MB + history 1.5 MB; responses 1.2 MB (were ~11 MB).
+Browser check (Chromium, copy of Bismilah in CASEFILE_DATA_DIR): toggle → "Undo: Scene 4 · title card",
+Ctrl+Z / Ctrl+Shift+Z / buttons / Ctrl+Y, playhead stays 00:14:07; 6 s slow trim drag = 0 saves during,
+1 on release, 1 step. Tests: tests/test_history.py (12). Suite 496 passed, 1 skipped; JS 35 pass.

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
-import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers
+import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers, history
 from storage import (
     ROOT,
     DATA,
@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.50", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.51", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -479,6 +479,7 @@ async def reuse_timings(id: str, request: Request):
             except (OSError, ValueError, AttributeError):
                 continue
             if candidate.get("hash") == fingerprint:
+                checkpoint(p, "Reuse timings")
                 e = copy.deepcopy(episode.state(p))
                 e["timings"] = copy.deepcopy(candidate)
                 e.pop("timing_reviewed_digest", None)
@@ -594,8 +595,8 @@ async def update_project(id: str, request: Request):
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
-        if "script" in changes or "scenes" in changes:
-            checkpoint(p)
+        # v0.4.51: every edit can be undone (an edit that changes nothing makes no step).
+        checkpoint(p)
         old_script = p["script"]
         old_story = [
             (x["id"], x["narration"], x.get("source_ids", [])) for x in p["scenes"]
@@ -718,18 +719,29 @@ async def update_project(id: str, request: Request):
 
 @app.post("/api/projects/{id}/undo")
 def undo(id: str):
+    """v0.4.51 Undo the last step (any edit); it can be redone."""
     with LOCK:
         p = project_or_404(id)
-        if not p.get("undo"):
-            raise HTTPException(
-                400,
-                "Nothing to undo yet. Timeline builds and saved edits create history.",
-            )
-        snapshot = p["undo"].pop()
-        p.update(snapshot)
+        name = history.undo(p)
+        if name is None:
+            save_project(p)
+            raise HTTPException(400, "Nothing to undo yet. Your edits create history.")
         if not editorial.script_approved(p):
             p["script_approved_hash"] = None
-        add_message(p, "assistant", "Restored the previous saved edit.")
+        return save_project(p)
+
+
+@app.post("/api/projects/{id}/redo")
+def redo(id: str):
+    """v0.4.51 Redo the last undone step (until a new edit is made)."""
+    with LOCK:
+        p = project_or_404(id)
+        name = history.redo(p)
+        if name is None:
+            save_project(p)
+            raise HTTPException(400, "Nothing to redo.")
+        if not editorial.script_approved(p):
+            p["script_approved_hash"] = None
         return save_project(p)
 
 
@@ -742,7 +754,7 @@ def assemble(id: str):
                 400,
                 "Use Episode setup to rebuild this guide-driven timeline. Generic filename/rotation assignment is disabled.",
             )
-        checkpoint(p)
+        checkpoint(p, "Build timeline")
         try:
             # An amended script must not silently retain an out-of-date voice.
             if p["scenes"] and renderer.plain(p["script"]) != renderer.plain(
@@ -906,7 +918,7 @@ async def upload(
         if episode_role and not p.get("episode"):
             p["episode"] = copy.deepcopy(episode.state(p))
         if script is not None:
-            checkpoint(p)
+            checkpoint(p, "Upload")
             p["script"] = script
             p["script_dirty"] = True
             p["script_origin"] = "user"
@@ -982,6 +994,7 @@ async def update_asset(id: str, asset_id: str, request: Request):
         asset = next((a for a in p["assets"] if a["id"] == asset_id), None)
         if not asset:
             raise HTTPException(404, "Media not found.")
+        checkpoint(p)  # v0.4.51: a crop, a rename… can be undone
         for key in ["name", "license"]:
             if key in body:
                 asset[key] = str(body[key])[: 1000 if key == "license" else 180]
@@ -1041,7 +1054,7 @@ def delete_asset(id: str, asset_id: str):
             raise HTTPException(
                 409, "Wait for the current operation before deleting media."
             )
-        checkpoint(p)
+        checkpoint(p, "Delete media")
         asset = next((a for a in p["assets"] if a["id"] == asset_id), None)
         if not asset:
             raise HTTPException(404, "Media not found.")
@@ -1187,7 +1200,7 @@ def draft(id: str, request: Request):
         if not cancelled():
             with LOCK:
                 latest = project_or_404(id)
-                checkpoint(latest)
+                checkpoint(latest, "Draft script")
                 latest["script"] = result["script"]
                 latest["script_origin"] = "ai"
                 latest["script_approved_hash"] = None
@@ -1229,7 +1242,7 @@ def narrate(id: str, request: Request):
         if not cancelled():
             with LOCK:
                 latest = project_or_404(id)
-                checkpoint(latest)
+                checkpoint(latest, "Narration")
                 latest["assets"].append(asset)
                 latest.update(narration_id=asset["id"], scenes=scenes)
                 latest["review"]["disclosure"] = False
@@ -1264,7 +1277,7 @@ def transcribe(id: str, asset_id: str, request: Request):
         if not cancelled():
             with LOCK:
                 latest = project_or_404(id)
-                checkpoint(latest)
+                checkpoint(latest, "Transcription")
                 latest.update(
                     scenes=scenes,
                     script="\n\n".join(s["narration"] for s in scenes),
@@ -1297,7 +1310,7 @@ def apply_plan(p, plan, ai_generated=False):
                 raise ValueError(
                     "This edit would change the preserved narration or guide timing. Change cue positions and source ranges in Episode setup, then rebuild. Look, caption, music-level, and source-annotation edits are supported without changing your voice."
                 )
-    checkpoint(p)
+    checkpoint(p, "Direct your edit")
     narration_changed = False
     story_changed = False
     for op in plan.get("operations", [])[:500]:
@@ -1561,7 +1574,7 @@ def write_export(project, options, progress, cancelled):
             atomic_json(folder / "preflight.json", report)
             atomic_json(
                 folder / "project.json",
-                {k: v for k, v in project.items() if k != "undo"},
+                {k: v for k, v in project.items() if k not in ("undo", "history")},
             )
             record = {
                 "id": export_id,
@@ -1671,7 +1684,7 @@ async def approve_script(id: str, request: Request):
             raise HTTPException(
                 400, "Review all cited sources before approving the script."
             )
-        checkpoint(p)
+        checkpoint(p, "Approve script")
         p["script_approved_hash"] = editorial.approval_fingerprint(p)
         add_message(
             p,
@@ -1744,6 +1757,7 @@ def sources_download(id: str):
 def project_download(id: str):
     p = project_or_404(id)
     p.pop("undo", None)
+    p.pop("history", None)
     return JSONResponse(
         p,
         headers={"Content-Disposition": 'attachment; filename="casefile-project.json"'},
@@ -2070,7 +2084,7 @@ async def episode_restore_scene(id: str, request: Request):
         scene = next((s for s in p["scenes"] if s["id"] == body.get("scene_id")), None)
         if not scene or not (p.get("episode") or {}).get("guide"):
             raise HTTPException(404, "That scene is not part of a guide edit.")
-        checkpoint(p)
+        checkpoint(p, "Restore guide picture")
         ov = p["episode"].setdefault("overrides", {})
         key = episode.scene_key(scene)
         for field in ("asset_id", "trim_start", "replaced", "source_label"):
@@ -2093,7 +2107,7 @@ def episode_analysis(id: str):
 def episode_import(id: str, body: EpisodeDocument):
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Import guide document")
         try:
             episode.import_document(p, body.role, body.text, body.filename)
         except (ValueError, TypeError, KeyError) as e:
@@ -2106,7 +2120,7 @@ async def episode_source(id: str, source_id: str, request: Request):
     body = await episode_json(request)
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Link source")
         try:
             episode.bind_source(p, source_id, body)
             episode.resolve_automatic_source_links(p)
@@ -2128,7 +2142,7 @@ async def episode_cue(id: str, cue_id: str, request: Request):
     body = await episode_json(request)
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Review cue")
         try:
             episode.review_cue(p, cue_id, body)
         except (ValueError, TypeError, KeyError) as e:
@@ -2141,7 +2155,7 @@ async def episode_choice(id: str, cue_id: str, request: Request):
     body = await episode_json(request)
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Choose source")
         try:
             episode.choose_source(p, cue_id, body)
             # Auto-rebuild the inspection timeline after a source choice
@@ -2178,7 +2192,7 @@ async def episode_options(id: str, request: Request):
         raise HTTPException(422, "Unsupported episode option.")
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Episode options")
         e = copy.deepcopy(episode.state(p))
         if body.get("clear_timings") is True:
             e.pop("timings", None)
@@ -2302,7 +2316,7 @@ def link_filenames(p):
 def episode_autolink(id: str):
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Auto-link sources")
         link_filenames(p)
         return episode_result(p)
 
@@ -3255,7 +3269,7 @@ def recut_file(id: str, rid: str):
 
 def project_files(id, p):
     """Every folder and file that belongs only to this project."""
-    paths = [DATA / "projects" / f"{id}.json", DATA / "casedesk" / f"{id}.json",
+    paths = [DATA / "projects" / f"{id}.json", DATA / "casedesk" / f"{id}.json", DATA / "history" / f"{id}.json",
              DATA / "fetch-work" / id, DATA / "fetch-work" / f"voice-{id}",
              DATA / "fetch-work" / f"recut-{id}"]
     paths += [DATA / "exports" / x["id"] for x in p.get("exports", []) if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(x.get("id", "")))]
@@ -3502,7 +3516,7 @@ def first_draft(id: str):
             and any(s.get("asset_id") for s in p.get("scenes", []))
         )
         if not reused:
-            checkpoint(p)
+            checkpoint(p, "First draft")
             try:
                 episode.build(p, allow_placeholders=True, inspection=True)
             except (ValueError, TypeError, KeyError) as error:
@@ -3534,7 +3548,7 @@ async def episode_build(id: str, request: Request):
     body = await episode_json(request)
     with LOCK:
         p = project_or_404(id)
-        checkpoint(p)
+        checkpoint(p, "Build episode")
         try:
             episode.build(
                 p,
