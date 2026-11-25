@@ -1,5 +1,5 @@
 import React from "react";
-import { ctaState, ctaPlacement, ctaCard, ctaBlurFade, ctaFileSeconds, normaliseCta, CTA_FALLBACK, CTA_BLUR } from "./cta.js";
+import { ctaState, ctaPlacement, ctaCard, ctaBlurFade, ctaFileSeconds, normaliseCta, ctaStillBox, ctaStillsCurrent, CTA_FALLBACK, CTA_BLUR } from "./cta.js";
 
 // v0.4.35 The blurred video behind the CTA (the export blurs the same way).
 function Blur({ t, seconds, width, height, fade = 1 }) {
@@ -23,10 +23,12 @@ const ASKED = new Set();
 // transparency, so the server turns its first seconds into WebP stills (which every browser shows,
 // see-through parts included) and the preview shows the still for the clock time: in step when
 // paused or scrubbed. The export still uses your original file.
+// v0.4.50: the stills are the used part of the frame at the file's own resolution, 24 a second.
 function FramesCta({ frames, t, style }) {
   const urls = React.useMemo(
-    () => Array.from({ length: frames.count }, (_, i) => `${frames.base}${String(i).padStart(4, "0")}.webp`),
-    [frames.base, frames.count],
+    // ?v=: sharp stills replace the old ones under the same names, so never reuse a cached old one
+    () => Array.from({ length: frames.count }, (_, i) => `${frames.base}${String(i).padStart(4, "0")}.webp?v=${frames.version || 1}`),
+    [frames.base, frames.count, frames.version],
   );
   const keep = React.useRef([]);
   React.useEffect(() => {
@@ -37,7 +39,8 @@ function FramesCta({ frames, t, style }) {
     });
   }, [urls]);
   const i = Math.min(frames.count - 1, Math.max(0, Math.floor(t * frames.fps)));
-  return <img className="cta-file" src={urls[i]} alt="" style={style} />;
+  const box = ctaStillBox(style, frames);
+  return <img className="cta-file" src={urls[i]} alt="" style={{ ...style, ...box }} />;
 }
 
 // v0.4.35 Your own animation file (.mov/.webm with transparency, or .gif), kept in step with the preview clock.
@@ -48,14 +51,15 @@ function FileCta({ file, c, t, width, height, playing, onNeedPreview, fade = 1 }
   const frames = file.preview_frames;
   const gif = /\.gif$/i.test(file.url || "");
   const ask = () => {
-    if (frames || ASKED.has(file.id) || !onNeedPreview) return;
+    if (ctaStillsCurrent(frames) || ASKED.has(file.id) || !onNeedPreview) return;
     ASKED.add(file.id);
     onNeedPreview(file.id);
   };
   // Uploaded before v0.4.47: the server has not looked at the codec yet, so ask it once.
+  // v0.4.50: stills from before v0.4.50 are soft; ask once for sharp ones (the old ones show meanwhile).
   React.useEffect(() => {
-    if (!gif && !file.codec) ask();
-  }, [file.id, file.codec, gif]);
+    if ((!gif && !file.codec) || (frames && !ctaStillsCurrent(frames))) ask();
+  }, [file.id, file.codec, gif, frames?.version]);
   React.useEffect(() => {
     const v = ref.current;
     if (!v || v.tagName !== "VIDEO" || v.readyState < 1) return;

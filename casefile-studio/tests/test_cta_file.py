@@ -133,14 +133,20 @@ def test_a_transparent_mov_gets_preview_stills_that_keep_its_transparency(tmp_pa
     info = renderer.probe(mov)
     assert info["codec"] == "prores" and info["alpha"] and renderer.needs_preview(info)
     got = renderer.preview_frames(mov, tmp_path / "sub-frames")
-    assert got == {"count": 45, "fps": 15, "width": 320, "height": 180}  # 3 s at 15 a second
+    # v0.4.50: 24 a second (as the export); only the part of the frame the animation draws on
+    # (the red box at 110..210 x 60..120 of 320 x 180, plus a few pixels), at full resolution.
+    assert (got["count"], got["fps"], got["version"]) == (72, 24, 2)  # 3 s at 24 a second
+    x0, y0, x1, y1 = got["box"]
+    assert 100 / 320 <= x0 <= 110 / 320 and 211 / 320 <= x1 <= 220 / 320 and 50 / 180 <= y0 <= 60 / 180 and 121 / 180 <= y1 <= 130 / 180, got["box"]
+    assert (got["width"], got["height"]) == (round((x1 - x0) * 320), round((y1 - y0) * 180))  # the file's own pixels
     stills = sorted((tmp_path / "sub-frames").iterdir())
-    assert len(stills) == 45 and all(f.suffix == ".webp" for f in stills)
-    with Image.open(stills[20]) as im:
+    assert len(stills) == 72 and all(f.suffix == ".webp" for f in stills)
+    with Image.open(stills[30]) as im:
         im = im.convert("RGBA")
-        middle, corner = im.getpixel((160, 90)), im.getpixel((10, 10))
-    assert middle[3] > 240 and middle[0] > 180 and middle[1] < 70  # the red box, solid
-    assert corner[3] < 15  # the edge, still transparent
+        bx, by = round(110 - x0 * 320), round(60 - y0 * 180)  # the red box's corner in the still
+        inside, outside = im.getpixel((bx + 2, by + 2)), im.getpixel((max(0, bx - 3), max(0, by - 3)))
+    assert inside[3] > 240 and inside[0] > 180 and inside[1] < 70  # the red box, solid, right to its edge
+    assert outside[3] < 15  # just outside it: still transparent
     webm = renderer.probe(animation(tmp_path, "webm"))
     assert webm["codec"] == "vp9" and webm["alpha"] and not renderer.needs_preview(webm)
     assert not renderer.needs_preview({"has_video": True, "codec": "h264"})
@@ -157,8 +163,8 @@ def test_upload_makes_the_preview_stills_and_old_uploads_get_them_on_request(iso
     a, w = r.json()["assets"]
     stored = renderer.asset_path(a)
     folder = stored.with_name(stored.stem + "-frames")
-    assert a["alpha"] is True and a["preview_frames"]["count"] == 45 and a["preview_frames"]["base"].endswith(f"/{folder.name}/")
-    assert (folder / "0000.webp").is_file() and (folder / "0044.webp").is_file()
+    assert a["alpha"] is True and a["preview_frames"]["count"] == 72 and a["preview_frames"]["base"].endswith(f"/{folder.name}/")
+    assert (folder / "0000.webp").is_file() and (folder / "0071.webp").is_file()
     assert "preview_frames" not in w and w["codec"] == "vp9"
     # An upload from before v0.4.47 has no codec and no stills: the page asks once.
     with server.LOCK:
@@ -168,10 +174,63 @@ def test_upload_makes_the_preview_stills_and_old_uploads_get_them_on_request(iso
                 asset.pop(k, None)
         server.save_project(proj)
     got = c.post(f"/api/projects/{p['id']}/assets/{a['id']}/preview")
-    assert got.status_code == 200 and got.json()["preview_frames"]["count"] == 45
+    assert got.status_code == 200 and got.json()["preview_frames"]["count"] == 72
     saved = c.get(f"/api/projects/{p['id']}").json()["assets"]
     assert saved[0]["preview_frames"] == got.json()["preview_frames"] and saved[0]["codec"] == "prores"
     plays = c.post(f"/api/projects/{p['id']}/assets/{w['id']}/preview")  # a WebM plays already: just noted
     assert plays.status_code == 200 and plays.json()["codec"] == "vp9" and "preview_frames" not in plays.json()
     assert c.get(f"/api/projects/{p['id']}").json()["assets"][1]["codec"] == "vp9"
     assert c.post(f"/api/projects/{p['id']}/assets/nope/preview").status_code == 404
+    # v0.4.50: soft stills from before (640 px, 15 a second, no version) are made again, sharp;
+    # current ones are left alone.
+    with server.LOCK:
+        proj = server.project_or_404(p["id"])
+        proj["assets"][0]["preview_frames"] = {"count": 45, "fps": 15, "width": 320, "height": 180, "base": a["preview_frames"]["base"]}
+        server.save_project(proj)
+    again = c.post(f"/api/projects/{p['id']}/assets/{a['id']}/preview").json()["preview_frames"]
+    assert again["version"] == 2 and again["fps"] == 24 and again["count"] == 72
+    assert c.get(f"/api/projects/{p['id']}").json()["assets"][0]["preview_frames"] == again
+    stamp = (folder / "0000.webp").stat().st_mtime_ns
+    assert c.post(f"/api/projects/{p['id']}/assets/{a['id']}/preview").json()["preview_frames"] == again
+    assert (folder / "0000.webp").stat().st_mtime_ns == stamp  # not made again
+
+
+def test_preview_stills_are_sharp_lossless_and_never_transparent_files_fill_the_card(tmp_path):
+    """v0.4.50 "Why is the CTA .MOV not sharp?" The edit preview showed 640 px lossy stills, enlarged
+    1.5x on a Retina screen (2.8x fullscreen): soft text and smeared red edges. The export was sharp.
+    Stills are now the file's own pixels, lossless; a file with no transparency fills the card."""
+    src = tmp_path / "src"
+    src.mkdir()
+    for n in range(12):
+        im = Image.new("RGBA", (1280, 720), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        d.rectangle((400, 300, 880, 420), fill=(204, 0, 0, 255))
+        for k in range(20):  # 1 px black lines 1 px apart: lost by any scaling or lossy coding
+            d.line((420 + 2 * k, 320, 420 + 2 * k, 400), fill=(0, 0, 0, 255))
+        im.save(src / f"{n:03d}.png")
+    mov = tmp_path / "sharp.mov"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-framerate", "24", "-i", str(src / "%03d.png"), "-c:v", "prores_ks", "-profile:v", "4444",
+                    "-pix_fmt", "yuva444p10le", str(mov)], check=True)
+    got = renderer.preview_frames(mov, tmp_path / "f")
+    x0, y0 = got["box"][0] * 1280, got["box"][1] * 720
+    with Image.open(tmp_path / "f" / "0005.webp") as im:
+        assert im.size == (got["width"], got["height"]) and got["width"] < 520  # just the box, unscaled
+        px = np.asarray(im.convert("RGBA")).astype(int)
+    row = px[round(360 - y0), round(420 - x0): round(460 - x0), :3]
+    dark, red = row[0::2], row[1::2]
+    assert dark.max() < 60 and (red[:, 0] > 150).all() and red[:, 1].max() < 60  # every line and gap kept
+    edge = px[round(360 - y0), round(400 - x0) - 2: round(400 - x0) + 2]
+    assert edge[0][3] < 10 and edge[-1][3] > 245 and edge[-1][0] > 150  # a hard red edge, no smear
+    # never transparent (an opaque ProRes): the whole frame
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=320x180:r=24:d=1", "-c:v", "prores_ks", str(tmp_path / "op.mov")], check=True)
+    op = renderer.preview_frames(tmp_path / "op.mov", tmp_path / "op")
+    assert op["box"] == [0.0, 0.0, 1.0, 1.0] and (op["width"], op["height"], op["count"]) == (320, 180, 24)
+
+
+def test_preview_stills_of_a_big_full_frame_animation_stay_within_the_pixel_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr(renderer, "PREVIEW_MAX_PIXELS", 160 * 90)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=24:d=0.5", "-c:v", "prores_ks", str(tmp_path / "big.mov")], check=True)
+    got = renderer.preview_frames(tmp_path / "big.mov", tmp_path / "f")
+    assert (got["width"], got["height"], got["count"]) == (160, 90, 12)
+    with Image.open(tmp_path / "f" / "0003.webp") as im:
+        assert im.size == (160, 90)
