@@ -51,3 +51,16 @@ and offers **Fetch these clips**. Accept the download notice once, press it, and
 each video only as far as the last clip needs, saves it as `S01.mp4` and so on, and ticks the
 inserts that were waiting for it. Clips with no YouTube link in the list or the guide are named so
 you can upload them by hand.
+
+## The re-cut follows the picture (v0.4.42)
+
+A finished video's file length is its longest track. When the sound ran on past the picture
+(a CapCut export with a long voice track, or a stray late audio packet), the re-cut planned its
+last stretch to the sound's length: the sound was padded out to it, the picture ran out of frames,
+and the re-cut failed with "The re-cut's picture (11:26) and sound (79:24) came out different
+lengths". Casefile now reads where the picture and the sound really end (from the file's packets)
+and uses the picture's length. If the sound runs more than 2 seconds past the picture, the
+finished message says so ("has 6:19 of picture but 74:17 of sound… the sound after 6:19 is left
+out"), and an insert placed after the picture ends is refused with the same explanation. A piece
+whose picture runs a few frames short holds its last frame (up to 2 s), so later shots never
+shift. Clip files are measured the same way. Tests: `tests/test_recut_lengths.py`.

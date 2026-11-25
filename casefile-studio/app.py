@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.41", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.42", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -3063,9 +3063,10 @@ async def recut_render(id: str, request: Request):
         raise HTTPException(422, "Tick at least one insert to include.")
     for ins, plan in zip(inserts, recut_cutaways(p, raws, body.get("auto_cutaways", True) is not False)):
         ins["cutaways"] = plan["cutaways"]
-    problems, _ = recut.check(base, inserts)
+    problems, base_info = recut.check(base, inserts)
     if problems:
         raise HTTPException(422, " ".join(problems[:3]))
+    length_note = recut.mismatch_note(base_info)
 
     def work(progress, cancelled):
         folder = DATA / "media" / id / "recut"
@@ -3097,7 +3098,8 @@ async def recut_render(id: str, request: Request):
             state["recuts"].insert(0, record)
             casedesk.save(DATA, id, state)
         secs = round(duration)
-        return {**record, "summary": f"Re-cut ready: {secs // 60}:{secs % 60:02d} with {len(inserts)} original clip{'s' if len(inserts) != 1 else ''} in place of the narrated lines."}
+        summary = f"Re-cut ready: {secs // 60}:{secs % 60:02d} with {len(inserts)} original clip{'s' if len(inserts) != 1 else ''} in place of the narrated lines."
+        return {**record, "summary": summary + (" " + length_note if length_note else "")}
 
     return spawn(id, "recut", work)
 
