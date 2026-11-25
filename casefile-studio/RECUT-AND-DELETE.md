@@ -111,3 +111,27 @@ it writes as bt709, so the result is the same on every version. Reproduced with 
 mixed-label export (old code: "16:39.71 of picture" on ffmpeg 7.0) and checked with the full
 16-insert list on ffmpeg 6.0, 7.0 and 9.0: 22:05.21, picture and sound the same length, every frame
 present.
+
+## One tick for all the audio, and cutaways that show what the clip is about (v0.4.46)
+
+**One tick for every insert's audio.** Above the inserts there is now "I may play the original audio
+of all N ticked inserts in my video". It ticks (or unticks) each insert's own box, so you can still
+untick one you have not cleared. It covers the ticked inserts whose clip is in the project and has
+sound. The re-cut still checks every insert's tick on its own.
+
+**Automatic cutaways follow the subject, not the room.** Before, the picture came only from who was
+speaking, and a judge or lawyer got a courtroom picture: a courtroom over a courtroom. Now:
+- When the list's Words column holds the clip's words, they decide: the victim's name, "my son",
+  "my baby" → the victim; "vigil", "funeral", "candles" → the victim / memorial; "the house",
+  "the street", "the car" → the place; "police", "arrested" → C / police; the suspect's name,
+  "the shooter" → the suspect (never under family or the defendant himself).
+- When Words is only a word count (as in many lists), the speaker decides: family, the judge and
+  prosecutors → the victim; a defence lawyer → the suspect; the defendant, police and witnesses →
+  the place.
+- Automatic cutaways never show a courtroom picture. If a bucket has no pictures, the next sensible
+  one is used (victim ↔ place) and the page says so; with nothing suitable the speaker stays on.
+- Each clip's Cutaways strip says why, e.g. "Shows the victim: the family's side is speaking."
+
+Cutaway rows in your list still always win, and you can still change any picture or switch one off.
+The prompts now ask for the verbatim words (not a count) and say a cutaway shows what the words are
+about, never C / court under someone filmed in court.

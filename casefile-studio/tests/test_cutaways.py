@@ -42,7 +42,8 @@ def test_rules():
     plan = cutaways.auto_plan(40, "Dedrick Hilton (her father)", card=True)
     assert plan[0]["from"] == 4.5 and plan[-1]["to"] <= 38 and all(c["show"]["bucket"] == "V" for c in plan)
     assert sum(c["to"] - c["from"] for c in plan) <= 20.0 + 1e-6
-    assert cutaways.auto_plan(30, "Assistant Solicitor")[0]["show"] == {"kind": "base", "bucket": "C", "tags": ["court"], "exclude": []}
+    # v0.4.46 a lawyer in court cuts to the victim, not to another courtroom
+    assert cutaways.auto_plan(30, "Assistant Solicitor")[0]["show"] == {"kind": "base", "bucket": "V", "tags": [], "exclude": []}
     assert cutaways.auto_plan(30, "Assistant Solicitor", "Khalil Gillard fired", suspect="Khalil Gillard")[0]["show"]["bucket"] == "S"
     assert cutaways.auto_plan(30, "Her grandfather", "Khalil Gillard took her", suspect="Khalil Gillard")[0]["show"]["bucket"] == "V"
     # clean: clamps the head, drops a suspect picture under a family speaker, caps the share
@@ -117,7 +118,9 @@ def test_api_plans_cutaways(isolated, tmp_path):
     one, two, three = r["plans"]
     assert one["auto"] and one["speaker"] == "family" and {x["name"] for x in one["cutaways"]} == {"BASE-V--portrait--01.jpg"}
     assert two["cutaways"] == []  # short clip: stays on the speaker
-    assert [x["name"] for x in three["cutaways"]] == ["BASE-C--court--01.jpg"] and three["off"] == [1]
+    # v0.4.46 the judge is in a courtroom already: the cutaway shows the victim, never the court picture
+    assert [x["name"] for x in three["cutaways"]] == ["BASE-V--portrait--01.jpg"] and three["off"] == [1]
+    assert one["why"].startswith("Shows the victim") and "family" in one["why"]
     assert all("path" not in x for x in one["cutaways"]) and len(r["pictures"]) == 3
     body["auto"] = False
     assert all(not x["cutaways"] for x in c.post(f"/api/projects/{p['id']}/recut/cutaways", json=body).json()["plans"])
@@ -163,3 +166,49 @@ def test_picture_check_passes_real_clips_and_catches_a_wrong_picture(tmp_path):
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=white:s=640x360:r=24:d=20", "-c:v", "libx264", "-preset", "ultrafast", str(other)], check=True)
     wrong = recut.picture_check(out, base, [({"at": 2.0, "start": 5.0, "path": other}, 2.0, 8.0)], info["width"], info["height"])
     assert not wrong[0]["ok"]  # the finished video at that spot is not the narration video
+
+
+def test_automatic_cutaways_show_what_the_clip_is_about():
+    """v0.4.46 Automatic cutaways follow the subject (victim, place, event), not the room the speaker is in."""
+    V, S = "Maurco Toler", "Javyonne Stewart"
+    pick = lambda who, words="": cutaways.auto_plan(20, who, words, V, S)[0]
+    show = lambda who, words="": (lambda s: (s["bucket"], s["tags"]))(pick(who, words)["show"])
+    # a word count in the Words column says nothing: the speaker decides
+    assert show("Anita Deal — Maurco's mother", "39") == ("V", [])
+    assert show("Judge Mollie Ann Murphy", "68") == ("V", [])
+    assert show("Javyonne Stewart — defendant (allocution)", "50") == ("C", ["location"])
+    assert show("Stewart's lawyer") == ("S", []) and show("Defense attorney Mark Hill") == ("S", [])
+    assert show("Detective Ray Long") == ("C", ["location"]) and show("Neighbour") == ("C", ["location"])
+    # real words decide when the list has them
+    assert show("Anita Deal — Maurco's mother", "at the vigil everyone brought balloons and candles for my baby") == ("V", ["memorial"])
+    assert show("Police Chief", "officers recovered the gun and made an arrest") == ("C", ["police"])
+    assert show("Assistant prosecutor", "Javyonne Stewart was the shooter, the defendant fired first") == ("S", [])
+    assert show("Neighbour", "I heard the shots outside on the street") == ("C", ["location"])
+    # never the suspect under family or the defendant himself; never a courtroom picture
+    assert show("Anita Deal — Maurco's mother", "Javyonne Stewart took my son and sat in that courtroom smiling") == ("V", [])
+    assert show("Javyonne Stewart — defendant", "Javyonne Stewart the shooter the accused") != ("S", [])
+    for who in ("Judge Murphy", "Prosecutor", "Defense attorney", "Javyonne Stewart — defendant", "Police chief", "Anita Deal — mother", "Juror"):
+        for words in ("", "the court the trial the courtroom the judge the jury the sentencing"):
+            p = pick(who, words)
+            assert all("court" not in a.get("tags", []) and ("court" in a.get("exclude", []) or a["bucket"] != "C")
+                       for a in [p["show"]] + p["alts"]), (who, words, p)
+    assert "the place" in pick("Neighbour")["why"] and "no words" in pick("Neighbour", "12")["why"]
+
+
+def test_automatic_cutaways_fall_back_and_never_land_on_a_courtroom():
+    court = {"id": "c", "name": "BASE-C--court--01.jpg", "kind": "image", "bucket": "C", "tags": ["court"], "duration": 0, "window": None}
+    place = {"id": "p", "name": "BASE-C--location--01.jpg", "kind": "image", "bucket": "C", "tags": ["location"], "duration": 0, "window": None}
+    victim = {"id": "v", "name": "BASE-V--portrait--01.jpg", "kind": "image", "bucket": "V", "tags": ["portrait"], "duration": 0, "window": None}
+    plan = cutaways.auto_plan(20, "Javyonne Stewart — defendant", "", "Maurco Toler", "Javyonne Stewart")
+    # only a courtroom picture and a victim picture: the place has none, so the victim, never the court
+    got, warn = cutaways.resolve(plan, [court, victim], {}, {}, lambda a: a["name"])
+    assert {c["asset_id"] for c in got} == {"v"} and "instead" in warn[0]
+    got, _ = cutaways.resolve(plan, [court, place, victim], {}, {}, lambda a: a["name"])
+    assert {c["asset_id"] for c in got} == {"p"}
+    got, warn = cutaways.resolve(plan, [court], {}, {}, lambda a: a["name"])
+    assert got == [] and "stays on screen" in warn[0]
+    # family with no victim pictures: the place, never the suspect
+    fam = cutaways.auto_plan(20, "Her mother", "", "Maurco Toler", "Javyonne Stewart")
+    sus = {"id": "s", "name": "BASE-S--portrait--01.jpg", "kind": "image", "bucket": "S", "tags": ["portrait"], "duration": 0, "window": None}
+    got, _ = cutaways.resolve(fam, [sus, court, place], {}, {}, lambda a: a["name"])
+    assert {c["asset_id"] for c in got} == {"p"}

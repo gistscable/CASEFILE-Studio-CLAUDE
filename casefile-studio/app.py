@@ -31,7 +31,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.45", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.46", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -2886,7 +2886,7 @@ def recut_cutaways(p, raw_inserts, auto=True):
         is_auto = not planned and bool(auto)
         plan = planned if planned else cutaways.auto_plan(length, raw.get("who", ""), raw.get("words", ""), victim, suspect, bool(raw.get("card"))) if auto else []
         plan, warnings = cutaways.clean([{"from": float(c["from"]), "to": float(c["to"]), "show": c["show"], "label": c.get("label") or cutaways.show_label(c["show"]),
-                                          **({"auto": True} if c.get("auto") else {})} for c in plan], length, raw.get("who", ""))
+                                          **({k: c[k] for k in ("auto", "alts", "why") if c.get(k)})} for c in plan], length, raw.get("who", ""))
         picks = raw.get("pick") or {}
         off = {int(x) for x in raw.get("off") or [] if str(x).lstrip("-").isdigit()}
         for n, c in enumerate(plan):
@@ -2896,7 +2896,8 @@ def recut_cutaways(p, raw_inserts, auto=True):
                 c["show"] = {"kind": "asset", "asset_id": chosen, "name": assets[chosen]["name"]}
         plan = [c for c in plan if c["n"] not in off]
         done, more = cutaways.resolve(plan, pool, sources, used, lambda a: renderer.asset_path(assets[a["id"]]))
-        out.append({"cutaways": done, "warnings": warnings + more, "auto": is_auto, "speaker": cutaways.speaker(raw.get("who", "")),
+        out.append({"cutaways": done, "warnings": warnings + more, "auto": is_auto, "speaker": cutaways.speaker(raw.get("who", ""), suspect),
+                    "why": next((c["why"] for c in plan if c.get("why")), ""),
                     "off": sorted(off), "length": round(length, 3)})
     return out
 

@@ -65,6 +65,7 @@ function Cutaways({ n, plan, pictures, disabled, onToggle, onPick }) {
       <span className="rc-cuts-title">
         Cutaways {plan.auto ? <em>automatic</em> : <em>from your list</em>} · the speaker is heard throughout
       </span>
+      {plan.auto && plan.why && plan.cutaways.length > 0 && <span className="rc-note rc-cuts-why">{plan.why}</span>}
       <div className="rc-cuts-row">
         {plan.cutaways.map((c) => (
           <div key={c.n} className="rc-cut">
@@ -241,6 +242,8 @@ export default function Recut({ project, api, locked, onProject, onError, onNoti
   const sourceOf = (id) => view.sources.find((s) => s.id === id);
   const chosen = rows.filter((r) => r.include);
   const firstOf = cardKeys(rows);
+  // v0.4.46 The inserts the "all" audio tick covers: ticked, with their clip here and sound in it.
+  const audioRows = chosen.filter((r) => sourceOf(r.source_id)?.has_audio);
   const ready = video && chosen.length > 0 && chosen.every((r) => sourceOf(r.source_id) && r.audio_ok && r.end > r.start);
   const added = chosen.reduce((a, r) => a + Math.max(0, r.end - r.start) - Math.max(0, (r.until ?? r.at) - r.at), 0);
 
@@ -410,7 +413,24 @@ export default function Recut({ project, api, locked, onProject, onError, onNoti
         {rows.length > 0 && (
           <label className="rc-check">
             <input type="checkbox" aria-label="Automatic cutaways on long clips" checked={autoCut} disabled={off} onChange={(e) => setAutoCut(e.target.checked)} />
-            Cut away to matching base images on long clips (12 s or more) that have no cutaways in the list. The speaker’s sound plays on; the picture starts and ends on their face.
+            Cut away on long clips (12 s or more) that have no cutaways in the list, to base images of what the clip is about: the victim when family, the judge or the prosecution speaks; the suspect for the defence; the place for the defendant, police and witnesses; the subject of the words when the list gives them. Never a courtroom picture. The speaker’s sound plays on; the picture starts and ends on their face.
+          </label>
+        )}
+        {audioRows.length > 1 && (
+          <label className="rc-check rc-all-audio">
+            <input
+              type="checkbox"
+              aria-label="I may play the original audio of every ticked insert"
+              checked={audioRows.every((r) => r.audio_ok)}
+              disabled={off}
+              onChange={(e) => {
+                const keys = new Set(audioRows.map((r) => r.key));
+                const on = e.target.checked;
+                setRows((rs) => rs.map((r) => (keys.has(r.key) ? { ...r, audio_ok: on } : r)));
+              }}
+            />
+            <b>I may play the original audio of all {audioRows.length} ticked inserts in my video</b>
+            <span className="rc-note">(ticks each one below; untick any you have not cleared)</span>
           </label>
         )}
         {rows.length === 0 && <p className="rc-note">No inserts yet. Load the re-cut list your guide writer gave you, or add one by hand.</p>}

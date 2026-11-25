@@ -77,11 +77,11 @@ DELIVERABLES
 ## The clips that will play
 | RC | Chapter | Who | Clip | Window | Words |
 |---|---|---|---|---|---|
-(copy the rows of recut_plan.md's first table unchanged)
+(copy the rows of recut_plan.md's first table unchanged; Words holds the verbatim words, never a word count)
 ## Cutaways
 | RC | From | To | Show | Words |
 |---|---|---|---|---|
-(the cutaway rows from recut_plan.md, with Show made concrete; times inside the clip)
+(the cutaway rows from recut_plan.md, with Show made concrete; times inside the clip; show what the words are about, never C / court under someone filmed in court)
 Cut from / Cut to are MM:SS.ss or H:MM:SS.ss on the recorded narration; Length is the clip length; add "(optional)" in the Chapter cell for an insert I may leave out.
 
 PHASES (stop at each gate)

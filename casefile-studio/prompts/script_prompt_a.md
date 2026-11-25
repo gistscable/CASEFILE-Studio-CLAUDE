@@ -73,8 +73,8 @@ RECUT_PLAN.MD FORMAT (Casefile Studio reads the first table; keep the headers an
 ## Cutaways (times inside the clip: 0:00 is the first word of the clip; the speaker's sound plays on)
 | RC | From | To | Show | Words |
 |---|---|---|---|---|
-| RC-04 | 0:05.0 | 0:10.0 | C / court | "…when he walked into that apartment…" |
+| RC-04 | 0:05.0 | 0:10.0 | C / location | "…when he walked into that apartment…" |
 | RC-04 | 0:14.0 | 0:19.0 | S / custody | "…the defendant has shown no remorse…" |
-Rules: Chapter is HOOK or the chapter number; Clip is a YouTube link plus the S-ID in backticks; Window is MM:SS.ss–MM:SS.ss (or H:MM:SS.ss); Words are verbatim (or "VERIFY: …"). Show is a base bucket and tag (V / portrait, V / family, S / custody, S / court, C / court, C / location, C / police) or a footage window (`S06 21:10–21:16`) outside every RC window; leave a clip out of this table to keep it on the speaker. The times for "Cut from / Cut to" are added later by the Guide-Writer from the recorded narration.
+Rules: Chapter is HOOK or the chapter number; Clip is a YouTube link plus the S-ID in backticks; Window is MM:SS.ss–MM:SS.ss (or H:MM:SS.ss); Words are the verbatim words (or "VERIFY: …"), never a word count: Casefile reads them to pick automatic cutaways. A cutaway shows what the words are about (the victim, the place, the event, the suspect), never the room the speaker is already in: no C / court under someone filmed in court (a judge, a lawyer, a defendant, a family member reading a statement). Show is a base bucket and tag (V / portrait, V / family, S / custody, S / court, C / court, C / location, C / police) or a footage window (`S06 21:10–21:16`) outside every RC window; leave a clip out of this table to keep it on the speaker. The times for "Cut from / Cut to" are added later by the Guide-Writer from the recorded narration.
 
 Attached: my reference transcript (lead only, not proof). Start with Phase 0 and Phase 1 only.
