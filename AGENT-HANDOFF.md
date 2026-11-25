@@ -453,8 +453,12 @@ Tests: tests/test_watermark.py (nine spots, default, a real export), a re-cut te
 While a real clip plays with its own sound, the picture can leave the speaker to show what they
 talk about, then come back. Sound never changes.
 - `cutaways.py`: `parse_show` (base hint `V / portrait`, `BASE-…` filename, footage `S06 21:10–21:16`,
-  "face"), `auto_plan` (clips >= 12 s with no rows: family → V, court → C/court, police → C/police,
-  S only when the words name the suspect and the speaker is not family; face 3 s first, 4.5 s with a
+  "face"), `auto_plan` (clips >= 12 s with no rows; v0.4.46: `speaker` → family | defendant | defence |
+  court | police | other, `topic` scores the clip's words (victim/suspect names from the guide setup,
+  son/baby…, vigil/funeral…, house/street…, police/arrest…) when Words holds words, not a count;
+  else the speaker: family/court → V, defence → S, defendant/police/other → C/location; every auto C
+  excludes `court` (never a courtroom picture), no S under family or the defendant; each cut carries
+  `alts` (V ↔ C/location) that `resolve` tries when a bucket is empty, and `why`; face 3 s first, 4.5 s with a
   name card; 4.5 s shots, 3 s face between, at most 50%), `clean` (face >= 2.5 s first / 1.5 s last,
   1–8 s each, <= 60% of the clip, no S under a family speaker; drops rows with a sentence why),
   `resolve` (rotates base pictures across the whole re-cut, footage windows from the S-ID files,
@@ -468,7 +472,8 @@ talk about, then come back. Sound never changes.
   plans with thumbs, warnings, speaker, and the picture list) and `/recut/render` (`auto_cutaways`,
   per insert `cutaways`, `off`, `pick`). Base pool honours the guide's Avoid tags. Re-cut records
   store a cutaway count per insert.
-- Re-cut page: "Cut away to matching base images on long clips" (on by default) and a Cutaways strip
+- Re-cut page: one "I may play the original audio of all N ticked inserts" tick (v0.4.46, sets each
+  insert's own tick; the server still checks every insert), "Cut away … on long clips" (off by default) and a Cutaways strip
   per insert (thumbnail, time, picture menu without S pictures for family speakers, × to stay on
   the speaker, turn back on).
 - Prompts: Script Workflow (rule 14d, cutaway rules, Phase 4 cutaway points, recut_plan cutaway

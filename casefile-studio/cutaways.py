@@ -9,9 +9,15 @@ Two ways to get them:
   times inside the clip), written by the Guide-Writer from the script's
   cutaway points; these always win;
 - automatic, for long clips (12 s or more) that have none planned: Casefile
-  picks matching base images from the speaker (family -> V, court -> C/court,
-  police -> C/police; S only when the words name the suspect and the speaker
-  is not family).
+  shows what the clip is ABOUT, never the room the speaker is already in
+  (v0.4.46). From the clip's words when the list has them (the victim's or the
+  suspect's name, "my son", "the house", "the vigil", "police"...), else from
+  who speaks: family, judge, prosecutor and lawyers -> the victim (V); the
+  defendant, police, witnesses -> the place (C / location); a defence lawyer
+  -> the suspect (S). Automatic cutaways never show a courtroom picture (most
+  soundbites are filmed in one) and never a suspect picture under a family
+  speaker or under the defendant himself. When a bucket has no pictures the
+  next sensible one is used (victim -> place, place -> victim).
 
 Rules (both ways): the face shows for the first 2.5 s at least (longer when a
 name card is on) and the last 1.5 s; one cutaway is 1 to 8 s; cutaways cover
@@ -32,8 +38,27 @@ AUTO_SHARE, MAX_SHARE = 0.5, 0.6
 
 FAMILY = re.compile(r"\b(father|mother|mom|mum|dad|parent|grand\w*|sister|brother|aunt|uncle|cousin|son|daughter|wife|husband|"
                     r"fianc\w*|family|friend|stepfather|stepmother|godmother|godfather)\b", re.I)
-COURT = re.compile(r"\b(judge|solicitor|prosecutor|attorney|counsel|defen[cs]e|lawyer|clerk|magistrate|court)\b", re.I)
+DEFENDANT = re.compile(r"\b(defendant|accused|suspect|shooter|gunman|convicted|inmate|allocution)\b", re.I)
+DEFENCE = re.compile(r"\b(defen[cs]e|public defender)\b", re.I)
+COURT = re.compile(r"\b(judge|solicitor|prosecut\w*|attorney|counsel|lawyer|clerk|magistrate|court)\b", re.I)
 POLICE = re.compile(r"\b(police|chief|sheriff|detective|officer|investigator|coroner|deputy|agent|spokes\w*)\b", re.I)
+
+# v0.4.46 What the words of a clip are about (only used when the list gives the words, not a count).
+TOPIC_WORDS = {
+    "memorial": r"vigil|funeral|memorial|grave|graveside|cemetery|candles?|balloons?|buried|burial|casket|tribute",
+    "victim": r"son|daughter|child|children|kids?|boy|girl|baby|grandson|granddaughter|grandbaby|nephew|niece|"
+              r"victim|his life|her life|loved|miss (?:him|her)",
+    "suspect": r"defendant|shooter|gunman|killer|murderer|accused|suspect",
+    "place": r"house|home|apartment|street|road|block|neighbou?rhood|scene|car|vehicle|suv|truck|parking|store|"
+             r"park|school|yard|porch|driveway|window|door|outside|corner|gas station",
+    "police": r"police|officers?|cops?|detectives?|arrest\w*|911|investigat\w*|handcuff\w*|squad|patrol",
+}
+SHOWS = {
+    "victim": ("V", [], []), "memorial": ("V", ["memorial"], []), "suspect": ("S", [], []),
+    "place": ("C", ["location"], ["court"]), "police": ("C", ["police"], ["court"]),
+}
+ABOUT = {"victim": "the victim", "memorial": "the memorial", "suspect": "the suspect", "place": "the place",
+         "police": "the police work"}
 _T = r"(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,3})?"
 
 
@@ -49,15 +74,48 @@ def _sec(text):
     return float(m.group(0).replace(",", ".")) if m else None
 
 
-def speaker(who):
+def speaker(who, suspect=""):
+    """family | defendant | defence | court | police | other."""
     who = str(who or "")
     if FAMILY.search(who):
         return "family"
+    named = bool(suspect) and any(re.search(rf"\b{re.escape(n)}\b", who.lower()) for n in _names(suspect))
+    if DEFENCE.search(who) or (named and COURT.search(who)):
+        return "defence"
+    if DEFENDANT.search(who) or named:
+        return "defendant"
     if COURT.search(who):
         return "court"
     if POLICE.search(who):
         return "police"
     return "other"
+
+
+def _names(full):
+    return [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’-]{2,}", full or "")]
+
+
+def topic(kind, words="", victim="", suspect=""):
+    """(topic, reason) for an automatic cutaway: what the clip is about."""
+    text = f" {words or ''} ".lower()
+    real = len(re.findall(r"[a-z]{2,}", text)) >= 3  # a word count like "39" says nothing
+    allowed = [t for t in TOPIC_WORDS if not (t == "suspect" and kind in ("family", "defendant"))]
+    if real:
+        score = {}
+        for t in allowed:
+            pattern = TOPIC_WORDS[t]
+            names = _names(victim if t == "victim" else suspect if t == "suspect" else "")
+            if names:
+                pattern += "|" + "|".join(re.escape(n) for n in names)
+            score[t] = len(re.findall(rf"\b(?:{pattern})\b", text))
+        best = max(allowed, key=lambda t: (score[t], -allowed.index(t)))
+        if score[best]:
+            return best, f"the words are about {ABOUT[best]}"
+    default = {"family": "victim", "court": "victim", "defence": "suspect", "defendant": "place",
+               "police": "place", "other": "place"}[kind]
+    who = {"family": "the family's side", "court": "the court or a lawyer", "defence": "the defence",
+           "defendant": "the defendant", "police": "the police", "other": "a witness"}[kind]
+    return default, f"{who} is speaking" + ("" if real else " (the list gives no words to go on)")
 
 
 def parse_show(text):
@@ -109,33 +167,31 @@ def parse_row(frm, to, show):
     return {"from": a, "to": b, "show": parsed, "label": show_label(parsed)}
 
 
+def _base(t):
+    bucket, tags, exclude = SHOWS[t]
+    return {"kind": "base", "bucket": bucket, "tags": list(tags), "exclude": list(exclude)}
+
+
 def auto_plan(length, who="", words="", victim="", suspect="", card=False):
-    """Base-image cutaways for a long clip with none planned."""
+    """Base-image cutaways for a long clip with none planned: what the clip is about."""
     if length < AUTO_MIN:
         return []
-    kind = speaker(who)
-    text = f" {words} ".lower()
-    names = lambda full: [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z'’-]{2,}", full or "")]
-    hits = lambda full: any(re.search(rf"\b{re.escape(n)}\b", text) for n in names(full))
-    if kind != "family" and suspect and hits(suspect):
-        show = {"kind": "base", "bucket": "S", "tags": ["court"] if kind == "court" else [], "exclude": []}
-    elif kind == "family" or (victim and hits(victim)):
-        show = {"kind": "base", "bucket": "V", "tags": [], "exclude": []}
-    elif kind == "court":
-        show = {"kind": "base", "bucket": "C", "tags": ["court"], "exclude": []}
-    elif kind == "police":
-        show = {"kind": "base", "bucket": "C", "tags": ["police"], "exclude": []}
-    else:
-        show = {"kind": "base", "bucket": "C", "tags": [], "exclude": []}
-    out, t = [], HEAD_CARD if card else HEAD
+    kind = speaker(who, suspect)
+    t, why = topic(kind, words, victim, suspect)
+    # Next best when a bucket has no pictures; never the suspect under family or the defendant himself.
+    order = [t] + {"victim": ["place"], "memorial": ["victim", "place"], "suspect": ["place"],
+                   "place": ["victim"], "police": ["place", "victim"]}[t]
+    show, alts = _base(order[0]), [_base(x) for x in order[1:]]
+    out, at = [], HEAD_CARD if card else HEAD
     budget = length * AUTO_SHARE
-    while t + 2.5 <= length - max(MIN_TAIL, 2.0) and budget >= 2.5:
-        d = min(SHOT, length - max(MIN_TAIL, 2.0) - t, budget)
+    while at + 2.5 <= length - max(MIN_TAIL, 2.0) and budget >= 2.5:
+        d = min(SHOT, length - max(MIN_TAIL, 2.0) - at, budget)
         if d < 2.5:
             break
-        out.append({"from": round(t, 2), "to": round(t + d, 2), "show": dict(show), "label": show_label(show), "auto": True})
+        out.append({"from": round(at, 2), "to": round(at + d, 2), "show": dict(show), "alts": alts, "label": show_label(show),
+                    "auto": True, "why": f"Shows {ABOUT[t]}: {why}."})
         budget -= d
-        t += d + FACE_GAP
+        at += d + FACE_GAP
     return out
 
 
@@ -201,13 +257,22 @@ def resolve(cuts, pool, sources, used, file_path):
                 warnings.append(f"Cutaway at {_clock(c['from'])}: {show['name']} is not uploaded.")
                 continue
         else:
-            def fits(i, with_tags=True):
-                if show.get("bucket") and i["bucket"] != show["bucket"]:
+            def fits_want(i, want, with_tags=True):
+                if want.get("bucket") and i["bucket"] != want["bucket"]:
                     return False
-                if any(t in i["tags"] for t in show.get("exclude") or []):
+                if any(t in i["tags"] for t in want.get("exclude") or []):
                     return False
-                return not with_tags or all(t in i["tags"] for t in show.get("tags") or [])
-            options = [i for i in pool if fits(i)] or [i for i in pool if fits(i, False)]
+                return not with_tags or all(t in i["tags"] for t in want.get("tags") or [])
+            options = []
+            for k, want in enumerate([show] + [a for a in c.get("alts") or [] if a.get("kind") == "base"]):
+                fits_tags = lambda i, w=want: fits_want(i, w)
+                options = [i for i in pool if fits_tags(i)] or [i for i in pool if fits_want(i, want, False)]
+                if options:
+                    if k:
+                        warnings.append(f"Cutaway at {_clock(c['from'])}: no {show_label(show)} picture, so {show_label(want)} instead.")
+                        show = want
+                        c = {**c, "show": want, "label": show_label(want)}
+                    break
             if not options:
                 warnings.append(f"Cutaway at {_clock(c['from'])}: no base image for {show_label(show)}; the speaker stays on screen.")
                 continue
