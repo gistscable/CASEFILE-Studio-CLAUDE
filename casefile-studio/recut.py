@@ -166,9 +166,48 @@ def parse(text):
     return out
 
 
+_ENDS = {}
+
+
+def _stream_end(path, kind, start=0.0):
+    """Where the file's first video ("v") or audio ("a") stream really ends, in
+    seconds from the start of the file, read from its packets.
+
+    The container's duration is the longest of its tracks, and a declared track
+    duration can be wrong too. A finished video whose sound runs on past the
+    picture (or with a stray late packet) made the re-cut plan its last stretch
+    to that length: the sound was padded to it, the picture ran out of frames,
+    and the two halves came out minutes apart."""
+    p = Path(path)
+    try:
+        st = p.stat()
+        key = (str(p.resolve()), kind, st.st_size, st.st_mtime_ns)
+    except OSError:
+        key = None
+    if key in _ENDS:
+        return _ENDS[key]
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", f"{kind}:0", "-show_entries", "packet=pts_time,duration_time",
+                        "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+    end = None
+    for line in r.stdout.splitlines():
+        parts = line.strip().split(",")
+        try:
+            pts = float(parts[0])
+        except (ValueError, IndexError):
+            continue
+        try:
+            d = float(parts[1])
+        except (ValueError, IndexError):
+            d = 0.0
+        end = max(end or 0.0, pts + d - start)
+    if key is not None:
+        _ENDS[key] = end
+    return end
+
+
 def _probe(path):
     r = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", str(path)],
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration,start_time", "-of", "json", str(path)],
         capture_output=True, text=True,
     )
     import json
@@ -179,11 +218,32 @@ def _probe(path):
         raise RecutError("That file could not be read as a video.")
     streams = j.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    has_audio = any(s.get("codec_type") == "audio" for s in streams)
+    fmt = j.get("format", {})
+    container = float(fmt.get("duration") or 0)
+    try:
+        start = float(fmt.get("start_time") or 0)
+    except ValueError:
+        start = 0.0
+    picture = _stream_end(path, "v", start) if video else None
+    sound = _stream_end(path, "a", start) if has_audio else None
+    # v0.4.42: the picture sets the length of a video. Falls back to the container's
+    # duration only when the packets could not be read.
+    duration = picture if picture else container
     return {
-        "duration": float(j.get("format", {}).get("duration") or 0),
-        "has_video": bool(video), "has_audio": any(s.get("codec_type") == "audio" for s in streams),
+        "duration": duration, "container_duration": container, "picture": picture, "sound": sound,
+        "has_video": bool(video), "has_audio": has_audio,
         "width": int(video["width"]) if video else 0, "height": int(video["height"]) if video else 0,
     }
+
+
+def mismatch_note(base):
+    """A plain sentence when the chosen video's sound runs well past its picture, else ""."""
+    pic, snd = base.get("picture"), base.get("sound")
+    if pic and snd and snd - pic > 2.0:
+        return (f"The video you chose has {clock(pic, 0)} of picture but {clock(snd, 0)} of sound. "
+                f"The re-cut follows the picture, so the sound after {clock(pic, 0)} is left out.")
+    return ""
 
 
 def check(base_path, inserts):
@@ -208,7 +268,8 @@ def check(base_path, inserts):
         elif ins["end"] - ins["start"] > 90:
             problems.append(f"Insert {n}: the clip is longer than 90 seconds.")
         if clip["duration"] and ins["end"] > clip["duration"] + 0.2:
-            problems.append(f"Insert {n}: the clip file is only {clock(clip['duration'])} long, but the insert ends at {clock(ins['end'])}.")
+            what = "picture" if clip.get("picture") and clip["container_duration"] - clip["picture"] > 0.2 else "file"
+            problems.append(f"Insert {n}: the clip {what} is only {clock(clip['duration'])} long, but the insert ends at {clock(ins['end'])}.")
         if not 0 <= ins["at"] <= base["duration"]:
             problems.append(f"Insert {n}: {clock(ins['at'])} is outside the video ({clock(base['duration'])} long).")
         if until < ins["at"]:
@@ -222,6 +283,9 @@ def check(base_path, inserts):
         elif n > 1 and abs(ins["at"] - prev_at) < 1e-6:
             problems.append(f"Insert {n}: two inserts sit at the same moment.")
         last, prev_at = max(until, ins["at"]), ins["at"]
+    note = mismatch_note(base)
+    if note and any("outside the video" in x or "cannot continue from" in x for x in problems):
+        problems.insert(0, note)
     return problems, base
 
 
@@ -363,7 +427,10 @@ def render(base_path, inserts, out_path, progress=lambda *a: None, cancelled=lam
         raise RecutError(" ".join(problems[:3]))
     w, h = base["width"] - base["width"] % 2, base["height"] - base["height"] % 2
     afmt = "aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo"
-    vfmt = f"fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p"
+    # v0.4.42: a picture that runs a few frames short holds its last frame (up to 2 s), so the
+    # piece still has its exact frame count and every later shot stays where its sound is.
+    vfmt = (f"fps={FPS},scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,format=yuv420p,"
+            f"tpad=stop_mode=clone:stop_duration=2")
     snap = lambda t: round(t * FPS) / FPS  # cut on a frame, picture and sound together
     # Pieces of the original video that are kept: (start, end or None for "to the end").
     kept, cursor = [], 0.0
