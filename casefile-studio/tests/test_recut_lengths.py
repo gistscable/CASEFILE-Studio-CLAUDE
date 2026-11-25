@@ -123,3 +123,54 @@ def test_picture_and_sound_are_made_by_separate_single_output_runs(tmp_path):
     v2, a2 = recut._clip_command(ins, 4.0, 96, 320, 180, "fps=24", "aformat=sample_rates=48000", ["-an"], ["-vn"], tmp_path, 0, None,
                                  "timestamps", tmp_path / "p.mp4", tmp_path / "s.wav")
     assert v2.count("-map") == 1 and a2.count("-map") == 1 and "-t" in v2 and "-t" in a2
+
+
+# --------------------------------------------------------------------------
+# v0.4.45: a finished export is scene files joined without re-encoding, and their
+# colour tags differ (YouTube clips are bt709, photos and cards untagged). ffmpeg 7+
+# rebuilt the re-cut's picture filter graph at the first tag change; the rebuilt
+# timestamps restarted at zero and every later frame was dropped: "Part 2 of the
+# video to re-cut (0:00.00–18:25.75) came out as 1:48.12 of picture" (Debian
+# ffmpeg 7.1.5). ffmpeg 6 does not rebuild for colour tags, so on 6 this render
+# passes either way; the command check below holds on every version.
+# --------------------------------------------------------------------------
+
+def mixed_tag_export(tmp_path):
+    enc = ["-c:v", "libx264", "-preset", "ultrafast", "-r", "24", "-an", "-video_track_timescale", "12288"]
+    scenes = []
+    for n, (pattern, seconds, tagged) in enumerate([("testsrc", 6, False), ("testsrc2", 4, True), ("testsrc", 3, False)]):
+        out = tmp_path / f"scene{n}.mp4"
+        tags = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"] if tagged else []
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{pattern}=s=320x180:r=24:d={seconds}", "-vf", "format=yuv420p",
+                        "-frames:v", str(seconds * 24), *tags, *enc, str(out)], check=True)
+        scenes.append(out)
+    listing = tmp_path / "scenes.txt"
+    listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in scenes))
+    picture, base = tmp_path / "picture.mp4", tmp_path / "export.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(picture)], check=True)
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(picture), "-f", "lavfi", "-i", "sine=f=440:d=13:sample_rate=48000", "-map", "0:v",
+                    "-map", "1:a", "-c:v", "copy", "-c:a", "aac", "-ac", "2", "-t", "13", str(base)], check=True)
+    return base
+
+
+def test_picture_graphs_are_never_rebuilt_part_way(tmp_path):
+    vcmd, acmd = recut._base_commands("base.mp4", 10.0, 5.0, 120, "fps=24", "aformat=sample_rates=48000", "", ["-an"], ["-vn"],
+                                      tmp_path / "p.mp4", tmp_path / "s.wav")
+    i = vcmd.index("-i")
+    assert vcmd[i - 2:i] == ["-reinit_filter", "0"]
+    ins = {"start": 2.0, "end": 6.0, "path": "clip.mp4", "cutaways": [{"kind": "video", "from": 1.0, "to": 2.0, "start": 0.0, "path": "b.mp4"}]}
+    v2, _ = recut._clip_command(ins, 4.0, 96, 320, 180, "fps=24", "aformat=sample_rates=48000", ["-an"], ["-vn"], tmp_path, 0, None,
+                                "timestamps", tmp_path / "p.mp4", tmp_path / "s.wav")
+    inputs = [n for n, x in enumerate(v2) if x == "-i"]
+    assert len(inputs) == 2 and all("-reinit_filter" in v2[max(0, n - 7):n] for n in inputs)
+
+
+def test_an_export_whose_colour_tags_change_between_scenes_recuts_whole(tmp_path):
+    base = mixed_tag_export(tmp_path)
+    clip = video(tmp_path / "S05.mp4", 10, 10, "testsrc2", 2500)
+    out, checks = tmp_path / "out.mp4", []
+    recut.render(base, [{"at": 0.0, "until": 0.0, "start": 1.0, "end": 3.0, "path": clip},
+                        {"at": 11.0, "until": 11.0, "start": 4.0, "end": 6.0, "path": clip}], out, checks=checks)
+    lens = lengths(out)
+    assert abs(lens["video"] - 17.0) < 0.1 and abs(lens["audio"] - 17.0) < 0.1
+    assert all(c["ok"] for c in checks)

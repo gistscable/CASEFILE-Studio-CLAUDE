@@ -95,3 +95,19 @@ and 36 minutes of sound ("Part 1 of the video to re-cut … came out as 1:48.12 
 export is made, and each run reads only the stretch it needs (`-t`), so neither can run on. Error
 messages for a wrong piece name the ffmpeg version. Tested end to end with a 16-insert list on an
 18:26 video with ffmpeg 6.0, 7.0 and 9.0 (result 22:05, as the list predicts).
+
+## Picture stopping at the first scene change (v0.4.45)
+
+v0.4.44 fixed the sound, but on ffmpeg 7.1 (Docker) the picture of the base piece still stopped at
+1:48.12 ("Part 2 … came out as 1:48.12 of picture"). The real cause: an export is its scenes joined
+end to end, and the scenes don't all carry the same colour labels (YouTube scenes are labelled
+bt709, others aren't labelled). ffmpeg 7 and later rebuild their processing chain each time the
+labels change, and the rebuilt chain counts time from zero again, so every frame after the first
+change (1:48.12 was the end of the first scene) was thrown away. ffmpeg 6 doesn't rebuild for
+labels, which is why it only failed in Docker.
+
+Now the re-cut tells ffmpeg not to rebuild part way (`-reinit_filter 0`) and labels every picture
+it writes as bt709, so the result is the same on every version. Reproduced with an 18:26
+mixed-label export (old code: "16:39.71 of picture" on ffmpeg 7.0) and checked with the full
+16-insert list on ffmpeg 6.0, 7.0 and 9.0: 22:05.21, picture and sound the same length, every frame
+present.
