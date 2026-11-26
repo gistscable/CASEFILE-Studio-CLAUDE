@@ -147,7 +147,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.58";
+const APP_VERSION = "0.4.59";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -205,6 +205,8 @@ const preference = {
     } catch {}
   },
 };
+// v0.4.59 the project fields the sound plan (and its preview) is made from
+const PLAN_FIELDS = ["sound", "scenes", "motion", "cta", "episode"];
 async function api(path, method = "GET", body, onUploadProgress) {
   if (onUploadProgress)
     return sendUploadRequest(
@@ -235,6 +237,8 @@ async function api(path, method = "GET", body, onUploadProgress) {
     e.status = response.status;
     throw e;
   }
+  // v0.4.59 a save that moved chosen-scene music to rebuilt / split scenes (or found them gone) says so
+  if (data && typeof data === "object" && data.music_follow) window.dispatchEvent(new CustomEvent("casefile-music-follow", { detail: data.music_follow }));
   return data;
 }
 function Button({ icon: Icon, children, kind = "", className = "", ...props }) {
@@ -406,6 +410,7 @@ function App() {
     [soundIds, setSoundIds] = useState([]), // v0.4.57 every sound the current edit applies to (a whole graphic)
     [soundPlan, setSoundPlan] = useState(null),
     [soundPlanError, setSoundPlanError] = useState(""),
+    [planSaved, setPlanSaved] = useState(0), // v0.4.59 bumped when a save that changes the sound plan is stored
     [sfxMute, setSfxMute] = useState(false),
     [sfxSolo, setSfxSolo] = useState(false),
     [sfxDuck, setSfxDuck] = useState("none"), // v0.4.57: "none" | "working" | "ready" (the preview ducks like the export)
@@ -475,13 +480,17 @@ function App() {
     if (!project?.id || !soundOn) return setSoundPlan(null);
     let live = true;
     const id = setTimeout(() => {
+      // v0.4.59 the plan is read from the saved project: while an edit to it is still waiting to be
+      // saved the server would answer with the plan before the edit (a sound's new volume, a move…)
+      // and the preview kept it. The save that stores the edit asks again (planSaved).
+      if (PLAN_FIELDS.some((k) => k in pending.current)) return;
       fetch(`/api/projects/${project.id}/sound/plan`, { credentials: "same-origin" })
         .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.detail || "The sound plan could not be read.")))))
         .then((d) => { if (live) { setSoundPlan(d); setSoundPlanError(""); } })
         .catch((e) => live && setSoundPlanError(e.message || String(e)));
     }, 350);
     return () => { live = false; clearTimeout(id); };
-  }, [project?.id, soundOn, scenesSig, project?.motion, soundKey, project?.cta, project?.episode?.timings]);
+  }, [project?.id, soundOn, scenesSig, project?.motion, soundKey, project?.cta, project?.episode?.timings, planSaved]);
   const sfxList = useMemo(() => (soundPlan ? sfxSchedule(soundPlan.items) : []), [soundPlan]);
   // v0.4.58 The effects volume is a gain on the preview's output (a ramp, in real time): the plan's
   // levels were made with the master it reports, so only the ratio is applied — no new plan.
@@ -602,6 +611,15 @@ function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 6500);
   };
+  useEffect(() => {
+    const f = (e) => {
+      const { followed = [], lost = [] } = e.detail || {};
+      if (lost.length) notify(`Background music: ${lost.length === 1 ? "a chosen scene was" : `${lost.length} chosen scenes were`} removed (${lost.slice(0, 3).join(", ")}${lost.length > 3 ? "…" : ""}) — its music no longer plays. See the Music panel.`, "warning");
+      else if (followed.length) notify(`Background music follows the edited scenes (${followed.length} new scene${followed.length > 1 ? "s" : ""} kept on music).`);
+    };
+    window.addEventListener("casefile-music-follow", f);
+    return () => window.removeEventListener("casefile-music-follow", f);
+  }, []);
   const report = (e) => {
     if (e.status === 412) setModal("settings");
     notify(e.message || String(e), "error");
@@ -990,6 +1008,7 @@ function App() {
         const p = await api("/api/projects/" + id, "PATCH", fields);
         if (projectRef.current?.id === id)
           setProject({ ...p, ...pending.current });
+        if (PLAN_FIELDS.some((k) => k in fields)) setPlanSaved((n) => n + 1);
         setSaving(Object.keys(pending.current).length ? "pending" : "saved");
         return p;
       } catch (e) {
@@ -1554,6 +1573,7 @@ function App() {
     setPlaying(false);
     const at = (x) => {
       const rect = content.getBoundingClientRect();
+      if (!(rect.width > 0)) return; // v0.4.59 a hidden timeline: never a NaN playhead (a sound added "at NaN")
       setTime(Math.max(0, Math.min(duration, ((x - rect.left) / rect.width) * duration)));
     };
     at(e.clientX);

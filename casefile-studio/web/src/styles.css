@@ -1623,6 +1623,11 @@ b {
   display: flex;
   flex: 1;
   min-height: 0;
+  /* v0.4.59 every lane stays reachable (the Sound FX lane, under the Music lane, was hidden
+     behind the footer): the lanes scroll up and down together with their labels */
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: flex-start;
 }
 .track-labels {
   width: 133px;
@@ -7099,4 +7104,27 @@ body.resizing-row * {
 }
 .sfx-current {
   color: #7fb39a;
+}
+
+/* v0.4.59 chosen-scene music that no longer has its scene */
+.toast.warning {
+  background: #37321f;
+  border-color: #7a6a3a;
+  color: #e3d6a8;
+}
+.toast.warning > svg {
+  color: #d9be6a;
+}
+.link-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

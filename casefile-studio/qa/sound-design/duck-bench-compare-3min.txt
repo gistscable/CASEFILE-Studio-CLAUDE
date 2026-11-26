@@ -1,0 +1,201 @@
+  compare as_saved: {'old_s': 16.82, 'new_s': 12.46, 'gain': {'len_old': 35673, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 1.0, 'share_identical': 0.9747, 'min_gain': 0.263}, 'music': {'len_old': 35673, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 1.0, 'share_identical': 0.9906, 'min_gain': 0.157}}
+  compare narration_70: {'old_s': 12.97, 'new_s': 1.37, 'gain': {'len_old': 36249, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.333}, 'music': {'len_old': 36249, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.212}}
+  compare narration_150: {'old_s': 13.4, 'new_s': 1.32, 'gain': {'len_old': 36249, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9998, 'min_gain': 0.2}, 'music': {'len_old': 36249, 'len_new': 36249, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.11}}
+  compare as_saved: {'old_s': 2.29, 'new_s': 2.39, 'gain': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.278}, 'music': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 1.0, 'min_gain': 0.169}}
+  compare narration_70: {'old_s': 2.27, 'new_s': 1.26, 'gain': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.353}, 'music': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 1.0, 'min_gain': 0.231}}
+  compare narration_150: {'old_s': 2.25, 'new_s': 1.32, 'gain': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.212}, 'music': {'len_old': 36250, 'len_new': 36250, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.118}}
+  compare as_saved: {'old_s': 7.36, 'new_s': 7.1, 'gain': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9991, 'min_gain': 0.275}, 'music': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9999, 'min_gain': 0.165}}
+  compare narration_70: {'old_s': 6.08, 'new_s': 1.78, 'gain': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 1.0, 'share_identical': 0.9989, 'min_gain': 0.275}, 'music': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9993, 'min_gain': 0.165}}
+  compare narration_150: {'old_s': 5.9, 'new_s': 1.72, 'gain': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 1.0, 'share_identical': 0.9988, 'min_gain': 0.212}, 'music': {'len_old': 45833, 'len_new': 45833, 'max_diff_steps': 1, 'p999_diff_steps': 0.0, 'share_identical': 0.9992, 'min_gain': 0.118}}
+{
+ "minutes": 3,
+ "scenes": 150,
+ "cpu_count": 2,
+ "sliced": {
+  "as_saved": {
+   "old_s": 16.82,
+   "new_s": 12.46,
+   "gain": {
+    "len_old": 35673,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 1.0,
+    "share_identical": 0.9747,
+    "min_gain": 0.263
+   },
+   "music": {
+    "len_old": 35673,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 1.0,
+    "share_identical": 0.9906,
+    "min_gain": 0.157
+   }
+  },
+  "narration_70": {
+   "old_s": 12.97,
+   "new_s": 1.37,
+   "gain": {
+    "len_old": 36249,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.333
+   },
+   "music": {
+    "len_old": 36249,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.212
+   }
+  },
+  "narration_150": {
+   "old_s": 13.4,
+   "new_s": 1.32,
+   "gain": {
+    "len_old": 36249,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9998,
+    "min_gain": 0.2
+   },
+   "music": {
+    "len_old": 36249,
+    "len_new": 36249,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.11
+   }
+  }
+ },
+ "guide": {
+  "as_saved": {
+   "old_s": 2.29,
+   "new_s": 2.39,
+   "gain": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.278
+   },
+   "music": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 1.0,
+    "min_gain": 0.169
+   }
+  },
+  "narration_70": {
+   "old_s": 2.27,
+   "new_s": 1.26,
+   "gain": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.353
+   },
+   "music": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 1.0,
+    "min_gain": 0.231
+   }
+  },
+  "narration_150": {
+   "old_s": 2.25,
+   "new_s": 1.32,
+   "gain": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.212
+   },
+   "music": {
+    "len_old": 36250,
+    "len_new": 36250,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.118
+   }
+  }
+ },
+ "inserts": {
+  "as_saved": {
+   "old_s": 7.36,
+   "new_s": 7.1,
+   "gain": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9991,
+    "min_gain": 0.275
+   },
+   "music": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9999,
+    "min_gain": 0.165
+   }
+  },
+  "narration_70": {
+   "old_s": 6.08,
+   "new_s": 1.78,
+   "gain": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 1.0,
+    "share_identical": 0.9989,
+    "min_gain": 0.275
+   },
+   "music": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9993,
+    "min_gain": 0.165
+   }
+  },
+  "narration_150": {
+   "old_s": 5.9,
+   "new_s": 1.72,
+   "gain": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 1.0,
+    "share_identical": 0.9988,
+    "min_gain": 0.212
+   },
+   "music": {
+    "len_old": 45833,
+    "len_new": 45833,
+    "max_diff_steps": 1,
+    "p999_diff_steps": 0.0,
+    "share_identical": 0.9992,
+    "min_gain": 0.118
+   }
+  }
+ }
+}
+EXIT 0

@@ -1,0 +1,513 @@
+{
+ "base": "http://127.0.0.1:8000",
+ "project": "f51c28a0d0d04d72",
+ "audition": {
+  "again_click_to_sound_ms": {
+   "sounds": 20,
+   "median": 31.9,
+   "max": 49.3
+  },
+  "sounds": 79,
+  "heard": 79,
+  "silent": [],
+  "first_time_click_to_sound_ms": {
+   "median": 31.9,
+   "p95": 110.3,
+   "max": 206.1
+  },
+  "project_changed_while_listening": 0
+ },
+ "manual": {
+  "button": "at 0:12.0",
+  "saved": true,
+  "anchor": "sc:0000000000000002:2.000",
+  "sound": "swell-1",
+  "on_the_sfx_lane": {
+   "left": "30%",
+   "title": "Atmospheric swell, minor · swell-1 · added by you (drag to move)"
+  }
+ },
+ "sliders": {
+  "this sound's volume (Sound tab)": {
+   "from": 0,
+   "to": -20,
+   "gain_changes": 107,
+   "move_to_gain_ms": {
+    "median": 8.1,
+    "max": 8.1
+   },
+   "requests_while_dragging": 0,
+   "media_seeks_while_dragging": 0,
+   "saves_after_release": 1,
+   "saved_body": "{\"sound\":{\"enabled\":true,\"mode\":\"auto\",\"preset\":\"cinematic\",\"master\":0.8,\"intensity\":0.4,\"density\":0.4,\"lead\":0,\"duck\":true,\"variation\":true,\"kinds\":{\"motion\":t",
+   "heard_db": {
+    "before": -41,
+    "after": -57,
+    "change": -16,
+    "same_moment_untouched": 5.7,
+    "slider_effect": -21.7,
+    "slider_set": -20,
+    "drag_s": 0.44
+   },
+   "effects_state_before_after": [
+    {
+     "list": [
+      [
+       "swell-1",
+       0.80353
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    },
+    {
+     "list": [
+      [
+       "swell-1",
+       0.08035
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    }
+   ],
+   "preview_matches_saved_plan": {
+    "ok": true,
+    "master_ok": true,
+    "want": [
+     [
+      "swell-1",
+      0.08035
+     ]
+    ],
+    "have": [
+     [
+      "swell-1",
+      0.08035
+     ]
+    ]
+   },
+   "still_playing": true,
+   "media_before_after": [
+    [
+     [
+      "voice.wav",
+      false,
+      12.28
+     ],
+     [
+      "music.mp3",
+      false,
+      2.33
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ],
+    [
+     [
+      "voice.wav",
+      false,
+      15.22
+     ],
+     [
+      "music.mp3",
+      false,
+      5.21
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ]
+   ]
+  },
+  "effects volume (Sound tab)": {
+   "from": 0.8,
+   "to": 0.2,
+   "gain_changes": 108,
+   "move_to_gain_ms": {
+    "median": 7.4,
+    "max": 7.9
+   },
+   "requests_while_dragging": 0,
+   "media_seeks_while_dragging": 0,
+   "saves_after_release": 1,
+   "saved_body": "{\"sound\":{\"enabled\":true,\"mode\":\"auto\",\"preset\":\"cinematic\",\"master\":0.2,\"intensity\":0.4,\"density\":0.4,\"lead\":0,\"duck\":true,\"variation\":true,\"kinds\":{\"motion\":t",
+   "heard_db": {
+    "before": -61.2,
+    "after": -68.6,
+    "change": -7.4,
+    "same_moment_untouched": 5.6,
+    "slider_effect": -13,
+    "slider_set": -12.1,
+    "drag_s": 0.44
+   },
+   "effects_state_before_after": [
+    {
+     "list": [
+      [
+       "swell-1",
+       0.08035
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    },
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 0.9986060857772827
+    }
+   ],
+   "preview_matches_saved_plan": {
+    "ok": true,
+    "master_ok": true,
+    "want": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ],
+    "have": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ]
+   },
+   "still_playing": true,
+   "media_before_after": [
+    [
+     [
+      "voice.wav",
+      false,
+      12.27
+     ],
+     [
+      "music.mp3",
+      false,
+      2.3
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ],
+    [
+     [
+      "voice.wav",
+      false,
+      15.2
+     ],
+     [
+      "music.mp3",
+      false,
+      5.2
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ]
+   ]
+  },
+  "narration level (Sound tab)": {
+   "from": 1,
+   "to": 0.35,
+   "gain_changes": 107,
+   "move_to_gain_ms": {
+    "median": 4.6,
+    "max": 6.5
+   },
+   "requests_while_dragging": 0,
+   "media_seeks_while_dragging": 0,
+   "saves_after_release": 1,
+   "saved_body": "{\"narration_volume\":0.35}",
+   "effects_state_before_after": [
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    },
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    }
+   ],
+   "preview_matches_saved_plan": {
+    "ok": true,
+    "master_ok": true,
+    "want": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ],
+    "have": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ]
+   },
+   "still_playing": true,
+   "media_before_after": [
+    [
+     [
+      "voice.wav",
+      false,
+      12.28
+     ],
+     [
+      "music.mp3",
+      false,
+      2.33
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ],
+    [
+     [
+      "voice.wav",
+      false,
+      15.24
+     ],
+     [
+      "music.mp3",
+      false,
+      5.22
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ]
+   ]
+  },
+  "music level (Audio tab)": {
+   "from": 0.25,
+   "to": 0.04,
+   "gain_changes": 106,
+   "move_to_gain_ms": {
+    "median": 7.8,
+    "max": 8.8
+   },
+   "requests_while_dragging": 0,
+   "media_seeks_while_dragging": 0,
+   "saves_after_release": 1,
+   "saved_body": "{\"music_volume\":0.04}",
+   "heard_db": {
+    "before": -46.6,
+    "after": -52.2,
+    "change": -5.6,
+    "same_moment_untouched": 8.5,
+    "slider_effect": -14.1,
+    "slider_set": -16,
+    "drag_s": 0.44
+   },
+   "effects_state_before_after": [
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    },
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    }
+   ],
+   "preview_matches_saved_plan": {
+    "ok": true,
+    "master_ok": true,
+    "want": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ],
+    "have": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ]
+   },
+   "still_playing": true,
+   "media_before_after": [
+    [
+     [
+      "voice.wav",
+      false,
+      12.27
+     ],
+     [
+      "music.mp3",
+      false,
+      2.31
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ],
+    [
+     [
+      "voice.wav",
+      false,
+      15.24
+     ],
+     [
+      "music.mp3",
+      false,
+      5.23
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ]
+   ]
+  },
+  "narration level (Audio tab)": {
+   "from": 0.35,
+   "to": 1.2,
+   "gain_changes": 125,
+   "move_to_gain_ms": {
+    "median": 4.4,
+    "max": 7.5
+   },
+   "requests_while_dragging": 0,
+   "media_seeks_while_dragging": 0,
+   "saves_after_release": 1,
+   "saved_body": "{\"narration_volume\":1.2}",
+   "effects_state_before_after": [
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    },
+    {
+     "list": [
+      [
+       "swell-1",
+       0.01995
+      ]
+     ],
+     "override": [],
+     "master": 1,
+     "out": 1
+    }
+   ],
+   "preview_matches_saved_plan": {
+    "ok": true,
+    "master_ok": true,
+    "want": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ],
+    "have": [
+     [
+      "swell-1",
+      0.01995
+     ]
+    ]
+   },
+   "still_playing": true,
+   "media_before_after": [
+    [
+     [
+      "voice.wav",
+      false,
+      12.29
+     ],
+     [
+      "music.mp3",
+      false,
+      2.33
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ],
+    [
+     [
+      "voice.wav",
+      false,
+      15.33
+     ],
+     [
+      "music.mp3",
+      false,
+      5.31
+     ],
+     [
+      "music.mp3",
+      true,
+      0
+     ]
+    ]
+   ]
+  }
+ },
+ "playback": {
+  "still_playing_after_every_slider": true,
+  "media_seeks_while_dragging_total": 0
+ }
+}

@@ -4,11 +4,12 @@
 export const LAYOUT_DEFAULTS = {
   left: 240,
   right: 300,
-  timeline: 262,
+  timeline: 296, // v0.4.59 (was 262): room for every lane — captions, picture, narration, music, Sound FX
   showLeft: true,
   showRight: true,
   compact: true,
   director: true,
+  lanes: 5, // v0.4.59 marks a layout saved since the timeline had room for all five lanes
 };
 
 export const LIMITS = {
@@ -34,6 +35,10 @@ export function normaliseLayout(raw) {
   v = v && typeof v === "object" ? v : {};
   const out = { ...LAYOUT_DEFAULTS };
   for (const k of ["left", "right", "timeline"]) out[k] = clampNum(v[k], LIMITS[k], LAYOUT_DEFAULTS[k]);
+  // v0.4.59 a layout saved with the old default height (262 px, before the Music lane) hid the
+  // Sound FX lane: it opens at the new default. A height you dragged yourself is kept (and scrolls).
+  if (v.timeline === 262 && !v.lanes) out.timeline = LAYOUT_DEFAULTS.timeline;
+  out.lanes = 5;
   for (const k of ["showLeft", "showRight", "compact", "director"])
     if (typeof v[k] === "boolean") out[k] = v[k];
   return out;

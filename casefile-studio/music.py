@@ -87,6 +87,72 @@ def _scene_spans(scenes):
     return out
 
 
+def _voice_span(s, t0):
+    """Where a scene's own audio comes from: (source, start, end). The narration window the export
+    plays for it (renderer.voice_graph), or a soundbite's clip window. `t0`: its timeline start."""
+    d = max(0.0, float(s.get("duration") or 0))
+    if s.get("insert_audio"):
+        a = float(s.get("trim_start") or 0)
+        return ("clip:" + str(s.get("asset_id") or ""), a, a + d)
+    a = float(s["audio_start"]) if s.get("audio_start") not in (None, "") else t0
+    return ("narration", a, a + max(0.04, min(float(s.get("audio_duration") or d), d)))
+
+
+def follow_scenes(settings, before, after):
+    """v0.4.59 Chosen-scene music follows its scenes through an edit. Scenes are chosen by id, and
+    an edit can give a scene a new id (a split makes a new right half; a guide rebuild, a replaced
+    scene). A scene that did not exist before the edit takes the music of the chosen scene whose
+    narration (or soundbite) it now plays — at least half of its own audio inside that scene's —
+    and a renamed chapter keeps its music. Returns (settings, {"followed": [ids added],
+    "lost": [titles of chosen scenes that are gone with no successor]}); a lost id is kept (it plays
+    again if the edit is undone) and the editor says so. Pure; `settings` is not modified."""
+    if not isinstance(settings, dict) or settings.get("mode") != "scenes":
+        return settings, {"followed": [], "lost": []}
+    chosen = [str(x) for x in (settings.get("scenes") or [])]
+    chapters = [str(c) for c in (settings.get("chapters") or [])]
+    old, t = {}, 0.0
+    for s in before or []:
+        if isinstance(s, dict) and s.get("id"):
+            old[str(s["id"])] = (s, _voice_span(s, t))
+        t += max(1, round(float((s or {}).get("duration") or 0) * FPS)) / FPS if isinstance(s, dict) else 0
+    now, t = {}, 0.0
+    for s in after or []:
+        if isinstance(s, dict) and s.get("id"):
+            now[str(s["id"])] = (s, _voice_span(s, t))
+            t += max(1, round(float(s.get("duration") or 0) * FPS)) / FPS
+    fresh = [(sid, span) for sid, (_, span) in now.items() if sid not in old]
+    out_scenes, followed, lost = list(chosen), [], []
+
+    def inside(o, n):
+        if o[0] != n[0] or n[2] - n[1] <= 1e-6:
+            return False
+        return max(0.0, min(o[2], n[2]) - max(o[1], n[1])) >= 0.5 * (n[2] - n[1]) - 1e-6
+
+    for sid in chosen:
+        if sid not in old:
+            continue  # already gone before this edit (kept, reported by the editor)
+        o_scene, o_span = old[sid]
+        succ = [nid for nid, n_span in fresh if inside(o_span, n_span)]
+        for nid in succ:
+            if nid not in out_scenes:
+                out_scenes.append(nid)
+                followed.append(nid)
+        if sid not in now and not succ:
+            lost.append(str(o_scene.get("title") or "an untitled scene"))
+    out_chapters = list(chapters)
+    names_after = {str(s.get("chapter") or "") for s, _ in now.values()}
+    for k, c in enumerate(chapters):
+        if c in names_after:
+            continue
+        members = [sid for sid, (s, _) in old.items() if str(s.get("chapter") or "") == c and sid in now]
+        renamed = {str(now[sid][0].get("chapter") or "") for sid in members}
+        if len(renamed) == 1 and "" not in renamed and not ({s.get("chapter") for s, _ in old.values()} & renamed):
+            out_chapters[k] = renamed.pop()
+    if out_scenes == chosen and out_chapters == chapters:
+        return settings, {"followed": [], "lost": lost}
+    return {**settings, "scenes": out_scenes[:400], "chapters": out_chapters}, {"followed": followed, "lost": lost}
+
+
 def part(settings, track):
     """(start, end) of the used part of a track `track` seconds long."""
     m = normalise(settings)

@@ -439,3 +439,136 @@ duck job makes the music's curve too), `app.py` / `history.py` (`music` field), 
 per-sound live gains, plan carry-over, `audition`), `web/src/SoundPanel.jsx` (library, variations),
 `web/src/main.jsx` (live levels, music lane, scene music). Tests: `tests/test_music.py` (11),
 `tests/js/music.test.mjs` (7). QA: `qa/sound-design/music_demos.py`, `music_bench.py`, `music.html`.
+
+## v0.4.59 — pre-approval corrections
+
+Targeted corrections after the v0.4.58 practical-testing approval. The engine, the plan format, the
+narration, soundbites, footage mapping and the export's sound are unchanged except where stated
+(the export's narration tail, item 6). **Not finally approved**: these are measurements for your review.
+
+### 1. Ducking analysis (the background job that makes the effects' and music's dip)
+
+The exact curve is still FFmpeg's `sidechaincompress` with the export's settings keyed by the export's
+own voice bus — nothing approximated. It is now made in two steps (`sound._duck_job`):
+
+* **bus** — the voice bus at narration level 100 % (loudnorm, scene cuts, soundbites), reduced to what a
+  `link=average` compressor detects, `(|L|+|R|)/2`, stored as 16-bit FLAC in `data/cache/sfx/duck/`
+  (the latest 4 kept, `BUS_KEEP`); keyed by the timeline and the source files only;
+* **curve** — the two compressors on that stored level, with the narration level applied as an exact
+  scaling (the export applies the level after loudnorm, to the narration only); a few seconds.
+
+So a narration-level change re-runs only the compressors; music/effects levels, the ducking switches and
+undo to an analysed timeline cost nothing. Synthetic 25-min / 150-scene projects (`duck_bench.py`, 2 CPUs):
+
+| step | sliced v0.4.58 | sliced v0.4.59 | guide v0.4.58 | guide v0.4.59 | inserts v0.4.58 | inserts v0.4.59 |
+|---|---|---|---|---|---|---|
+| first analysis | 132.8 s | 96.8 s | 19.4 s | 20.3 s | 25.0 s | 30.0 s |
+| narration level changed | **103.4 s** | **11.2 s** | 18.6 s | 12.3 s | 24.0 s | 12.1 s |
+| music / effects level, ducking switch, undo | 0 | 0 | 0 | 0 | 0 | 0 |
+| one scene edited | 137.3 s | 97.3 s | 19.8 s | 21.3 s | 25.0 s | 29.7 s |
+
+Curves against the v0.4.58 single pass (`duck_bench.py --minutes 3 --compare`): max difference 1 step of
+255 everywhere, 97.5–100 % of values identical; the v0.4.58 sliced curve was 2.9 s short at the end
+(the same tail bug as the export, below). `duck-bench-before.txt`, `duck-bench-after.txt`,
+`duck-bench-compare-3min.txt`.
+
+**Not done, and why (trade-off):** incremental per-scene recalculation. The export normalises the
+narration with `loudnorm` over the whole bus, whose gain at any moment depends on everything before it;
+splicing a re-analysed scene into a stored bus would not be the export's curve. Doing it exactly would
+mean re-implementing loudnorm's state, which is more risk than the benefit (the job runs in the
+background, the preview keeps the previous curve meanwhile, and a level change no longer needs it).
+
+### 2. Loop timing (preview vs export)
+
+The preview uses the export's layout (`musicLayout` = `music.layout`, parity < 1e-9), unchanged. What
+changed is how the preview follows it (`web/src/music.js`):
+
+* each element's envelope (crossfades, fades) is scheduled as gain automation on the audio clock
+  (`envEvents`, ramps within 1.5 % of the exact equal-power curve) instead of being set once per frame;
+* drift is trimmed with the playback rate (±3 %, pitch kept) instead of a jump only past 0.2 s; a seek
+  only happens where the music is nearly silent or is more than 0.25 s off (`syncStep`);
+* a pass from the top of the part calls `play()` early by the measured start-up delay.
+
+Measured audibly (`qa/sound-design/loop-timing/`: click tracks through the real `MusicPreview`, the
+output recorded with an AudioWorklet, headless Chromium; error = heard music click vs where the export
+places it, narration as master clock):
+
+| case | v0.4.58 median / max | v0.4.59 median / max |
+|---|---|---|
+| part from the top, crossfade 1 s | 9.1 / 19.9 ms | 3.1 / 8.3 ms |
+| part from 2 s, crossfade 1 s | 9.9 / 11.8 ms | 3.9 / 7.8 ms |
+| with a seek (18.3 → 9.6 s) | 7.5 / 20.0 ms | 2.0 / 13.0 ms |
+| main thread blocked 150 ms every ~0.75 s, from the top | 1.6 / 19.9 ms | 3.0 / 7.9 ms |
+| same, part from 2 s | 8.8 / 19.5 ms | 3.2 / 18.2 ms |
+
+The "~200 ms" of v0.4.58 was its tolerance (no correction below 0.2 s), not a measured error; in this
+headless browser neither version came near it. The export is sample-exact; the preview is now within
+about 8 ms typically, 18 ms worst measured.
+
+### 3. Chosen-scene music survives edits
+
+`music.follow_scenes` (on every save, not on undo/redo): a scene that is new after an edit (a split, a
+guide rebuild, a replaced scene) takes the music of the chosen scene whose narration or soundbite it now
+plays (at least half its own audio inside that scene's); a renamed chapter keeps its music. Ids that are
+gone with no successor are kept (an undo brings the music back) and reported: the save's response carries
+`music_follow`, the editor shows a notice, and the music panel lists chosen scenes/chapters no longer in the
+timeline with "Forget them". Browser-checked: a split at 15 s of the chosen scene 2 → both halves keep the
+music, notice shown; a deleted chosen scene → the panel warning, "Forget them" saves the cleaned list.
+
+### 4. Sound sets for every motion-graphics template
+
+The editor has four templates: findings, chronological timeline, contradictory statements, legal outcome
+(their layouts cover the diagrams — timeline, legal steps — and the sequential panels — cards, one at a
+time); there is no relationship or schematic-diagram template in the editor. Every combination of template
+× layout × entrance (Typewriter included) × exit, wide and tall (432), gets its own family: typed lines are
+heard key by key; contradictions keep their low pulse also when typed (fixed in v0.4.59 — the pulse was
+dropped for typed contradiction lines); the outcome-in-large-type legal layout keeps its thump.
+`tests/test_sound.py::test_every_template_layout_and_animation_has_its_coordinated_sound_set`.
+
+### 5. Audition, manual sounds and level sliders (real browser, `browser_sound_qa.mjs`)
+
+* **Audition:** all 79 library sounds (78 built in + the project's own audio) auditioned and *heard*
+  (recorded from the audition bus): click → sound 29–32 ms median, 96–110 ms p95, 131–206 ms max the
+  first time (fetch + decode; two runs), 23–32 ms median again; 0 project changes while listening.
+* **Manual sounds:** "+ at 0:12.0" saves an approved manual item anchored to its scene; it is drawn on
+  the Sound FX lane and heard in playback. **The Sound FX lane was hidden behind the timeline footer at
+  every common screen size** (1366×768 to 1920×1080: the timeline's default height predates the Music
+  lane). Fixed: default height 296 px (a layout saved with the old default opens at the new one), and the
+  lanes scroll vertically if you make the timeline smaller. Screenshots: `timeline-sfx-lane-*-before/after.png`.
+* **Sliders during playback** (real mouse drags, narration and music playing): slider move → gain change
+  4–9 ms median (max 9.3 ms incl. React); 0 requests while dragging, 1 save after release; playback never
+  paused, 0 media seeks. Heard on the bus each controls, against the same moment untouched (two runs):
+  this sound's volume −20.0 dB set → −20.6 / −21.7 dB heard; effects volume −12.1 → −12.7 / −13.0 dB;
+  music level −16.0 → −15.1 / −14.1 dB (the music's own ducking moves under it). Result: `browser-sound-qa.json`. **Fixed:** after a sound edit was saved, the preview could keep the plan from *before* the edit
+  (the plan was read 350 ms after the edit, the save landed at 650 ms): a sound's new volume snapped back
+  in the preview until the next change. The plan is now read after the save that stores the edit.
+
+### 6. The timeline is authoritative (music never changes its length)
+
+`tests/test_music.py`: a matrix of whole / range / once / chosen scenes × loop on/off × crossfades 0–10 s ×
+fades × track shorter / longer than the timeline → the bed is exactly `timeline × 48000` samples, nothing
+after the end; real exports keep the timeline's length.
+
+**Fixed (export):** on an ordinary (non-guide) timeline with music or sound effects, the export lost the
+last ~2.9 s of narration (40 s timeline → 37.12 s): loudnorm hands over its last 3 s only when its input
+ends, and in the same graph as the compressors/amix it was cut off when the finite inputs ended. The voice
+bus is now rendered in its own pass (`work/voice.wav`, 32-bit float, exactly the timeline's samples) and
+mixed from there. `tail_check.py`: all five cases 40.0 s (v0.4.58: 37.12 s for three); narration-only and
+guide exports sample-identical to v0.4.58; with effects or music the difference is −76.6 / −67.4 dB RMS.
+
+### Tests
+
+Full suite 648 passed, 1 skipped (v0.4.58: 638); JS 53 (v0.4.58: 49); build OK.
+
+### Remaining limitations
+
+* A scene edit still re-runs the full voice-bus analysis in the background (97 s on a 25-min sliced
+  timeline, 21–30 s for guides); the preview uses the previous curve until it is ready.
+* Preview loop timing depends on the browser's media clock: measured ≤ 18 ms in headless Chromium; a
+  slow machine or a backgrounded tab can be worse (the export is unaffected). Small drift is corrected
+  by a ±3 % rate change (pitch kept), which can be faintly audible on sustained tones while it lasts.
+* The first audition of a sound fetches and decodes it (≤ ~130 ms here; longer on a slow connection).
+* Lost chosen scenes are kept until you choose "Forget them" (so undo works); they never play.
+* The extra voice-bus pass adds one FFmpeg step to exports with music or effects (~the loudnorm time,
+  which the single graph also paid).
+

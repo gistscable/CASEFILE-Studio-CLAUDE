@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.58", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.59", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -745,7 +745,7 @@ def undo(id: str):
             raise HTTPException(400, "Nothing to undo yet. Your edits create history.")
         if not editorial.script_approved(p):
             p["script_approved_hash"] = None
-        return save_project(p)
+        return save_project(p, follow=False)
 
 
 @app.post("/api/projects/{id}/redo")
@@ -759,7 +759,7 @@ def redo(id: str):
             raise HTTPException(400, "Nothing to redo.")
         if not editorial.script_approved(p):
             p["script_approved_hash"] = None
-        return save_project(p)
+        return save_project(p, follow=False)
 
 
 @app.post("/api/projects/{id}/assemble")

@@ -274,3 +274,175 @@ def test_the_music_mix_never_delays_or_lifts_the_voices():
     assert not re.search(r"alimiter=limit=0\.95\[", src)
     assert "level=disabled" in renderer.SFX_LIMIT and "latency=1" in renderer.SFX_LIMIT
     assert src.count("{SFX_LIMIT}[aout]") >= 4
+
+
+# ------------------------------------------------------------------ v0.4.59 chosen-scene music follows its scenes
+
+def _sc(sid, start, length, **kw):
+    return {"id": sid, "duration": length, "audio_start": start, "audio_duration": length, "title": sid.upper(), **kw}
+
+
+def test_chosen_scene_music_follows_split_rebuilt_replaced_and_reordered_scenes():
+    before = [_sc("a", 0, 10), _sc("b", 10, 10), _sc("c", 20, 10), _sc("d", 30, 10)]
+    m = {"mode": "scenes", "scenes": ["b", "c"], "chapters": []}
+    # reordered (ids kept): nothing to follow; the music moves with the scenes
+    after = [before[2], before[0], before[1], before[3]]
+    same, rep = music.follow_scenes(m, before, after)
+    assert same["scenes"] == ["b", "c"] and rep == {"followed": [], "lost": []}
+    assert music.stretches(same, 40, after) == [(0.0, 10.0), (20.0, 30.0)]  # c moved first, then b
+    # split: the new right half of b plays b's narration -> it has b's music too
+    split = [before[0], {**before[1], "duration": 4, "audio_duration": 4}, _sc("b2", 14, 6), before[2], before[3]]
+    got, rep = music.follow_scenes(m, before, split)
+    assert got["scenes"] == ["b", "c", "b2"] and rep["followed"] == ["b2"]
+    assert music.stretches(got, 40, split) == [(10.0, 30.0)]  # b, b2 and c: one stretch, as before the split
+    # rebuilt / replaced: c has a new id but plays the same narration window -> it keeps the music
+    rebuilt = [before[0], before[1], _sc("c-new", 20, 10), before[3]]
+    got, rep = music.follow_scenes(m, before, rebuilt)
+    assert "c-new" in got["scenes"] and rep["lost"] == []
+    assert music.stretches(got, 40, rebuilt) == music.stretches(m, 40, before)
+    # a new scene inserted elsewhere (other narration) does not get it
+    inserted = [before[0], _sc("new", 40, 5), before[1], before[2], before[3]]
+    got, rep = music.follow_scenes(m, before, inserted)
+    assert got["scenes"] == ["b", "c"]
+    # deleted with no successor: reported (not silently dropped), id kept so an undo plays it again
+    deleted = [before[0], before[2], before[3]]
+    got, rep = music.follow_scenes(m, before, deleted)
+    assert rep["lost"] == ["B"] and got["scenes"] == ["b", "c"]
+    # a renamed chapter keeps its music; other modes are left alone
+    ch = {"mode": "scenes", "scenes": [], "chapters": ["TWO"]}
+    b2 = [dict(s, chapter="ONE" if k < 2 else "TWO") for k, s in enumerate(before)]
+    a2 = [dict(s, chapter="ONE" if k < 2 else "THE TRIAL") for k, s in enumerate(before)]
+    assert music.follow_scenes(ch, b2, a2)[0]["chapters"] == ["THE TRIAL"]
+    assert music.follow_scenes({"mode": "whole", "scenes": ["b"]}, before, deleted)[0] == {"mode": "whole", "scenes": ["b"]}
+    # soundbites follow by their clip window, never a narration scene
+    bite = {"id": "i1", "duration": 6, "insert_audio": True, "asset_id": "clip", "trim_start": 30, "title": "BITE"}
+    mi = {"mode": "scenes", "scenes": ["i1"], "chapters": []}
+    got, rep = music.follow_scenes(mi, [before[0], bite], [before[0], dict(bite, id="i1-new"), _sc("x", 30, 6)])
+    assert got["scenes"] == ["i1", "i1-new"]
+
+
+def test_chosen_scene_music_survives_scene_edits_through_the_editor(isolated):
+    client, _ = isolated
+    pid = client.post("/api/projects", json={"title": "Music follows", "topic": "t"}).json()["id"]
+    ids = ["%016x" % (k + 1) for k in range(4)]
+    scenes = [{"id": ids[k], "title": f"S{k}", "chapter": "ONE", "narration": "", "duration": 10.0, "audio_start": 10.0 * k,
+               "audio_duration": 10.0} for k in range(4)]
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": scenes}).json()
+    assert [s["id"] for s in p["scenes"]] == ids  # the editor's ids are kept
+    p = client.patch(f"/api/projects/{pid}", json={"music": {"mode": "scenes", "scenes": [ids[1]]}}).json()
+    assert p["music"]["scenes"] == [ids[1]]
+    # reorder: the same ids, the music moves with its scene
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": [p["scenes"][k] for k in (1, 0, 2, 3)]}).json()
+    assert p["music"]["scenes"] == [ids[1]] and "music_follow" not in p
+    # edit its text and length: still chosen
+    sc = p["scenes"]
+    sc[0] = dict(sc[0], narration="Edited", duration=12.0)
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": sc}).json()
+    assert p["music"]["scenes"] == [ids[1]]
+    # split at the playhead (the editor gives the right half a new id): both halves keep the music
+    sc = p["scenes"]
+    right = dict(sc[0], id="%016x" % 99, duration=5.0, audio_start=15.0, audio_duration=5.0)
+    sc = [dict(sc[0], duration=7.0, audio_duration=7.0), right] + sc[1:]
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": sc}).json()
+    assert p["music"]["scenes"] == [ids[1], "%016x" % 99] and p["music_follow"]["followed"] == ["%016x" % 99]
+    assert "music_follow" not in client.get(f"/api/projects/{pid}").json()  # reported once, never stored
+    # replaced by a new scene playing the same narration: it keeps the music
+    sc = p["scenes"]
+    sc[0] = dict(sc[0], id="%016x" % 77, title="Replaced")
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": sc}).json()
+    assert "%016x" % 77 in p["music"]["scenes"]
+    # deleted: you are told, and undo brings it back with its music
+    gone = [s for s in p["scenes"] if s["id"] not in p["music"]["scenes"]]
+    p = client.patch(f"/api/projects/{pid}", json={"scenes": gone}).json()
+    assert len(p["music_follow"]["lost"]) == 2
+    p = client.post(f"/api/projects/{pid}/undo").json()
+    assert "music_follow" not in p
+    lay = music.layout(p["music"], 180.0, sum(s["duration"] for s in p["scenes"]), p["scenes"])
+    assert lay["runs"] and lay["runs"][0]["at"] == 0.0 and lay["runs"][0]["end"] == pytest.approx(12.0)
+
+
+# ------------------------------------------------------------------ v0.4.59 the music never changes the timeline
+
+@pytest.mark.parametrize("mode", ["whole", "range", "once", "scenes"])
+def test_the_music_never_lengthens_or_shortens_the_timeline(mode):
+    """Every combination of track length, used part, loop, crossfade and fades: the music lies inside
+    the timeline (and inside its stretch); the timeline is the scenes' and nothing else."""
+    sc = scenes_of(7, 13.0, ["A", "A", "B", "B", "B", "C", "C"])
+    total = sum(round(s["duration"] * FPS) / FPS for s in sc)
+    checked = 0
+    for track in (0.4, 1.0, 1.5, 7.0, 30.0, total - 0.01, total, total + 0.5, 600.0):
+        for part in ({}, {"start": 0.2}, {"start": 2.0, "end": 5.5}):
+            for loop in (True, False):
+                for x in (0.0, 0.5, 2.0, 10.0):
+                    for fades in ((0.0, 0.0), (1.5, 2.0), (15.0, 15.0)):
+                        m = {"mode": mode, "loop": loop, "crossfade": x, "fade_in": fades[0], "fade_out": fades[1], **part,
+                             "offset": 20.0, "until": 70.0, "chapters": ["B"], "scenes": ["s6"]}
+                        lay = music.layout(m, track, total, sc)
+                        spans = music.stretches(m, total, sc)
+                        for run, (s, e) in zip(lay["runs"], spans):
+                            assert run["at"] == s and run["end"] <= e + 1e-6 and run["end"] <= total + 1e-6
+                            for it in run["iters"]:
+                                assert it["at"] >= s - 1e-6 and it["at"] + it["len"] <= e + 1e-4
+                                assert it["src"] + it["len"] <= track + 1e-4  # never past the end of the file
+                            if loop and mode != "once" and lay["part"][1] - lay["part"][0] >= 1.0:
+                                assert run["end"] == pytest.approx(e, abs=1e-3)  # a loop fills its stretch exactly
+                        assert len(lay["runs"]) == len(spans) if track > 0 else not lay["runs"]
+                        checked += 1
+    assert checked == 9 * 3 * 2 * 4 * 3
+
+
+def test_the_rendered_music_bed_is_the_timeline_to_the_sample(track, tmp_path):
+    """The export's music bed for short and long tracks, loops, parts, crossfades and fades: exactly the
+    timeline's length (the export's -t and the video decide nothing; the music never pads or cuts it)."""
+    sc = scenes_of(4, 7.5, ["A", "B", "B", "C"])
+    total = 30.0
+    short = tmp_path / "short.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=4.3:a=0.2:seed=3", "-ac", "2", str(short)], check=True)
+    cases = [({"crossfade": 2.0}, track, 180.0), ({"crossfade": 0.5, "start": 10, "end": 13}, track, 180.0),
+             ({"loop": False}, short, 4.3), ({"crossfade": 1.0}, short, 4.3), ({"mode": "once", "offset": 27.0}, track, 180.0),
+             ({"mode": "range", "offset": 3.3, "until": 11.1, "fade_in": 0, "fade_out": 0}, short, 4.3),
+             ({"mode": "scenes", "chapters": ["B"], "crossfade": 10.0}, short, 4.3)]
+    for k, (m, path, length) in enumerate(cases):
+        lay = music.layout(m, length, total, sc)
+        out = tmp_path / f"bed{k}.wav"
+        _render_bed(lay, path, total, out)
+        assert len(_pcm(out)) == round(total * 48000), m
+
+
+def test_a_scene_sliced_export_keeps_its_last_seconds_under_music_and_effects(track, tmp_path):
+    """v0.4.59 An ordinary (not episode-guide) timeline's voice goes through loudnorm, which hands over
+    its last 3 s only at the end; mixed with ducked music or effects in the same graph, the export's
+    whole audio — narration included — ended ~2.9 s early. Now: the full timeline, narration intact."""
+    import renderer
+    import storage
+    from PIL import Image
+
+    media = storage.DATA / "tmp-test-tail"
+    media.mkdir(parents=True, exist_ok=True)
+    try:
+        Image.new("RGB", (320, 180), (40, 40, 48)).save(media / "plate.png")
+        voice = media / "voice.wav"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc='0.3*sin(2*PI*220*t)':s=48000:d=12",
+                        "-ac", "1", str(voice)], check=True)
+        shutil.copy(track, media / "music.mp3")
+        assets = [{"id": "img", "kind": "image", "path": str(media / "plate.png"), "name": "plate.png", "width": 320, "height": 180},
+                  {"id": "nar", "kind": "audio", "path": str(voice), "name": "voice.wav", "duration": 12.0},
+                  {"id": "mus", "kind": "audio", "path": str(media / "music.mp3"), "name": "music.mp3", "duration": 180.0}]
+        sc = [{"id": f"s{k}", "title": "", "narration": "", "duration": 4.0, "asset_id": "img", "motion": "none", "show_title": False,
+               "audio_start": 4.0 * k, "audio_duration": 4.0} for k in range(3)]
+        base = {"id": "5d00000000000059", "title": "tail", "look": "natural", "captions": False, "assets": assets, "scenes": sc,
+                "narration_id": "nar", "exports": [], "music_volume": 0.2}
+        fx = {"enabled": True, "items": [{"anchor": "t:2.0", "sound": "swell-2", "source": "manual", "gain": 0.0}]}
+        ref = None
+        for name, extra in (("narration only", {}), ("music", {"music_id": "mus"}), ("effects", {"sound": fx}),
+                            ("music and effects", {"music_id": "mus", "sound": fx})):
+            out = tmp_path / f"{len(name)}.mp4"
+            renderer.render(json.loads(json.dumps({**base, **extra})), {"resolution": "480p", "draft": True, "captions": False},
+                            out, lambda *a: None, lambda: False)
+            x = _pcm(out)
+            assert abs(len(x) / 48000 - 12.0) < 0.03, (name, len(x) / 48000)
+            last = float(np.sqrt(np.mean(x[-24000:] ** 2)))
+            ref = ref or last
+            assert last == pytest.approx(ref, rel=0.15), name  # the narration is still speaking at the very end
+    finally:
+        shutil.rmtree(media, ignore_errors=True)
