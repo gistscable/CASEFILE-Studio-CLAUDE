@@ -118,6 +118,7 @@ def test_guided_render_keeps_narration_continuous_despite_timestamp_jumps(isolat
 def test_guided_audio_filter_uses_sample_count_timestamps():
     import inspect
 
-    src = inspect.getsource(renderer.render)
+    # v0.4.57 the voice bus is built by renderer.voice_graph (shared with the preview's ducking)
+    src = inspect.getsource(renderer.render) + inspect.getsource(renderer.voice_graph)
     assert "asetpts=N/SR/TB" in src
     assert "[{voice_index}:a]asetpts=PTS-STARTPTS" not in src

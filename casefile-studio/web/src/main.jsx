@@ -17,7 +17,7 @@ import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
 import { graphicAt, normaliseMotion } from "./motion.js";
 import SoundPanel from "./SoundPanel.jsx";
-import { SfxPreview, schedule as sfxSchedule, normaliseSound, editItem as editSfx } from "./sound.js";
+import { SfxPreview, schedule as sfxSchedule, normaliseSound, editItem as editSfx, decodeDuck } from "./sound.js";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
@@ -144,7 +144,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.56";
+const APP_VERSION = "0.4.57";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -400,10 +400,12 @@ function App() {
     [motionId, setMotionId] = useState(null),
     [motionStatus, setMotionStatus] = useState(""),
     [soundId, setSoundId] = useState(null), // v0.4.56 the selected sound effect
+    [soundIds, setSoundIds] = useState([]), // v0.4.57 every sound the current edit applies to (a whole graphic)
     [soundPlan, setSoundPlan] = useState(null),
     [soundPlanError, setSoundPlanError] = useState(""),
     [sfxMute, setSfxMute] = useState(false),
     [sfxSolo, setSfxSolo] = useState(false),
+    [sfxDuck, setSfxDuck] = useState("none"), // v0.4.57: "none" | "working" | "ready" (the preview ducks like the export)
     [stickerDialog, setStickerDialog] = useState(false),
     [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
@@ -475,6 +477,31 @@ function App() {
     sfxPreview.current.tick(project?.id, sfxList, time, playing && soundOn && !sfxMute && !muted, 1);
   }, [time, playing, sfxList, soundOn, sfxMute, muted]);
   useEffect(() => () => sfxPreview.current?.stop(), []);
+  // v0.4.57 The export's ducking, for the preview: the server runs the export's own compressor on
+  // the export's own voice bus (made once in the background per narration/timeline/level, cached).
+  const sfxDuckOn = soundOn && normaliseSound(project?.sound).duck;
+  useEffect(() => {
+    if (!project?.id || !sfxDuckOn || !project?.narration_id) {
+      sfxPreview.current.setDuck(null);
+      setSfxDuck("none");
+      return;
+    }
+    let live = true, timer = null, tries = 0;
+    const ask = () => {
+      fetch(`/api/projects/${project.id}/sound/duck`, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : { status: "none" }))
+        .then((d) => {
+          if (!live) return;
+          if (d.status === "working" && tries++ < 300) { setSfxDuck("working"); timer = setTimeout(ask, 2000); return; }
+          const curve = decodeDuck(d);
+          sfxPreview.current.setDuck(curve);
+          setSfxDuck(curve ? "ready" : "none");
+        })
+        .catch(() => live && setSfxDuck("none"));
+    };
+    timer = setTimeout(ask, 600);
+    return () => { live = false; clearTimeout(timer); };
+  }, [project?.id, sfxDuckOn, project?.narration_id, project?.narration_volume, scenes, project?.episode?.guide, project?.assets?.length]);
   // the chosen inspector tab is always in view (eight tabs do not fit a narrow inspector)
   useEffect(() => {
     document.querySelector(".inspector-tabs button.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -790,7 +817,7 @@ function App() {
     const isBreak = !!activeScene?.insert_audio;
     if (a) {
       a.muted = muted || (sfxSolo && soundOn);
-      a.volume = 1;
+      sfxPreview.current.narration(a, project?.narration_volume ?? 1); // v0.4.57: the narration level
       // Audio breaks (Mode O) pause the narration; it resumes at the same word.
       const inSpeech =
         speechAt(activeScene, offsets[activeIndex] || 0, time) !== null &&
@@ -2214,6 +2241,11 @@ function App() {
             onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
             onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
             preview={sfxPreview.current}
+            duckStatus={sfxDuck}
+            narrationVolume={project.narration_volume ?? 1}
+            onNarrationVolume={(v) => queueSave({ narration_volume: v })}
+            onSelectMany={setSoundIds}
+            selectedIds={soundIds}
             mute={sfxMute}
             solo={sfxSolo}
             onMute={(v) => { setSfxMute(v); if (v) setSfxSolo(false); }}
@@ -2324,6 +2356,24 @@ function App() {
                     </option>
                   ))}
               </select>
+            </label>
+            <label className="field">
+              Narration level{" "}
+              <span className="field-note">
+                {Math.round((project.narration_volume ?? 1) * 100)}%
+              </span>
+              <input
+                aria-label="Narration level"
+                className="range"
+                type="range"
+                min="0"
+                max="200"
+                step="5"
+                value={Math.round((project.narration_volume ?? 1) * 100)}
+                onChange={(e) =>
+                  queueSave({ narration_volume: Number(e.target.value) / 100 })
+                }
+              />
             </label>
             <label className="field">
               Music level{" "}
@@ -3717,7 +3767,7 @@ function App() {
                             style={{ left: `${(z.start / duration) * 100}%`, width: `${((z.end - z.start) / duration) * 100}%` }} />
                         ))}
                         {(soundPlan?.items || []).filter((x) => x.t != null).map((x) => (
-                          <b key={x.id} className={`sfx-mark ${x.kind} ${x.status} ${x.id === soundId ? "on" : ""}`}
+                          <b key={x.id} className={`sfx-mark ${x.kind} ${x.status} ${x.id === soundId ? "on" : soundIds.includes(x.id) ? "scope" : ""}`}
                             title={`${x.label} · ${x.sound}${x.reason ? " · " + x.reason : ""} (drag to move)`}
                             style={{ left: `${(x.t / duration) * 100}%`, width: x.keys ? `${(Math.max(0.05, x.keys.at(-1)[0] - x.t) / duration) * 100}%` : undefined }}
                             onPointerDown={(e) => {

@@ -396,6 +396,13 @@ def test_api_sound_flow(isolated):
     edited.update(gain=-9.0, edited=True)
     p = client.patch(f"/api/projects/{pid}", json={"sound": {**p["sound"], "items": [edited]}}).json()
     assert p["history"]["undo"][-1] == "Edit sound effect"
+    # v0.4.57 several planned sounds changed in one step (a scope) are named as an edit, not a plan
+    both = [dict({k: it[k] for k in ("id", "anchor", "kind", "sound", "gain", "status", "source", "reason", "label")}, sound="whoosh-short-1", edited=True)
+            for it in plan["items"]]
+    q = history._sound_name({**p["sound"], "items": []}, {**p["sound"], "items": both})[0]
+    assert q == "Edit 2 sound effects"
+    q = history._sound_name({**p["sound"], "items": []}, {**p["sound"], "items": [dict(x, status="removed") for x in both]})[0]
+    assert q == "Remove 2 sound effects"
     plan2 = client.get(f"/api/projects/{pid}/sound/plan").json()
     assert [i["id"] for i in plan2["items"]] == [i["id"] for i in plan["items"]]
     assert plan2["items"][0]["gain"] == -9.0 and plan2["items"][1] == plan["items"][1]
@@ -433,3 +440,269 @@ def test_importing_a_sound_never_touches_the_timeline(isolated, tmp_path):
     assert mine[0]["t"] == pytest.approx(1.0, abs=0.02) and mine[0]["seconds"] == pytest.approx(0.4, abs=0.05)
     w = client.get(f"/api/projects/{pid}/sound/custom/{a['id']}.wav")
     assert w.status_code == 200 and w.content[:4] == b"RIFF"
+
+
+# ------------------------------------------------------------------ v0.4.57 narration level and the preview's ducking
+
+def test_narration_level_is_clamped_and_saved(isolated):
+    assert renderer.narration_volume({}) == 1.0
+    assert renderer.narration_volume({"narration_volume": 3}) == 2.0
+    assert renderer.narration_volume({"narration_volume": -1}) == 0.0
+    assert renderer.narration_volume({"narration_volume": float("nan")}) == 1.0
+    assert renderer.narration_volume({"narration_volume": "x"}) == 1.0
+    client, _ = isolated
+    pid = client.post("/api/projects", json={"title": "Level", "topic": "t"}).json()["id"]
+    p = client.patch(f"/api/projects/{pid}", json={"narration_volume": 1.4}).json()
+    assert p["narration_volume"] == 1.4 and p["history"]["undo"][-1] == "Narration volume"
+    assert client.patch(f"/api/projects/{pid}", json={"narration_volume": 7}).json()["narration_volume"] == 2.0
+    assert client.patch(f"/api/projects/{pid}/episode/options", json={"narration_volume": 2.5}).status_code == 422
+    assert client.patch(f"/api/projects/{pid}/episode/options", json={"narration_volume": 0.5}).status_code == 200
+    assert client.get(f"/api/projects/{pid}").json()["narration_volume"] == 0.5
+    # no narration: nothing to duck under
+    assert client.get(f"/api/projects/{pid}/sound/duck").json() == {"status": "none"}
+
+
+def test_preview_ducking_and_narration_level_match_the_export(tmp_path, media, monkeypatch):
+    """The editor's effects dip comes from the export's own compressor on the export's own voice bus:
+    applied to the stem it reproduces the exported effects; the narration level scales only the voice."""
+    import base64
+
+    import episode
+
+    monkeypatch.setattr(episode, "issues", lambda project: [])
+    Image.new("RGB", (640, 360), (40, 40, 48)).save(media / "plate.png")
+    voice = media / "voice.wav"
+    gate = "0.3*sin(2*PI*220*t)*max(0\\,sin(2*PI*0.4*t))"  # speech-like: loud phrases, then pauses
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc={gate}|{gate}:s=48000:d=8", str(voice)], check=True)
+    data = tmp_path / "data"
+    assets = [{"id": "img", "kind": "image", "path": str(media / "plate.png"), "name": "plate.png", "width": 640, "height": 360},
+              {"id": "nar", "kind": "audio", "path": str(voice), "name": "voice.wav", "duration": 8.0}]
+    sc = [{"id": "s1", "title": "", "narration": "", "duration": 8.0, "asset_id": "img", "motion": "none", "show_title": False,
+           "audio_start": 0, "audio_duration": 8.0}]
+    items = [{"anchor": f"t:{t}", "sound": "swell-2", "source": "manual", "gain": 6.0} for t in (2.2, 5.6)]
+    p = {"id": "5d00000000000003", "title": "fx", "look": "natural", "captions": False, "music_volume": 0, "assets": assets, "scenes": sc,
+         "narration_id": "nar", "narration_volume": 0.6, "exports": [], "episode": {"guide": True, "plan": {"mode": "final"}},
+         "sound": {"enabled": True, "master": 1.0, "items": items}}
+    opts = {"resolution": "480p", "draft": False, "captions": False}
+    on, off = tmp_path / "on.mp4", tmp_path / "off.mp4"
+    renderer.render(dict(p), opts, on, lambda *a: None, lambda: False)
+    renderer.render(dict(p, sound={"enabled": False}), opts, off, lambda *a: None, lambda: False)
+    a, b = pcm(on), pcm(off)
+    n = min(len(a), len(b))
+    sr, w = 48000, 960
+    rms = lambda x: float(np.sqrt(np.mean(x ** 2)) + 1e-12)
+    # narration level 60%: the exported voice is the file at 0.6 (-4.4 dB)
+    v = pcm(voice)[:n]
+    assert 20 * math.log10(rms(b[sr:7 * sr]) / rms(v[sr:7 * sr])) == pytest.approx(20 * math.log10(0.6), abs=0.25)
+    # the curve, applied to the stem, gives the effects the export actually has
+    fx = a[:n] - b[:n]
+    stem_path, _, _ = sound.stem(p, data, 8.0, data)
+    st = pcm(stem_path)[:n]
+    c = sound.duck_curve(p, data, wait=True)
+    assert c["status"] == "ready" and c["rate"] == sound.DUCK_RATE
+    g = np.frombuffer(base64.b64decode(c["gain"]), dtype=np.uint8) / 255
+    assert g.min() < 0.6 and g.max() > 0.99  # it really dips, and recovers in the pauses
+    gi = np.interp(np.arange(n) / sr, (np.arange(len(g)) + 0.5) / sound.DUCK_RATE, g)
+    err, flat = [], []
+    for k in range(0, n - w, w):
+        s_ = rms(st[k:k + w])
+        if s_ < 0.06:  # loud enough to be above the AAC noise of the difference
+            continue
+        err.append(abs(20 * math.log10(rms(fx[k:k + w]) / rms(st[k:k + w] * gi[k:k + w]))))
+        flat.append(abs(20 * math.log10(rms(fx[k:k + w]) / s_)))
+    assert len(err) > 40
+    assert float(np.percentile(err, 95)) < 0.5  # the preview's dip is the export's dip
+    assert float(np.percentile(flat, 80)) > 3  # without it the preview would be several dB too loud under the voice
+    # cached: the second ask is immediate and identical; a different level is a different curve
+    assert sound.duck_curve(p, data) == c
+    assert sound.duck_curve(dict(p, narration_volume=1.2), data)["status"] == "working"
+    assert sound.duck_curve(dict(p, sound=dict(p["sound"], duck=False)), data) == {"status": "none"}
+
+
+# ------------------------------------------------------------------ v0.4.57 context, not keywords
+
+def _ctx_project(lines, chapter="CHAPTER 3 — THE INVESTIGATION", title="", asset=None, victims=("Maurco Toler",), suspects=("Duane Jackson",)):
+    scenes = [{"id": f"s{k}", "title": title if k == 0 else "", "chapter": chapter, "duration": 6.0, "narration": t,
+               **({"asset_id": "pic"} if asset and k == 0 else {})} for k, t in enumerate(lines)]
+    p = proj(scenes, episode={"guide": {"setup": {"victims": list(victims), "suspects": list(suspects)}}})
+    if asset:
+        p["assets"] = [{"id": "pic", "kind": "image", "name": asset}]
+    return p
+
+
+def _scores(p):
+    sents = sound._sentences(p)
+    return sound.context(p, sents)
+
+
+def test_a_family_word_alone_never_decides():
+    # the gg case: evidence about the suspect's family is the investigation, not grief
+    p = _ctx_project(["The vehicle, he said, was registered to Duane Jackson's mother.",
+                      "Jackson's mother testified that he had access to it that day."],
+                     title="The vehicle, he said, was registered to Duane Jackson's mother.")
+    c = _scores(p)
+    assert max(c["sent"]) < sound.SENSITIVE_AT and c["scene"][0] < sound.SENSITIVE_AT
+    assert not sound.protected(p)
+    # the same word in a passage of grief about the victim is protected
+    p = _ctx_project(["That was a mother remembering her son.", "Maurco's mother described the last time she saw him."])
+    c = _scores(p)
+    assert min(c["sent"]) >= sound.SENSITIVE_AT
+    assert all(z[2] == sound.SENSITIVE_TEXT for z in sound.protected(p))
+
+
+def test_neighbouring_sentences_chapter_and_role_are_weighed():
+    # a neutral sentence inside a passage of grief is part of that passage
+    p = _ctx_project(["Maurco's godmother remembered him as outgoing and adventurous.", "He was thirteen.",
+                      "His family still holds a vigil every year."], chapter="CHAPTER 1")
+    assert _scores(p)["sent"][1] >= sound.SENSITIVE_AT
+    # ...but not across a chapter change
+    p2 = _ctx_project(["His family still holds a vigil every year.", "Detectives traced the phone."])
+    p2["scenes"][1]["chapter"] = "CHAPTER 4 — THE EVIDENCE"
+    assert _scores(p2)["sent"][1] < sound.SENSITIVE_AT
+    # a violent word naming the charge in a legal outcome is case progress (a restrained hit on the word)
+    p3 = _ctx_project(["The jury acquitted both men of the aggravated-murder count."], chapter="CHAPTER 6 — THE TRIAL")
+    assert _scores(p3)["sent"][0] < sound.SENSITIVE_AT
+    items, _ = sound.plan(p3, {"enabled": True})
+    assert [sfxlib.BY_ID[i["sound"]][1] for i in items if i["kind"] == "moments"] in (["bass-impact"], ["thump"])
+    # ...the violence itself is not
+    p4 = _ctx_project(["Maurco was shot as he stood in the doorway."], chapter="CHAPTER 2 — THAT NIGHT")
+    assert _scores(p4)["sent"][0] >= sound.SENSITIVE_AT
+    assert not [i for i in sound.plan(p4, {"enabled": True})[0] if i["kind"] == "moments"]
+
+
+def test_the_picture_is_judged_by_what_it_shows():
+    # a victim base image is protected whatever is said over it; a suspect or scene image is not,
+    # even when a family word is in the narration
+    v = _ctx_project(["The case went to trial in the spring."], asset="BASE-V--portrait--01.jpg")
+    assert _scores(v)["scene"][0] >= sound.SENSITIVE_AT
+    s_ = _ctx_project(["His mother was in the courtroom."], asset="BASE-S--court+2026--04.jpg")
+    assert _scores(s_)["scene"][0] < sound.SENSITIVE_AT
+    # a personal photograph named in the scene: protected; a document about a family member: not
+    ph = _ctx_project(["The case went to trial."], title="Family photo of Maurco smiling")
+    assert _scores(ph)["scene"][0] >= sound.SENSITIVE_AT
+    doc = _ctx_project(["The car was traced."], title="Registration record — owner: Jackson's mother")
+    assert _scores(doc)["scene"][0] < sound.SENSITIVE_AT
+    # every decision says why
+    assert _scores(ph)["why_scene"][0] and _scores(v)["why_scene"][0]
+
+
+# ------------------------------------------------------------------ v0.4.57 sync through edits
+
+def _times(p, data):
+    placed, gone = sound.resolve(p, data)
+    return {r["id"]: r for r in placed}, gone
+
+
+def test_sounds_stay_in_sync_through_edits_moves_shortening_and_replacement(data, tmp_path):
+    sc = [{"id": f"s{k}", "title": f"Scene {k}", "chapter": "CHAPTER 2 — THE SEARCH", "duration": 8.0, "narration": "",
+           **({"transition": "slide-left", "transition_duration": 0.6} if k else {})} for k in range(4)]
+    g = gitem(start=1.0, end=5.5, lines=[{"text": "Phone records placed him near the scene", "at": 2.0},
+                                         {"text": "Video showed the car on Nebraska Avenue", "at": 3.5}])
+    p = proj(sc, items=[g])
+    base, _ = _times(p, data)
+    tr = {r["label"]: r for r in base.values() if r["kind"] == "transitions"}
+    assert tr["Transition into Scene 1"]["t"] == pytest.approx(8.0 + 0.3, abs=1e-4)  # the middle of the slide
+
+    # shorten a scene: every later cut (and its sound) moves by exactly the frames removed
+    p2 = json.loads(json.dumps(p))
+    p2["scenes"][1]["duration"] = 6.5  # (later whooshes stay further apart than the 5 s spacing)
+    moved, _ = _times(p2, data)
+    for k, r in base.items():
+        if r["kind"] == "transitions" and r["t"] > 16:
+            assert moved[k]["t"] == pytest.approx(r["t"] - 1.5, abs=1e-4), r["label"]
+    # the graphic before the cut is untouched
+    for k, r in base.items():
+        if r["kind"] == "motion":
+            assert moved[k]["t"] == r["t"]
+
+    # a longer transition: its sound stays on the middle of it
+    p3 = json.loads(json.dumps(p))
+    p3["scenes"][2]["transition_duration"] = 1.2
+    longer, _ = _times(p3, data)
+    r = next(x for x in longer.values() if x["label"] == "Transition into Scene 2")
+    assert r["t"] == pytest.approx(16.0 + 0.6, abs=1e-4)
+
+    # replace the transition: the sound is replaced to match the new movement, at the new middle
+    p4 = json.loads(json.dumps(p))
+    p4["scenes"][3]["transition"] = "slide-up"
+    rep, _ = _times(p4, data)
+    r = next(x for x in rep.values() if x["label"] == "Transition into Scene 3")
+    assert r["sound"] == "whoosh-dir-up" and r["t"] == pytest.approx(24.3, abs=1e-4)
+    p4["scenes"][3]["transition"] = "cut"
+    assert not any(x["label"] == "Transition into Scene 3" for x in _times(p4, data)[0].values())
+
+    # reorder scenes: a transition's sound belongs to its scene and goes where the scene goes
+    p5 = json.loads(json.dumps(p))
+    p5["scenes"] = [p5["scenes"][0], p5["scenes"][2], p5["scenes"][1], p5["scenes"][3]]
+    re_, _ = _times(p5, data)
+    assert {x["label"]: round(x["t"], 3) for x in re_.values() if x["kind"] == "transitions"}["Transition into Scene 2"] == pytest.approx(8.3)
+
+    # edit a line's text and its timing: its sound follows the line's new first frame
+    p6 = json.loads(json.dumps(p))
+    p6["motion"]["items"][0]["lines"][1] = {"text": "A neighbour's camera caught the car", "at": 4.25}
+    p6["motion"]["items"][0] = motion.normalise_item(p6["motion"]["items"][0])
+    ed, _ = _times(p6, data)
+    line2 = next(e for e in sound.events(p6) if e["label"].startswith("Line 2"))
+    assert next(x for x in ed.values() if x["label"].startswith("Line 2"))["t"] == pytest.approx(line2["t"], abs=1e-4)
+    assert line2["t"] > next(e for e in sound.events(p) if e["label"].startswith("Line 2"))["t"] + 0.5
+
+    # change the animation (reveal -> typed): clicks give way to keys on each typed character
+    p7 = json.loads(json.dumps(p))
+    p7["motion"]["items"][0]["enter"] = "type"
+    p7["motion"]["items"][0] = motion.normalise_item(p7["motion"]["items"][0])
+    ty, _ = _times(p7, data)
+    assert any(x["keys"] for x in ty.values()) and not any(x["label"].startswith("Line") for x in ty.values())
+
+    # your own edits ride along: a whole-graphic change and a hand-moved sound follow a moved graphic
+    eff, _ = sound.effective(p)
+    mine = [dict(i, gain=-9.0, edited=True) for i in eff if i["anchor"].startswith("mg:g1:")]
+    mine[0] = dict(mine[0], offset=0.125)
+    p8 = json.loads(json.dumps(p))
+    p8["sound"] = {"enabled": True, "items": mine}
+    before, _ = _times(p8, data)
+    p8["motion"]["items"][0].update(start=2.0, end=6.5, lines=[{**ln, "at": ln["at"] + 1.0} for ln in p8["motion"]["items"][0]["lines"]])
+    after, gone = _times(p8, data)
+    assert not gone
+    for i in mine:
+        assert after[i["id"]]["t"] == pytest.approx(before[i["id"]]["t"] + 1.0, abs=1 / 24 + 1e-6)
+        assert after[i["id"]]["gain"] == before[i["id"]]["gain"]
+    # ...and the stem really has them there (not only the plan): sample-exact against the waveform
+    total = sum(s["duration"] for s in p8["scenes"])
+    path, placed, _ = sound.stem(p8, data, total, tmp_path)
+    st = pcm(path)
+    r = after[mine[0]["id"]]
+    w, sync = sfxlib.synth(r["sound"])
+    w = w[0][: int(0.2 * 48000)]
+    start = int(round((r["t"] - sync) * 48000))
+    seg = st[start - 960: start + 960 + len(w)]
+    assert abs(int(np.argmax(np.correlate(seg, w, mode="valid"))) - 960) <= 1
+
+
+def test_preview_ducking_runs_one_job_per_project_and_drops_obsolete_ones(tmp_path, monkeypatch):
+    """v0.4.57 On a long timeline the curve takes a while (the export's loudnorm): an edit while it is
+    being made stops the obsolete job instead of piling up FFmpeg runs; other projects are untouched."""
+    import sys
+    import time
+
+    ones = "import sys,time; time.sleep({}); sys.stdout.buffer.write(b'\\x00\\x00\\x80?' * 2000)"
+    jobs = {"A": 30, "B": 0, "C": 0.5}
+    monkeypatch.setattr(sound, "_duck_job", lambda p: ([sys.executable, "-c", ones.format(jobs[p["v"]])], p["v"] + p["id"]))
+    assert sound.duck_curve({"id": "p1", "v": "A"}, tmp_path)["status"] == "working"
+    assert sound.duck_curve({"id": "p2", "v": "C"}, tmp_path)["status"] == "working"  # another project
+    for _ in range(100):
+        if "p1" in sound._DUCK_PROC:
+            break
+        time.sleep(0.05)
+    slow = sound._DUCK_PROC["p1"][1]
+    t = time.time()
+    r = sound.duck_curve({"id": "p1", "v": "B"}, tmp_path, wait=True)  # the timeline was edited
+    assert r["status"] == "ready" and len(r["gain"]) > 0
+    assert slow.wait(timeout=5) is not None and time.time() - t < 10  # the obsolete job was stopped
+    for _ in range(100):
+        if "Ap1" not in sound._DUCK_BUSY:
+            break
+        time.sleep(0.05)
+    assert "Ap1" not in sound._DUCK_FAILED  # stopped, not failed: it is made again if you undo
+    assert sound.duck_curve({"id": "p2", "v": "C"}, tmp_path, wait=True)["status"] == "ready"
+    assert sound.duck_curve({"id": "p1", "v": "A"}, tmp_path)["status"] == "working"  # undo: made again
+    sound.duck_curve({"id": "p1", "v": "B"}, tmp_path)  # redo: the cached curve, and A stops again

@@ -34,7 +34,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.56", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.57", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -584,6 +584,7 @@ async def update_project(id: str, request: Request):
             "look",
             "captions",
             "music_volume",
+            "narration_volume",
             "narration_id",
             "music_id",
             "review",
@@ -689,6 +690,8 @@ async def update_project(id: str, request: Request):
             p["caption_style"] = captionstyle.normalise(changes["caption_style"])
         if "music_volume" in changes:
             p["music_volume"] = min(0.5, max(0, float(changes["music_volume"])))
+        if "narration_volume" in changes:  # v0.4.57: 0..2 (100% = as recorded)
+            p["narration_volume"] = renderer.narration_volume({"narration_volume": changes["narration_volume"]})
         for field in ["narration_id", "music_id"]:
             if field in changes:
                 value = changes[field]
@@ -1173,6 +1176,14 @@ def sound_plan(id: str):
     return sfxplan.overview(p, DATA)
 
 
+@app.get("/api/projects/{id}/sound/duck")
+def sound_duck(id: str):
+    """v0.4.57 The effects' gain over time under the voice, exactly as the export ducks them, for the
+    editor preview ({status: none | working | ready}; made in the background, cached)."""
+    p = project_or_404(id)
+    return sfxplan.duck_curve(p, DATA)
+
+
 @app.post("/api/projects/{id}/sound/generate")
 def sound_generate(id: str):
     """Plan again from the timeline (your own sounds, edits and removals stay; can be undone)."""
@@ -1181,7 +1192,7 @@ def sound_generate(id: str):
         checkpoint(p)
         cur = sfxplan.normalise(p.get("sound"))
         mine = [it for it in cur["items"] if it["source"] == "manual" or it["edited"] or it["status"] == "removed"]
-        fresh, info = sfxplan.plan(p, cur, keep={it["anchor"] for it in mine})
+        fresh, info = sfxplan.plan(p, cur, keep={it["anchor"] for it in mine}, held=sfxplan._held(p, mine))
         p["sound"] = {**cur, "items": mine + fresh}
         p = save_project(p)
     return {"project": p, "added": len(fresh), "silenced": len(info["silenced"])}
@@ -2323,6 +2334,7 @@ async def episode_options(id: str, request: Request):
         "narration_id",
         "music_id",
         "music_volume",
+        "narration_volume",
         "captions",
         "confirm_timing",
         "confirm_transcript",
@@ -2384,6 +2396,14 @@ async def episode_options(id: str, request: Request):
                 p["music_volume"] = value
             except (TypeError, ValueError):
                 raise HTTPException(422, "Music level must be between 0 and 0.5.")
+        if "narration_volume" in body:
+            try:
+                value = float(body["narration_volume"])
+                if not 0 <= value <= 2:  # NaN fails the comparison too
+                    raise ValueError()
+                p["narration_volume"] = round(value, 3)
+            except (TypeError, ValueError):
+                raise HTTPException(422, "Narration level must be between 0 and 2.")
         if "captions" in body:
             p["captions"] = body["captions"] is True
         base_changed = False
