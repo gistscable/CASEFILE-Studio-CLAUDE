@@ -10,7 +10,7 @@ ducking switch, one scene edited, and returning to a timeline already analysed. 
 made once in CASEFILE_DATA_DIR.
 
     cd casefile-studio && PATH=$PWD/.venv/bin:$PATH CASEFILE_DATA_DIR=/tmp/duckbench \\
-        .venv/bin/python qa/sound-design/duck_bench.py [sliced guide inserts] [--minutes 25]
+        .venv/bin/python qa/sound-design/duck_bench.py [sliced guide inserts] [--minutes 25] [--quick]
 """
 import copy
 import json
@@ -71,13 +71,67 @@ def project(kind, minutes, scenes_n=150):
     return p
 
 
+def _rss_kb(pid):
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            return next(int(x.split()[1]) for x in f if x.startswith("VmRSS:"))
+    except (OSError, StopIteration, ValueError):
+        return 0
+
+
+def _children():
+    me = str(os.getpid())
+    out = []
+    for d in os.listdir("/proc"):
+        if d.isdigit():
+            try:
+                with open(f"/proc/{d}/stat") as f:
+                    if f.read().rsplit(")", 1)[1].split()[1] == me:
+                        out.append(d)
+            except (OSError, IndexError):
+                pass
+    return out
+
+
+class RssSampler:
+    """v0.4.60 Memory while the analysis runs (Linux /proc, every 50 ms): the peak of the FFmpeg
+    processes' summed RSS, and of this (server-side) Python process. ru_maxrss is no use here: it is the
+    largest child ever, e.g. the encoder that made the test media."""
+
+    def __init__(self):
+        import threading
+
+        self.ff = self.py = 0
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def run(self):
+        while not self.stop.wait(0.05):
+            self.ff = max(self.ff, sum(_rss_kb(c) for c in _children()))
+            self.py = max(self.py, _rss_kb(os.getpid()))
+
+    def __enter__(self):
+        if os.path.isdir("/proc"):
+            self.thread.start()
+        return self
+
+    def __exit__(self, *a):
+        self.stop.set()
+        if self.thread.is_alive():
+            self.thread.join()
+
+
 def timed(name, p, out):
+    c0 = resource.getrusage(resource.RUSAGE_CHILDREN)
     t0 = time.perf_counter()
-    r = sound.duck_curve(p, DATA, wait=True)
+    with RssSampler() as mem:
+        r = sound.duck_curve(p, DATA, wait=True)
     wall = time.perf_counter() - t0
-    out[name] = {"wall_s": round(wall, 2), "status": r["status"],
-                 "child_peak_rss_mb": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss // 1024}
-    print(f"  {name:34s} {wall:8.2f} s  {r['status']}", flush=True)
+    c1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    cpu = (c1.ru_utime - c0.ru_utime) + (c1.ru_stime - c0.ru_stime)  # v0.4.60: FFmpeg CPU time (all processes)
+    out[name] = {"wall_s": round(wall, 2), "cpu_s": round(cpu, 2), "status": r["status"],
+                 "ffmpeg_peak_rss_mb": round(mem.ff / 1024), "python_peak_rss_mb": round(mem.py / 1024)}
+    print(f"  {name:34s} {wall:8.2f} s  cpu {cpu:7.2f} s  ffmpeg {mem.ff / 1024:5.0f} MB  {r['status']}", flush=True)
     return r
 
 
@@ -94,6 +148,8 @@ def bench(kind, minutes):
     q = copy.deepcopy(p)
     q["narration_volume"] = 0.7
     timed("narration_volume_changed", q, out)
+    if QUICK:
+        return out
     q = copy.deepcopy(p)
     q["music_volume"] = 0.3
     q["sound"]["master"] = 0.5
@@ -153,7 +209,12 @@ def compare(kind, minutes):
     return out
 
 
+QUICK = False  # --quick: the first analysis and a narration-volume change only
+
+
 def main(argv):
+    global QUICK
+    QUICK = "--quick" in argv
     minutes = 25
     if "--minutes" in argv:
         minutes = int(argv[argv.index("--minutes") + 1])

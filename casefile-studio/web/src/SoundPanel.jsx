@@ -26,7 +26,7 @@ const FRAME = 1 / SFX.fps;
 export default function SoundPanel({ project, plan, planError, time, playing, selectedId, onSelect, onChange, onGenerate, onSeek, onPlayFrom,
                                      preview, mute, solo, onMute, onSolo, onUploadSound, disabled,
                                      duckStatus = "none", narrationVolume = 1, onNarrationVolume = () => {}, onSelectMany = () => {},
-                                     onLiveNarration = () => {}, onLiveMaster = () => {} }) {
+                                     onLiveNarration = () => {}, onLiveMaster = () => {}, pin = null, onPin = () => {} }) {
   const s = normaliseSound(project.sound);
   const [catalog, setCatalog] = React.useState(null);
   const [browse, setBrowse] = React.useState(false);
@@ -37,6 +37,9 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
   const [audVol, setAudVol] = React.useState(0.8);
   const [info, setInfo] = React.useState({}); // sid -> {seconds, peaks}
   const [showSilent, setShowSilent] = React.useState(false);
+  // v0.4.60 a moment chosen on the Sound FX lane (double-click): the library opens, and adds there
+  React.useEffect(() => { if (pin != null) setBrowse(true); }, [pin]);
+  const addTime = pin != null && Number.isFinite(pin) ? pin : time;
   const [busy, setBusy] = React.useState("");
   const [error, setError] = React.useState("");
   const fileRef = React.useRef(null);
@@ -115,9 +118,11 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
     return `t:${t.toFixed(3)}`;
   };
   const addAt = (sid, name) => {
+    const t = Number.isFinite(addTime) ? Math.max(0, addTime) : 0;
     const id = `m${Date.now().toString(36)}`;
-    onChange({ ...s, items: [...s.items, { id, anchor: anchorAt(time), kind: "manual", sound: sid, gain: 0, status: "approved", source: "manual", label: name || label(sid), reason: "added by you" }] });
+    onChange({ ...s, items: [...s.items, { id, anchor: anchorAt(t), kind: "manual", sound: sid, gain: 0, status: "approved", source: "manual", label: name || label(sid), reason: "added by you" }] });
     onSelect(id);
+    onPin(null);
   };
   const variation = (it) => {
     const cat = catalog?.byId[it.sound]?.category;
@@ -387,7 +392,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
                     </button>
                     <Wave values={info[x.id]?.peaks} />
                     <span>{x.label}<small> · {x.mine ? "your sound" : x.category}{fmtSec(x.id) ? ` · ${fmtSec(x.id)}` : ""}{x.intensity ? ` · ${"•".repeat(x.intensity)}` : ""}</small></span>
-                    <button className="text-link" disabled={disabled} title="Add it at the playhead (this changes the project)" onClick={() => addAt(x.id, x.label)}><Plus size={11} /> at {clock(time).slice(0, -2)}</button>
+                    <button className="text-link" disabled={disabled} title={pin != null ? "Add it where you double-clicked on the Sound FX lane (this changes the project)" : "Add it at the playhead (this changes the project)"} onClick={() => addAt(x.id, x.label)}><Plus size={11} /> at {clock(addTime).slice(0, -2)}</button>
                   </div>
                 ))}
                 {!library.length && <p className="micro-note">No sound matches.</p>}

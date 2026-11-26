@@ -217,3 +217,30 @@ test("v0.4.59 a pass from the top of the part starts on time: play() is called e
   mp.setVolume(0.4);
   assert.equal(mp.nodes.pass[1].gain.calls.length, calls);
 });
+
+test("v0.4.60 the music follows a steady small offset of the preview clock (no 50 ms dead zone)", () => {
+  const host = new SfxPreview();
+  const mp = new MusicPreview(host);
+  mp.setSource("/media/p/m.mp3");
+  mp.setLayout(musicLayout({ crossfade: 2, fade_in: 0 }, 20, 60));
+  host.ensure();
+  host.ctx.currentTime = 1;
+  mp.tick(5, true, false);
+  const a = mp.els[0];
+  const te = () => mp.anchor.t + (host.ctx.currentTime - mp.anchor.at);
+  // the picture / narration clock now runs 30 ms ahead of where the music's clock put it
+  for (let k = 1; k <= 90; k++) {
+    host.ctx.currentTime = 1 + k / 60;
+    mp.tick(5 + k / 60 + 0.03, true, false);
+  }
+  assert.ok(Math.abs(te() - (5 + 90 / 60 + 0.03)) < 0.002, te());
+  assert.ok(!a.paused); // followed by the rate, never re-seeked for it
+  // frame jitter (+-15 ms around the right time) is averaged, not followed
+  const seen = [];
+  for (let k = 91; k <= 300; k++) {
+    host.ctx.currentTime = 1 + k / 60;
+    mp.tick(5 + k / 60 + 0.03 + (k % 2 ? 0.015 : -0.015), true, false);
+    seen.push(te() - (5 + k / 60 + 0.03));
+  }
+  assert.ok(Math.max(...seen.map(Math.abs)) < 0.004, Math.max(...seen.map(Math.abs)));
+});

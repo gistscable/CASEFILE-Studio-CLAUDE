@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.59", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.60", docs_url="/api/docs")
 
 
 @app.middleware("http")

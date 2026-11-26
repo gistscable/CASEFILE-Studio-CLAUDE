@@ -1,0 +1,242 @@
+{
+ "guide-25min-6-soundbites": {
+  "code": "this checkout",
+  "timeline_s": 1552.0,
+  "scenes": 156,
+  "soundbites": 6,
+  "manual_effects": 24,
+  "music": {
+   "mode": "scenes",
+   "chapters": [
+    "CHAPTER 2",
+    "CHAPTER 4",
+    "CHAPTER 5",
+    "CHAPTER 8"
+   ],
+   "crossfade": 2.0,
+   "loop": true,
+   "fade_in": 1.5,
+   "fade_out": 2.0
+  },
+  "video_s": 1552.0,
+  "audio_s": 1552.0,
+  "decoded_audio_s": 1552.0,
+  "render_s": 185.1,
+  "warnings": [],
+  "narration": [
+   2550,
+   2550
+  ],
+  "narration_wrong_part": 0,
+  "soundbite": [
+   68,
+   68
+  ],
+  "should_be_silent": [
+   3,
+   3
+  ],
+  "failures": [],
+  "last_narration_window_end": 1551.3
+ },
+ "sliced-25min-reordered-past-end": {
+  "code": "this checkout",
+  "timeline_s": 1512.0,
+  "scenes": 152,
+  "soundbites": 0,
+  "manual_effects": 24,
+  "music": {
+   "mode": "scenes",
+   "chapters": [
+    "CHAPTER 2",
+    "CHAPTER 4",
+    "CHAPTER 5",
+    "CHAPTER 8"
+   ],
+   "crossfade": 2.0,
+   "loop": true,
+   "fade_in": 1.5,
+   "fade_out": 2.0
+  },
+  "video_s": 1512.0,
+  "audio_s": 1512.0,
+  "decoded_audio_s": 1512.0,
+  "render_s": 262.7,
+  "warnings": [],
+  "narration": [
+   2550,
+   2550
+  ],
+  "narration_wrong_part": 0,
+  "soundbite": [
+   0,
+   0
+  ],
+  "should_be_silent": [
+   18,
+   18
+  ],
+  "failures": [],
+  "last_narration_window_end": 1511.3
+ },
+ "guide-30min-8-soundbites-one-past-clip-end": {
+  "code": "this checkout",
+  "timeline_s": 1863.0,
+  "scenes": 188,
+  "soundbites": 8,
+  "manual_effects": 24,
+  "music": {
+   "mode": "scenes",
+   "chapters": [
+    "CHAPTER 2",
+    "CHAPTER 4",
+    "CHAPTER 5",
+    "CHAPTER 8"
+   ],
+   "crossfade": 2.0,
+   "loop": true,
+   "fade_in": 1.5,
+   "fade_out": 2.0
+  },
+  "video_s": 1863.0,
+  "audio_s": 1863.0,
+  "decoded_audio_s": 1863.019,
+  "render_s": 240.1,
+  "warnings": [
+   "Scene '': source crop has no footage (trim=34.000s, crop_end=30.000s, asset_end=30.000s); rendering placeholder."
+  ],
+  "narration": [
+   3060,
+   3060
+  ],
+  "narration_wrong_part": 0,
+  "soundbite": [
+   76,
+   76
+  ],
+  "should_be_silent": [
+   8,
+   8
+  ],
+  "failures": [],
+  "last_narration_window_end": 1862.3
+ },
+ "sliced-25min-reordered-past-end @ /tmp/base0459/casefile-studio": {
+  "code": "/tmp/base0459/casefile-studio",
+  "timeline_s": 1512.0,
+  "scenes": 152,
+  "soundbites": 0,
+  "manual_effects": 24,
+  "music": {
+   "mode": "scenes",
+   "chapters": [
+    "CHAPTER 2",
+    "CHAPTER 4",
+    "CHAPTER 5",
+    "CHAPTER 8"
+   ],
+   "crossfade": 2.0,
+   "loop": true,
+   "fade_in": 1.5,
+   "fade_out": 2.0
+  },
+  "video_s": 1512.0,
+  "audio_s": 402.999,
+  "decoded_audio_s": 403.008,
+  "render_s": 162.7,
+  "warnings": [],
+  "narration": [
+   680,
+   2550
+  ],
+  "narration_wrong_part": 0,
+  "soundbite": [
+   0,
+   0
+  ],
+  "should_be_silent": [
+   18,
+   18
+  ],
+  "failures": [
+   {
+    "t": 406.3,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 406.8,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 407.3,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 407.8,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 408.3,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 408.8,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 409.3,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 409.8,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 410.3,
+    "expected": "nar 580 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 411.3,
+    "expected": "nar 590 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 411.8,
+    "expected": "nar 590 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   },
+   {
+    "t": 412.3,
+    "expected": "nar 590 Hz",
+    "got_amp": 0.0,
+    "strongest": 400.0
+   }
+  ],
+  "last_narration_window_end": 399.3
+ },
+ "guide-30min-8-soundbites-one-past-clip-end @ /tmp/base0459/casefile-studio": {
+  "code": "/tmp/base0459/casefile-studio",
+  "timeline_s": 1863.0,
+  "export_refused": "The rendered video/audio does not cover the complete planned narration. No export was accepted; inspect the source files and retry."
+ }
+}

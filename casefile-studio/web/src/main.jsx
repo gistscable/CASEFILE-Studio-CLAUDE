@@ -147,7 +147,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.59";
+const APP_VERSION = "0.4.60";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -407,6 +407,7 @@ function App() {
     [motionId, setMotionId] = useState(null),
     [motionStatus, setMotionStatus] = useState(""),
     [soundId, setSoundId] = useState(null), // v0.4.56 the selected sound effect
+    [sfxPin, setSfxPin] = useState(null), // v0.4.60 where a sound picked in the library goes (double-click on the Sound FX lane)
     [soundIds, setSoundIds] = useState([]), // v0.4.57 every sound the current edit applies to (a whole graphic)
     [soundPlan, setSoundPlan] = useState(null),
     [soundPlanError, setSoundPlanError] = useState(""),
@@ -2313,6 +2314,8 @@ function App() {
             playing={playing}
             selectedId={soundId}
             onSelect={setSoundId}
+            pin={sfxPin}
+            onPin={setSfxPin}
             onChange={(v) => queueSave({ sound: v })}
             onGenerate={async () => {
               await flushSave();
@@ -3847,7 +3850,20 @@ function App() {
                         )}
                       </button>
                     {soundOn && (
-                      <div className="audio-lane sfx-lane has-audio" onClick={(e) => e.stopPropagation()}>
+                      <div className="audio-lane sfx-lane has-audio" onClick={(e) => e.stopPropagation()}
+                        title="Double-click to add a sound here · click a sound to select it, drag to move it, Delete to remove it"
+                        onDoubleClick={(e) => {
+                          // v0.4.60 add a sound from the timeline: this moment is kept for the library's "+ at"
+                          // (playback goes on; nothing is saved until a sound is picked)
+                          if (locked || e.target.closest(".sfx-mark")) return;
+                          const content = timelineRef.current?.querySelector(".timeline-content");
+                          if (!content || !(duration > 0)) return;
+                          const r = content.getBoundingClientRect();
+                          const t = Math.round(Math.min(duration, Math.max(0, ((e.clientX - r.left) / r.width) * duration)) * 24) / 24;
+                          if (!Number.isFinite(t)) return;
+                          setSfxPin(t);
+                          setInspectorTab("sound");
+                        }}>
                         {(soundPlan?.zones || []).map((z, i) => (
                           <i key={"z" + i} className="sfx-zone" title={`No automatic sound: ${z.why}`}
                             style={{ left: `${(z.start / duration) * 100}%`, width: `${((z.end - z.start) / duration) * 100}%` }} />
@@ -3856,10 +3872,21 @@ function App() {
                           <b key={x.id} className={`sfx-mark ${x.kind} ${x.status} ${x.id === soundId ? "on" : soundIds.includes(x.id) ? "scope" : ""}`}
                             title={`${x.label} · ${x.sound}${x.reason ? " · " + x.reason : ""} (drag to move)`}
                             style={{ left: `${(x.t / duration) * 100}%`, width: x.keys ? `${(Math.max(0.05, x.keys.at(-1)[0] - x.t) / duration) * 100}%` : undefined }}
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              // v0.4.60 Delete / Backspace on the selected sound: as the Remove button (playback goes on)
+                              if ((e.key !== "Delete" && e.key !== "Backspace") || locked) return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const st = normaliseSound(project.sound);
+                              queueSave({ sound: x.source === "manual" ? { ...st, items: st.items.filter((y) => y.id !== x.id) } : editSfx(st, x, { status: "removed" }) });
+                              setSoundId(null);
+                            }}
                             onPointerDown={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setPlaying(false);
+                              // v0.4.60 selecting or moving a sound no longer pauses the playback
+                              e.currentTarget.focus({ preventScroll: true });
                               setSoundId(x.id);
                               setInspectorTab("sound");
                               if (locked) return;
@@ -3876,12 +3903,15 @@ function App() {
                                 window.removeEventListener("pointerup", up);
                                 el.style.transform = "";
                                 if (moved) queueSave({ sound: editSfx(normaliseSound(project.sound), x, { offset: Math.round((base + moved) * 10000) / 10000 }) });
-                                else setTime(Math.max(0, x.t - 0.02));
+                                else if (!playingRef.current) setTime(Math.max(0, x.t - 0.02)); // while playing: selected only
                               };
                               window.addEventListener("pointermove", move);
                               window.addEventListener("pointerup", up);
                             }} />
                         ))}
+                        {sfxPin != null && duration > 0 && (
+                          <i className="sfx-pin" style={{ left: `${(sfxPin / duration) * 100}%` }} title="A sound you pick in the library (Sound tab) goes here" />
+                        )}
                         {!soundPlan && <span>{soundPlanError || "Reading the timeline…"}</span>}
                       </div>
                     )}

@@ -572,3 +572,161 @@ Full suite 648 passed, 1 skipped (v0.4.58: 638); JS 53 (v0.4.58: 49); build OK.
 * The extra voice-bus pass adds one FFmpeg step to exports with music or effects (~the loudnorm time,
   which the single graph also paid).
 
+
+## v0.4.60 — pre-approval: analysis speed, timeline Sound FX, sync, long timelines
+
+Targeted corrections after the conditional approval of v0.4.59. The export's audio is unchanged
+except for one bug fix (3, a narration cut off by a slice past the end of its recording). **Not finally
+approved**: these are measurements for your review.
+
+### 1. Ducking analysis — faster, same samples
+
+The curve is still the export's own `sidechaincompress` keyed by the export's own voice bus. Three
+changes, each checked sample-for-sample against the previous output:
+
+* **Two-level narration split (analysis only).** The export hands the whole recording to every scene's
+  trim (`asplit=150`): about 75 passes of the recording through the graph. The analysis now splits it
+  in ~√n groups, each with a coarse trim covering its scenes ± 2 s, then to its scenes
+  (`renderer._split_tree`, `voice_graph(tree=True)`). Every scene trim gets the same frames,
+  timestamps and samples: **81/81 random layouts (6,822 scenes) byte-identical** to the plain graph.
+  (Merging adjacent scenes into one trim was tried and rejected: 14/81 differed by a sample, because
+  `asetpts=N/SR/TB` rounds cut points to frame boundaries.)
+* **Pipeline (new timeline).** The bus and the two compressors run at once (`bus | curves`), the bus
+  kept on disk for a later narration-level change: no second decode of the bus.
+* **Compressors side by side (narration level changed).** The effects' and the music's compressor run
+  as two processes on the stored bus instead of one after the other.
+* **Low priority.** Every analysis process runs at nice 10 (Linux/macOS) or
+  `BELOW_NORMAL_PRIORITY_CLASS` (Windows): the editor, playback and an export go first.
+
+Synthetic 25-min / 150-scene projects, `qa/sound-design/duck_bench.py`, both versions measured back to
+back on the same 2-CPU sandbox (`duck-bench-v0460-before.txt` / `-after.txt`; CPU = FFmpeg user+sys):
+
+| step | sliced v0.4.59 | sliced v0.4.60 | guide v0.4.59 | guide v0.4.60 | inserts v0.4.59 | inserts v0.4.60 |
+|---|---|---|---|---|---|---|
+| first analysis | 126.9 s (cpu 130.7) | **78.4 s** (cpu 100.3) | 20.5 s | **11.0 s** | 30.5 s | **19.3 s** |
+| narration level changed | 12.4 s | **7.7 s** | 12.1 s | **6.8 s** | 11.9 s | **7.0 s** |
+| one scene edited | 129.3 s (cpu 133.6) | **81.3 s** (cpu 103.1) | 19.9 s | **11.2 s** | 30.3 s | **19.4 s** |
+| music / effects level, ducking switch, undo | 0 | 0 | 0 | 0 | 0 | 0 |
+
+(The sliced v0.4.59 figures are higher than the 96.8 / 97.3 s reported for v0.4.59: the sandbox was
+slower on this run. Before/after here are from the same session.) Total CPU also fell (130.7 → 100.3 s):
+the two-level split removes work rather than only spreading it.
+
+Memory while the analysis runs (`--quick`, a /proc sampler every 50 ms, `duck-bench-v0460-memory-*.txt`):
+
+| | sliced v0.4.59 | sliced v0.4.60 | inserts v0.4.59 | inserts v0.4.60 |
+|---|---|---|---|---|
+| FFmpeg peak RSS, first analysis | 98 MB | 144 MB (bus and curves at once) | 1,079 MB | 1,097 MB |
+| FFmpeg peak RSS, narration level | 16 MB | 32 MB (two compressors) | 17 MB | 33 MB |
+| server (Python) peak RSS | 69–82 MB | 57–73 MB | 82 MB | 73 MB |
+
+**Found, not changed (pre-existing since soundbites got their own loudness normalisation):** each
+soundbite's `loudnorm` costs ~110 MB in the process that makes the voice bus — the export's pre-pass and
+the analysis alike (19 MB → 130 MB with one, independent of where it is; the bench's 10 soundbites →
+~1.08 GB). It is freed when the job ends. An exact fix exists (normalise each soundbite once in its own
+short pass, cache it, read it back as 32-bit float: the same samples, ~130 MB at most), but it changes the
+export path, so it is proposed for your decision rather than made here.
+
+### What cannot be made faster without changing the sound
+
+* **loudnorm (70–80 s of a 25-minute sliced analysis).** The export normalises the whole narration as one
+  stream; its gain at any moment depends on everything before it (integrated loudness, 3 s look-ahead,
+  global state). A scene edit changes what comes before every later sample, so the normalisation cannot
+  be resumed from the edit or cached per scene and stay identical — it must run over the whole timeline.
+  Approximating it (per-scene normalisation, or reusing the old gain) would make the preview's ducking
+  differ from the export's.
+* **The two compressors (~6 s each at 48 kHz).** `sidechaincompress` is a recursive envelope follower:
+  each sample's gain depends on the previous one, so it cannot be split in time or run at a lower rate
+  and stay exact. They now run at the same time as the bus (new timeline) or as each other (narration
+  level), which is as parallel as they go.
+* **Not added:** a "coarse first, exact later" preview curve. The preview already plays the previous
+  exact curve (or none) while the job runs, and an approximation would be heard as the export's ducking.
+
+### 2. Only the latest timeline is analysed
+
+One analysis per project. A new timeline (or narration level) stops the running job's FFmpeg processes
+at once (`sound._register` kills them; a stopped job is not marked failed and is not queued); a
+narration-level change during a bus that is being made waits for that bus instead of starting a second
+one; returning to an analysed timeline (undo) is instant and stops any job for another version. The
+editor asks 600 ms after the last edit and polls every 2 s. Test
+`test_rapid_timeline_edits_only_analyse_the_latest_state`: 12 edits 150 ms apart → never more than one
+job alive (two for an instant while the old one is killed), nothing left running, only the last
+state's curve on disk.
+
+### 3. Narration cut off by a slice past the end of its recording (export bug, fixed)
+
+Found while testing v0.4.60: in a scene-sliced project, a scene whose slice lies wholly past the end of
+the narration (a scene reordered or retimed past the recording's end) made an empty slice; `apad` padded
+it with frames without timestamps, the concat broke ("Invalid data found when processing input") and
+FFmpeg **stopped the voice there and still exited 0**. The rest of the narration was missing from the MP4.
+An episode guide with a soundbite window wholly past the end of its clip (e.g. a clip replaced by a
+shorter one) hit the same thing; there the export's own check then refused the export.
+
+Fix: every scene slice and soundbite is re-timed from its own sample count before the concat
+(`RESTAMP = asetpts=N/SR/TB`). Only timestamps change.
+
+* 40 random sliced layouts: the 13 that v0.4.59 cut off (43–54 % of the narration kept) are complete;
+  the other 27 are byte-identical to v0.4.59. 12 random guide layouts with soundbites (stems on and off):
+  24/24 byte-identical to v0.4.59.
+* Regression test `test_a_scene_sliced_past_the_end_of_the_narration_no_longer_cuts_the_rest_of_it`.
+
+### 4. Sound FX from the timeline, without stopping playback
+
+On the **Sound FX** lane (A3):
+
+* **Add:** double-click the lane — the moment is pinned (dashed line), the Sound tab opens with the
+  library, and each sound's "+ at" button adds there; without a pin it adds at the playhead, as before.
+* **Select:** click a sound — it is selected and shown in the Sound tab. **This no longer pauses the
+  playback** (v0.4.59 did); a click while stopped still moves the playhead to it.
+* **Move:** drag it (whole frames).
+* **Delete:** Delete / Backspace on the selected sound (as the Remove button: a sound you added is
+  deleted, a planned one is removed and can be restored).
+* **Audition / adjust:** the Sound button and the Volume slider of the selected sound.
+
+Browser QA in Chromium (`browser_timeline_qa.mjs` → `browser-timeline-qa.json`), every step while
+playing: still playing afterwards, the narration never paused or re-seeked by it, only `sound` saved
+(no scene, storyboard or clip change), the timeline's clips unchanged; the moved sound heard at
+**16.001 s** (expected 16.0) and **29.003 s** (expected 29.0) against the narration's own position.
+A click or drag on the ruler still stops playback, as in every version.
+
+### 5. Sync of narration, music and effects
+
+The same QA, 28 operations: 12 scrubs then play, 3 playhead drags then play, 4 jumps while playing, 5
+pause / play, a seek while paused, and 3 edits while playing (effects volume, music level, a sound
+dragged on the lane). Each engine's timeline position read side by side 2.5 s after each:
+
+* **effects:** −6.6 … −3.2 ms from the narration (spread 3.4 ms);
+* **music:** −38.8 … +6.9 ms (σ 12.3 ms) — within one frame at 24 fps (41.7 ms).
+
+The music used to stay wherever its last re-anchor put it while the preview clock was less than 50 ms
+away; it now follows a steady small offset gradually (a tenth per tick, averaged, never a seek):
+v0.4.59 −38.8 … +21.0 ms (σ 16.7) → v0.4.60 −38.8 … +6.9 ms (σ 12.3). Unit test in
+`tests/js/music.test.mjs`. The export places everything sample-exactly; these figures are the preview.
+
+### 6. Long timelines (narration tail and completeness)
+
+`qa/sound-design/tail_check_long.py` → `tail-check-long-v0460.json`: real exports (480p draft) with a
+test narration whose pitch encodes its own time, so every 0.5 s window inside every scene can be checked
+for the right part of the recording (not only "something is playing"); soundbite clips likewise;
+windows past the end of a recording must be silent. Music in four chapters with 2 s crossfades, 24
+manual effects plus the plan's.
+
+| timeline | version | picture | exported audio | narration windows right part | soundbite windows | should be silent | result |
+|---|---|---|---|---|---|---|---|
+| guide 25:52, 156 scenes, 6 soundbites (one running 3 s past its clip's end) | v0.4.60 | 1552.0 s | 1552.0 s | **2550 / 2550** | 68 / 68 | 3 / 3 | complete to 1551.3 s |
+| sliced 25:12, 152 scenes in a new order, two 6 s scenes past the recording's end | v0.4.60 | 1512.0 s | 1512.0 s | **2550 / 2550** | — | 18 / 18 | complete to 1511.3 s |
+| guide 31:03, 188 scenes, 8 soundbites (one wholly past its clip's end) | v0.4.60 | 1863.0 s | 1863.0 s | **3060 / 3060** | 76 / 76 | 8 / 8 | complete to 1862.3 s |
+| sliced 25:12 (same) | v0.4.59 | 1512.0 s | **403.0 s** | 680 / 2550 | — | — | narration lost after 6:43, export "succeeded" |
+| guide 31:03 (same) | v0.4.59 | — | — | — | — | — | **export refused** by its own check |
+
+No window anywhere played the wrong part of the recording (the order of reordered scenes is right).
+Render times on the 2-CPU sandbox: 185 s, 263 s, 240 s.
+
+### 7. Resources (Windows 11, 16 GB, Core i7)
+
+* Analysis processes at below-normal priority; one analysis per project, obsolete ones killed.
+* CPU per 25-min sliced analysis: 130.7 → 100.3 s of FFmpeg time; wall 126.9 → 78.4 s on 2 CPUs (a
+  Core i7 has 8–16 threads: the pipeline's three processes then run without competing).
+* Memory: see the table above; the soundbite loudnorm cost is the one large item (proposal above).
+* The preview's work in the browser is unchanged: effects are scheduled ahead on the audio clock,
+  music on two media elements; nothing new runs per frame except one multiplication (music anchor).
