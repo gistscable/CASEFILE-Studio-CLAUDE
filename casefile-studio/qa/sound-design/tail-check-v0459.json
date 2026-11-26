@@ -1,0 +1,32 @@
+{
+ "narration only": {
+  "audio_s": 40.0,
+  "stream_duration": 40.0,
+  "rms_last_second_db": -15.100000381469727,
+  "rms_37_38_db": -15.100000381469727
+ },
+ "narration + effects (ducked)": {
+  "audio_s": 40.0,
+  "stream_duration": 40.0,
+  "rms_last_second_db": -15.100000381469727,
+  "rms_37_38_db": -15.100000381469727
+ },
+ "narration + music (ducked)": {
+  "audio_s": 40.0,
+  "stream_duration": 40.0,
+  "rms_last_second_db": -15.100000381469727,
+  "rms_37_38_db": -15.100000381469727
+ },
+ "narration + music + effects": {
+  "audio_s": 40.0,
+  "stream_duration": 40.0,
+  "rms_last_second_db": -15.100000381469727,
+  "rms_37_38_db": -15.100000381469727
+ },
+ "guide: narration + music + effects": {
+  "audio_s": 40.0,
+  "stream_duration": 40.0,
+  "rms_last_second_db": -17.0,
+  "rms_37_38_db": -17.0
+ }
+}

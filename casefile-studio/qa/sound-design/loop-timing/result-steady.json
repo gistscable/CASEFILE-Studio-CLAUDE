@@ -1,0 +1,60 @@
+{
+ "part from the top (start 0), crossfade 1 s — v0.4.58": {
+  "clicks": 77,
+  "unmatched": 0,
+  "mean_ms": 7.6,
+  "abs_median_ms": 9.1,
+  "abs_p95_ms": 19.9,
+  "abs_max_ms": 19.9,
+  "first_click_of_each_pass_ms": []
+ },
+ "part from the top (start 0), crossfade 1 s — v0.4.59": {
+  "clicks": 78,
+  "unmatched": 0,
+  "mean_ms": 0.5,
+  "abs_median_ms": 3.1,
+  "abs_p95_ms": 5.3,
+  "abs_max_ms": 8.3,
+  "first_click_of_each_pass_ms": [
+   0.7
+  ]
+ },
+ "part from 2 s, crossfade 1 s — v0.4.58": {
+  "clicks": 77,
+  "unmatched": 0,
+  "mean_ms": 7.7,
+  "abs_median_ms": 9.9,
+  "abs_p95_ms": 11.8,
+  "abs_max_ms": 11.8,
+  "first_click_of_each_pass_ms": []
+ },
+ "part from 2 s, crossfade 1 s — v0.4.59": {
+  "clicks": 77,
+  "unmatched": 0,
+  "mean_ms": -3.1,
+  "abs_median_ms": 3.9,
+  "abs_p95_ms": 7.8,
+  "abs_max_ms": 7.8,
+  "first_click_of_each_pass_ms": []
+ },
+ "part from the top, seek 18.3 -> 9.6 s — v0.4.58": {
+  "clicks": 94,
+  "unmatched": 0,
+  "mean_ms": 6.2,
+  "abs_median_ms": 7.5,
+  "abs_p95_ms": 20,
+  "abs_max_ms": 20,
+  "first_click_of_each_pass_ms": []
+ },
+ "part from the top, seek 18.3 -> 9.6 s — v0.4.59": {
+  "clicks": 95,
+  "unmatched": 0,
+  "mean_ms": 0.9,
+  "abs_median_ms": 2,
+  "abs_p95_ms": 6.8,
+  "abs_max_ms": 13,
+  "first_click_of_each_pass_ms": [
+   0.7
+  ]
+ }
+}
