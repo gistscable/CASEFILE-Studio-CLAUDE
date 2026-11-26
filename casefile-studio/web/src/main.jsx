@@ -109,7 +109,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.52",
+    version: "0.4.53",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -141,7 +141,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.52";
+const APP_VERSION = "0.4.53";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -478,7 +478,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.52",
+          version: "0.4.53",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -554,7 +554,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.52",
+                version: "0.4.53",
                 snapshot: project,
               }).catch(() => {});
           })

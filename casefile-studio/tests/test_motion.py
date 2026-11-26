@@ -1,6 +1,7 @@
-"""v0.4.52 Motion graphics: the data, reading the narration, word sync, drawing, the cache,
+"""v0.4.52–v0.4.53 Motion graphics: the data, reading the narration, word sync, drawing, the cache,
 the export layer and the API."""
 import json
+import re
 import shutil
 import subprocess
 
@@ -349,3 +350,196 @@ def test_text_is_made_smaller_never_cut():
         motion._CUT.n = 0
         lay = motion.build(it, W, H)
         assert motion._CUT.n == 0, (W, H)  # nothing ended in "…"
+
+
+# ================================================================== v0.4.53: stage 2
+
+def test_chapter_kinds_from_the_titles():
+    k = motion.chapter_kind
+    assert k("OPENING HOOK") == "opening" and k("Setting the scene") == "opening"
+    assert k("CHAPTER 1 — JEVARIO AND THE PEOPLE AROUND HIM") == "victim"
+    assert k("CHAPTER 4 — A FAMILY’S APPEAL") == "victim" and k("CHAPTER 12 — REMEMBERING JEVARIO") == "victim"
+    assert k("CHAPTER 3 — APRIL 17") == "chronology"
+    assert k("CHAPTER 5 — WHAT SURVEILLANCE SHOWED") == "investigation" and k("CHAPTER 6 — THE DIGITAL EVIDENCE") == "investigation"
+    assert k("CHAPTER 7 — ARREST AND ADULT PROSECUTION") == "legal" and k("CHAPTER 10 — THE TRIAL") == "legal"
+    assert k("CHAPTER 2 — THE ALIBI") == "statements" and k("Closing") == "closing" and k("CHAPTER 2 — THE MEETING") == "general"
+
+
+def test_accounts_of_is_not_a_charge_and_only_told_outcomes_count():
+    assert not any(lab == "CHARGED" and re.search(pat, "At trial, the accounts of what happened would differ.", re.I) for lab, pat in motion.LEGAL)
+    assert motion._outcome("Goudie sentenced Moore to fifty-five years in prison for the murder.")[0] == "SENTENCED"
+    assert motion._outcome("On September 3, 2026, the jury found Moore guilty of first-degree murder.")[0] == "CONVICTED"
+    assert motion._outcome("A jury found him not guilty.")[0] == "ACQUITTED"
+    for s in ["He faced a sentence of forty years to life in prison.", "The prosecutor asked the judge for life in prison.",
+              "She decided not to impose a life sentence.", "Sentencing followed the next month.",
+              "How should a sentence balance accountability and rehabilitation?", "He could be sentenced to life."]:
+        assert motion._outcome(s) is None, s
+
+
+CASE = [
+    ("CHAPTER 1 — THE TOWN", FILLER * 3, {}),
+    ("CHAPTER 2 — ARREST", ["Police arrested Daniel Reyes at his apartment.", "Prosecutors charged him with second-degree murder.",
+                            "He was held without bail."] + FILLER, {}),
+    ("CHAPTER 3 — THE TOWN AGAIN", FILLER * 3, {}),
+    ("CHAPTER 4 — THE TRIAL", ["The trial lasted two weeks.", "On May 2, the jury found Reyes guilty of second-degree murder.",
+                               "His mother wept in the courtroom."] + FILLER[:2], {}),
+    ("CHAPTER 5 — SENTENCING", ["He faced a sentence of twenty years to life.", "The judge sentenced Reyes to thirty years in prison.",
+                                "His family held a vigil that night."], {}),
+    ("CHAPTER 6 — REMEMBERING ANA", ["Ana loved to paint.", "Her friends still visit the park."], {}),
+]
+
+
+def test_the_legal_outcome_is_offered_near_the_end_with_the_steps_before_it():
+    p = documentary(*CASE)
+    got = [x for x in motion.suggest(p) if x["template"] == "legal"]
+    assert len(got) == 1
+    g = got[0]
+    total = motion.scene_offsets(p["scenes"])[1]
+    assert g["start"] > total * (1 - motion.SPEC["suggest"]["edge_end"]) - 15  # it is where the outcome is told
+    assert [l["label"] for l in g["lines"]] == ["CHARGED", "CONVICTED", "SENTENCED"]
+    texts = [l["text"] for l in g["lines"]]
+    assert texts[0] == "Prosecutors charged him with second-degree murder" and texts[2] == "The judge sentenced Reyes to thirty years in prison"
+    narr = " ".join(s["narration"] for s in p["scenes"])
+    assert all(t in narr for t in texts)  # word for word
+    # the sentence appears when "sentenced" is said; the steps already told come before it
+    words = motion.timeline_words(p)
+    said = next(w["t"] for w in words if w["w"] == "sentenced")
+    assert g["lines"][2]["at"] == pytest.approx(said, abs=0.01)
+    assert g["lines"][0]["at"] < g["lines"][1]["at"] < said
+    # back to the footage before the family's vigil is told (and never over the remembrance chapter)
+    vigil = next(w["t"] for w in words if w["w"] == "His" and w["t"] > said)
+    assert g["end"] <= vigil + 1.25  # (1.2 s after the outcome is said, to read it)
+    assert "outcome" in g["reason"]
+
+
+def test_no_legal_outcome_in_a_chapter_about_the_victim_or_when_only_asked_for():
+    p = documentary(("CHAPTER 1 — THE TOWN", FILLER * 3, {}),
+                    ("CHAPTER 2 — REMEMBERING ANA", ["The judge sentenced Reyes to thirty years in prison.", "Ana loved to paint."], {}))
+    assert not any(x["template"] == "legal" for x in motion.suggest(p))
+    p = documentary(("CHAPTER 1 — THE TOWN", FILLER * 3, {}),
+                    ("CHAPTER 2 — SENTENCING", ["Prosecutors asked for life in prison.", "He faced a sentence of twenty years to life."], {}))
+    assert motion.suggest(p) == []
+
+
+def test_chapters_about_the_victim_get_no_graphics():
+    p = documentary(("CHAPTER 1 — A", FILLER * 3, {}), ("CHAPTER 2 — WHO WAS ANA", CHRONO, {}), ("CHAPTER 3 — B", FILLER * 3, {}))
+    assert motion.suggest(p) == []
+
+
+def test_the_real_project_gets_its_verdict_and_sentence():
+    path = ROOT / "data" / "projects" / "1a5bbba59d244274.json"
+    if not path.exists():
+        pytest.skip("no local project")
+    p = json.loads(path.read_text())
+    got = motion.suggest(p)
+    legal = [x for x in got if x["template"] == "legal"]
+    assert len(legal) == 1
+    labels = [l["label"] for l in legal[0]["lines"]]
+    assert labels[-2:] == ["CONVICTED", "SENTENCED"] and "fifty-five years" in legal[0]["lines"][-1]["text"]
+    assert 840 < legal[0]["start"] < legal[0]["lines"][-1]["at"] < legal[0]["end"] < 853
+    # nothing in the chapters about Jevario and his family
+    off, _ = motion.scene_offsets(p["scenes"])
+    for g in got:
+        sc = max(i for i, o in enumerate(off) if o <= g["start"])
+        assert motion.chapter_kind(p["scenes"][sc]["chapter"]) not in ("victim", "opening")
+    # the two findings graphics do not look the same
+    finds = [motion.resolve_layout(x) for x in got if x["template"] == "findings"]
+    assert len(finds) == len(set(finds))
+
+
+ALL_LAYOUTS = [(t, lid) for t in motion.TEMPLATES for lid, _ in motion.SPEC["layouts"][t] if lid != "auto"]
+
+
+@pytest.mark.parametrize("tpl,lid", ALL_LAYOUTS)
+@pytest.mark.parametrize("size", [(1280, 720), (720, 1280)])
+def test_every_layout_draws_inside_the_frame(tpl, lid, size):
+    long = "A long sentence from the narration that goes on about the records and the video evidence placed in order"
+    lines = [{"text": long, "at": 2 + 2 * k, "label": lab, "kind": kind} for k, (lab, kind) in
+             enumerate(zip(["MARCH 3", "CHARGED", "MARCH 9", "CONVICTED"], ["statement", "finding"] * 2))]
+    it = item(template=tpl, layout=lid, end=16, lines=lines, title="A long title that may need two lines to fit")
+    W, H = size
+    motion._CUT.n = 0
+    lay = motion.build(it, W, H)
+    assert motion._CUT.n == 0  # never cut
+    assert lay.layout == (motion.SPEC["layouts_tall"].get(lid, lid) if H > W else lid)
+    for el in lay.els:
+        assert el.x >= -2 and el.y >= -2 and el.x + el.img.width <= W + 2 and el.y + el.img.height <= H * 0.95, (tpl, lid, el)
+    im = motion.frame(lay, 11 * 24)
+    assert ink(im, (0, 0, W, H)) > 1500
+    assert np.asarray(motion.frame(lay, lay.frames - 1))[..., 3].max() < 40  # everything leaves
+
+
+@pytest.mark.parametrize("tpl", ["findings", "timeline"])
+def test_one_at_a_time_shows_each_line_then_the_next(tpl):
+    lines = [{"text": "FIRST FINDING IN LARGE TYPE", "label": "MARCH 3", "at": 2.0}, {"text": "SECOND FINDING IN LARGE TYPE", "label": "MARCH 9", "at": 6.0}]
+    lay = motion.build(item(template=tpl, layout="focus", start=0, end=12, lines=lines), 1280, 720)
+    first = [el for el in lay.els if el.early]
+    assert first and all(el.t_out <= 6.0 for el in first)  # gone before the second comes in
+    box = lambda els: (min(e.x for e in els), min(e.y for e in els), max(e.x + e.img.width for e in els), max(e.y + e.img.height for e in els))
+    b = box([el for el in first if el.img.width > 200])
+    assert ink(motion.frame(lay, int(4 * 24)), b) > 200
+    second = [el for el in lay.els if el.t_in >= 5.9 and el.img.width > 200 and not el.early]
+    f7 = motion.frame(lay, int(7.5 * 24))
+    assert ink(f7, box(second)) > 200
+
+
+def test_a_second_graphic_of_the_same_template_gets_another_layout():
+    a = item(id="a", template="findings", lines=[{"text": f"Finding {k}", "at": 2 + k} for k in range(3)], title="What the records showed")
+    b = dict(a, id="b", start=100, end=110)
+    assert motion.vary_layout(a, []) is a
+    vb = motion.vary_layout(b, [a])
+    assert motion.resolve_layout(vb) != motion.resolve_layout(a)
+    opts = motion.layout_options(a)
+    assert opts[:2] == ["stack", "split"] and "cards" in opts and "focus" in opts
+    assert "split" not in motion.layout_options(a, tall=True)  # in a tall frame it would look like "stack"
+    lg = item(template="legal", lines=[{"label": "CHARGED", "text": "x", "at": 2}, {"label": "SENTENCED", "text": "y", "at": 4}])
+    assert motion.resolve_layout(lg) == "verdict" and motion.resolve_layout(lg, tall=True) == "verdict"
+
+
+@pytest.fixture
+def video(media):
+    f = media / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x2a8c3c:s=320x180:d=4:r=24",
+                    "-vf", "drawbox=x='t*60':y=40:w=60:h=60:color=white:t=fill", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(f)], check=True)
+    return {"id": "v", "kind": "video", "path": str(f), "name": "clip.mp4", "duration": 4.0, "width": 320, "height": 180}
+
+
+def test_a_still_from_the_footage_is_the_frame_the_export_shows_there(tmp_path, media, video):
+    pic = media / "red.png"
+    Image.new("RGB", (64, 36), (200, 20, 20)).save(pic)
+    img = {"id": "i", "kind": "image", "path": str(pic), "name": "red.png"}
+    sc = [{"id": "a", "duration": 3.0, "asset_id": "i"},
+          {"id": "b", "duration": 6.0, "asset_id": "v", "trim_start": 1.0, "source_crop_end": 3.0},  # loops 1-3 s
+          {"id": "c", "duration": 2.0}]
+    p = {"assets": [img, video], "scenes": sc}
+    assert motion.footage_at(p, 1.0) == (img, None)
+    assert motion.footage_at(p, 3.5) == (video, 1.5)
+    assert motion.footage_at(p, 5.5) == (video, 1.5)  # second time round the 2 s crop
+    assert motion.footage_at(p, 10.0) is None  # a gap: no footage, so no picture is made up
+    it = item(background="still", still_at=3.5, start=3, end=8)
+    assert it["background"] == "still" and it["still_at"] == 3.5
+    path = motion.background_path(p, it, tmp_path, renderer.asset_path)
+    assert path and path.endswith(".jpg")
+    px = np.asarray(Image.open(path).convert("RGB"), dtype=int)
+    assert px.shape[:2] == (180, 320) and px[150, 20][1] > 110  # the green footage
+    assert motion.background_path(p, item(background="still", still_at=3.5, start=3, end=8), tmp_path, renderer.asset_path) == path  # cached
+    assert motion.background_path(p, item(background="still", still_at=10.0), tmp_path, renderer.asset_path) is None
+    lay = motion.build(it, 640, 360, path)
+    assert lay.bg == "photo" and lay.photo is not None
+    fr = np.asarray(motion.frame(lay, 2 * 24).convert("RGB"), dtype=int)
+    assert fr[300, 30][1] > fr[300, 30][0]  # green shows through the darkening
+    assert motion.item_hash(it, 640, 360, path) != motion.item_hash(it, 640, 360, None)
+
+
+def test_the_export_video_is_exact_to_the_frame_where_a_scene_starts(tmp_path):
+    lay = motion.build(item(start=0, end=6), 320, 180)
+    out = tmp_path / "g.mov"
+    drawn = motion.encode(lay, out, workers=1)
+    assert drawn == motion.plan(lay)[1]
+    layer = {"start": 0.0, "end": 6.0, "file": out}
+    for first in (0, 37, 61):
+        args, _ = motion.overlay_filters(layer, 1, first / 24, 2.0)
+        raw = subprocess.run(["ffmpeg", "-v", "error", *args, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"],
+                             capture_output=True, check=True).stdout
+        got = np.frombuffer(raw, dtype=np.uint8).reshape(180, 320, 4)
+        assert np.array_equal(got, np.asarray(motion.frame(lay, first))), first  # lossless, and the right frame

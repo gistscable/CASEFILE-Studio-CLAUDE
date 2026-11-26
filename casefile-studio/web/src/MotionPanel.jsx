@@ -1,7 +1,8 @@
 import React from "react";
-import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X } from "lucide-react";
+import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle } from "lucide-react";
 import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel } from "./motion.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
+import { planFor } from "./MotionLayer.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const round3 = (t) => Math.round(t * 1000) / 1000;
@@ -20,7 +21,13 @@ function Choice({ label, value, options, onChange, disabled }) {
   );
 }
 
+// v0.4.53: the presets, and any colour (the picker commits once you stop moving it).
 function Swatches({ label, value, options, onChange, disabled }) {
+  const [live, setLive] = React.useState(value);
+  const timer = React.useRef(null);
+  React.useEffect(() => setLive(value), [value]);
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+  const custom = !options.some(([c]) => c === value);
   return (
     <div className="mg-swatches">
       <span>{label}</span>
@@ -28,6 +35,15 @@ function Swatches({ label, value, options, onChange, disabled }) {
         <button key={c} title={name} aria-label={`${label}: ${name}`} className={value === c ? "on" : ""} disabled={disabled}
           style={{ background: c }} onClick={() => onChange(c)} />
       ))}
+      <label className={`mg-picker ${custom ? "on" : ""}`} title="Any colour">
+        <input type="color" aria-label={`${label} colour`} value={live} disabled={disabled}
+          onChange={(e) => {
+            const c = e.target.value.toLowerCase();
+            setLive(c);
+            clearTimeout(timer.current);
+            timer.current = setTimeout(() => c !== value && onChange(c), 350);
+          }} />
+      </label>
     </div>
   );
 }
@@ -47,6 +63,24 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const setItems = (items) => save({ items });
   const update = (id, patch) => setItems(m.items.map((x) => (x.id === id ? { ...x, ...patch } : x)));
   const scenesKey = (project.scenes || []).map((s) => `${s.id}:${s.duration}:${(s.narration || "").length}`).join("|");
+  // v0.4.53: what the selected graphic is drawn with (its layout once "Automatic" is resolved, the
+  // layouts that look different for it, and whether its photo or footage still was found)
+  const [info, setInfo] = React.useState(null);
+  const selJson = sel ? JSON.stringify(sel) : "";
+  React.useEffect(() => {
+    if (!sel) return setInfo(null);
+    let live = true;
+    planFor(project.id, sel).then((p) => live && setInfo({ id: sel.id, ...p })).catch(() => live && setInfo(null));
+    return () => {
+      live = false;
+    };
+  }, [project.id, selJson]);
+  const layouts = sel && info && info.id === sel.id ? info.layouts || [] : [];
+  const nextLayout = (it) => {
+    const opts = info && info.id === it.id ? info.layouts || [] : [];
+    if (opts.length < 2) return null;
+    return opts[(opts.indexOf(info.layout) + 1) % opts.length];
+  };
 
   React.useEffect(() => {
     if (!pick) return;
@@ -89,8 +123,11 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const regenerate = (it, template = it.template) =>
     run("regen", async () => {
       const fresh = await onDraft({ template, start: it.lines[0]?.at ?? it.start, end: Math.max(it.start + 1, it.end - MG.timing.hold), id: it.id });
-      const keep = Object.fromEntries(["background", "photo_id", "dim", "font", "size", "accent", "text_color", "align", "x", "y", "speed", "enter", "exit", "hide_captions"].map((k) => [k, it[k]]));
-      update(it.id, { ...fresh, ...keep, id: it.id, status: "draft", source: it.source, reason: it.reason, template });
+      const keep = Object.fromEntries(["background", "photo_id", "still_at", "dim", "font", "size", "accent", "text_color", "align", "x", "y", "speed", "enter", "exit", "hide_captions"].map((k) => [k, it[k]]));
+      const same = template === it.template && fresh.title === it.title && JSON.stringify(fresh.lines) === JSON.stringify(it.lines);
+      // v0.4.53: the same words again: a different layout instead of the same graphic
+      const layout = template !== it.template ? "auto" : same ? nextLayout(it) || it.layout : it.layout;
+      update(it.id, { ...fresh, ...keep, layout, id: it.id, status: "draft", source: it.source, reason: it.reason, template });
     });
 
   return (
@@ -181,8 +218,12 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
                 Unapprove
               </button>
             )}
-            <button className="btn" disabled={disabled || !!busy} title="Make it again from the narration (keeps the style)" onClick={() => regenerate(sel)}>
+            <button className="btn" disabled={disabled || !!busy} title="Make it again from the narration (keeps the style; if the words are the same, it takes another layout)" onClick={() => regenerate(sel)}>
               <RotateCcw size={12} /> {busy === "regen" ? "…" : "Regenerate"}
+            </button>
+            <button className="btn" disabled={disabled || layouts.length < 2} title={layouts.length ? `Layouts for this graphic: ${layouts.map((l) => optionLabel(MG.layouts[sel.template], l)).join(", ")}` : "Preparing…"}
+              onClick={() => update(sel.id, { layout: nextLayout(sel) })}>
+              <Shuffle size={12} /> Another layout
             </button>
             <button className="btn danger" disabled={disabled} onClick={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }}>
               {sel.status === "suggested" ? <><X size={12} /> Reject</> : <><Trash2 size={12} /> Remove</>}
@@ -192,7 +233,8 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
 
           <Choice label="Template" value={sel.template} options={MG.templates.map((t) => [t.id, t.label])} disabled={disabled || !!busy}
             onChange={(v) => regenerate(sel, v)} />
-          <Choice label="Layout" value={sel.layout} options={MG.layouts[sel.template]} disabled={disabled} onChange={(v) => update(sel.id, { layout: v })} />
+          <Choice label="Layout" value={sel.layout} options={MG.layouts[sel.template].map(([id, t]) => (id === "auto" && info?.id === sel.id && info.layout ? [id, `${t} (${optionLabel(MG.layouts[sel.template], info.layout).toLowerCase()})`] : [id, t]))}
+            disabled={disabled} onChange={(v) => update(sel.id, { layout: v })} />
 
           <div className="section-label sub"><span>TEXT</span></div>
           <label className="field mg-field">
@@ -264,9 +306,20 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
 
           <div className="section-label sub"><span>LOOK</span></div>
           <Choice label="Background" value={sel.background} options={MG.backgrounds.filter(([id]) => id !== "photo" || images.length)} disabled={disabled}
-            onChange={(v) => update(sel.id, { background: v, photo_id: v === "photo" ? sel.photo_id || images[0]?.id || "" : "" })} />
+            onChange={(v) => update(sel.id, { background: v, photo_id: v === "photo" ? sel.photo_id || images[0]?.id || "" : "", still_at: v === "still" ? sel.start : sel.still_at })} />
           {sel.background === "photo" && (
             <Choice label="Photo (from your project)" value={sel.photo_id} options={images.map((a) => [a.id, a.name])} disabled={disabled} onChange={(v) => update(sel.id, { photo_id: v })} />
+          )}
+          {sel.background === "still" && (
+            <div className="mg-still">
+              <Step label="Still from" value={sel.still_at} display={clock(sel.still_at)} typed={parseClock} step={0.5} min={0} max={86400} disabled={disabled}
+                onChange={(x) => update(sel.id, { still_at: round3(x) })} />
+              <button className="text-link" disabled={disabled} title="The footage on the timeline at the playhead" onClick={() => update(sel.id, { still_at: round3(time) })}>set to playhead</button>
+              <p className="micro-note">The frame of your own footage that plays on the timeline at that moment, blurred and darkened.</p>
+            </div>
+          )}
+          {(sel.background === "still" || sel.background === "photo") && info?.id === sel.id && info.background === "charcoal" && (
+            <p className="micro-note block mg-warn">{sel.background === "still" ? "No footage plays at that moment (a gap, a card or a missing file)" : "That photo's file is missing"}: the charcoal is used. Nothing is made up.</p>
           )}
           {sel.background !== "charcoal" && (
             <Step label="Darken" value={sel.dim} display={pct(sel.dim)} step={0.05} min={MG.limits.dim[0]} max={MG.limits.dim[1]} disabled={disabled} onChange={(x) => update(sel.id, { dim: x })} />
