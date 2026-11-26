@@ -1623,6 +1623,11 @@ b {
   display: flex;
   flex: 1;
   min-height: 0;
+  /* v0.4.59 every lane stays reachable (the Sound FX lane, under the Music lane, was hidden
+     behind the footer): the lanes scroll up and down together with their labels */
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: flex-start;
 }
 .track-labels {
   width: 133px;

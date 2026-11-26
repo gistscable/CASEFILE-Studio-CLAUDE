@@ -49,3 +49,13 @@ test("zooming keeps the moment under the pointer in place", () => {
   assert.equal(zoomScroll(300, 200, 2, 4), 800);
   assert.equal(zoomScroll(0, 0, 2, 1), 0);
 });
+
+test("v0.4.59 the timeline opens with room for all five lanes (the Sound FX lane was hidden)", () => {
+  assert.equal(LAYOUT_DEFAULTS.timeline, 296);
+  // a layout saved before v0.4.59 with the old default height opens at the new one
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 300 })).timeline, 296);
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 300 })).left, 300);
+  // a height you chose is kept, also the old default once saved again by v0.4.59
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 240 })).timeline, 240);
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, lanes: 5 })).timeline, 262);
+});
