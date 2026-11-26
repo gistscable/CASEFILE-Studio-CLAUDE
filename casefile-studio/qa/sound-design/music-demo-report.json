@@ -1,0 +1,97 @@
+{
+ "music-1-loop": {
+  "timeline_s": 59.875,
+  "track_s": 16.032,
+  "seams_new_s": [
+   13.03,
+   26.06,
+   39.1,
+   52.13
+  ],
+  "after": {
+   "duration_s": 59.875,
+   "seam_level_step_db": [
+    -0.3,
+    -1.0,
+    -1.3,
+    -1.0
+   ],
+   "seam_biggest_20ms_jump_db": [
+    1.8,
+    2.4,
+    2.3,
+    2.4
+   ],
+   "narration_lag_vs_export_without_music_samples": 0,
+   "render_s": 17.93,
+   "cpu_s": 25.23,
+   "render_without_music_s": 14.14,
+   "cpu_without_music_s": 20.45
+  },
+  "before": {
+   "duration_s": 59.875,
+   "seams_s": [
+    16.0,
+    32.0,
+    48.0
+   ],
+   "seam_level_step_db": [
+    2.3,
+    2.3,
+    2.3
+   ],
+   "seam_biggest_20ms_jump_db": [
+    3.6,
+    3.6,
+    3.6
+   ],
+   "render_s": 19.02,
+   "cpu_s": 27.61
+  }
+ },
+ "music-2-chapter-part": {
+  "timeline_s": 59.875,
+  "duration_s": 59.875,
+  "chapter_2_s": [
+   23.46,
+   37.42
+  ],
+  "music_db_before_chapter": -180.0,
+  "music_db_in_chapter": -32.4,
+  "music_db_after_chapter": -180.0,
+  "track_position_at_chapter_start_plus_2s": 26.0,
+  "expected": 26.0,
+  "render_s": 15.04
+ },
+ "music-3-longer-track": {
+  "timeline_s": 37.417,
+  "track_s": 96.0,
+  "duration_s": 37.417,
+  "track_position_at_5s": 25.0,
+  "expected": 25.0,
+  "music_db_last_0.3s": -57.7,
+  "music_db_middle": -32.4,
+  "render_s": 11.36
+ },
+ "music-4-all-layers": {
+  "timeline_s": 31.625,
+  "duration_s": 31.625,
+  "music_gain_under_narration_db": -11.7,
+  "music_gain_under_soundbite_db": -5.8,
+  "music_gain_in_the_last_pause_db": -0.5,
+  "mix_vs_no_music_lag_samples": {
+   "narration": 0,
+   "soundbite": 0
+  },
+  "soundbite_vs_v0457_export": {
+   "lag_samples": 0,
+   "correlation": 1.0
+  },
+  "narration_vs_v0457_export": {
+   "lag_samples": 0,
+   "correlation": 1.0
+  },
+  "render_s": 28.11
+ },
+ "max_rss_mb": 153
+}

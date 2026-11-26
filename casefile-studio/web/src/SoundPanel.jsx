@@ -1,7 +1,19 @@
 import React from "react";
-import { Play, Sparkles, Trash2, RotateCcw, Shuffle, Volume2, VolumeX, Headphones, Plus, Upload, Undo2 } from "lucide-react";
-import { SFX, PRESETS, KIND_LABEL, normaliseSound, withPreset, editItem, editItems, scopeItems, graphicOf } from "./sound.js";
+import { Play, Square, Sparkles, Trash2, RotateCcw, Shuffle, Volume2, VolumeX, Headphones, Plus, Upload, Undo2, Search } from "lucide-react";
+import { SFX, PRESETS, KIND_LABEL, normaliseSound, withPreset, editItem, editItems, scopeItems, graphicOf, soundUrl, peaks } from "./sound.js";
 import { Step, clock } from "./Effects.jsx";
+import LiveRange from "./LiveRange.jsx";
+
+/** v0.4.58 A small waveform of a sound (its decoded peaks). */
+function Wave({ values }) {
+  if (!values || !values.length) return <i className="sfx-wave empty" />;
+  const w = values.length * 2;
+  return (
+    <svg className="sfx-wave" viewBox={`0 0 ${w} 16`} preserveAspectRatio="none" aria-hidden="true">
+      {values.map((v, i) => { const h = Math.max(1, v * 15); return <rect key={i} x={i * 2} y={8 - h / 2} width="1.4" height={h} />; })}
+    </svg>
+  );
+}
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const db = (v) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
@@ -13,11 +25,17 @@ const FRAME = 1 / SFX.fps;
 // changes only that sound.
 export default function SoundPanel({ project, plan, planError, time, playing, selectedId, onSelect, onChange, onGenerate, onSeek, onPlayFrom,
                                      preview, mute, solo, onMute, onSolo, onUploadSound, disabled,
-                                     duckStatus = "none", narrationVolume = 1, onNarrationVolume = () => {}, onSelectMany = () => {} }) {
+                                     duckStatus = "none", narrationVolume = 1, onNarrationVolume = () => {}, onSelectMany = () => {},
+                                     onLiveNarration = () => {}, onLiveMaster = () => {} }) {
   const s = normaliseSound(project.sound);
   const [catalog, setCatalog] = React.useState(null);
   const [browse, setBrowse] = React.useState(false);
-  const [category, setCategory] = React.useState("whoosh");
+  const [category, setCategory] = React.useState("all");
+  const [query, setQuery] = React.useState("");
+  // v0.4.58 auditions: one at a time, never saved; what is known of each sound once loaded
+  const [auditioning, setAuditioning] = React.useState(null);
+  const [audVol, setAudVol] = React.useState(0.8);
+  const [info, setInfo] = React.useState({}); // sid -> {seconds, peaks}
   const [showSilent, setShowSilent] = React.useState(false);
   const [busy, setBusy] = React.useState("");
   const [error, setError] = React.useState("");
@@ -37,6 +55,42 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
       .then((d) => setCatalog({ ...d, byId: Object.fromEntries(d.sounds.map((x) => [x.id, x])) }))
       .catch(() => setCatalog({ sounds: [], categories: [], byId: {} }));
   }, [s.enabled, browse]);
+
+  /** Play a sound now, or stop it if it is the one playing. Only one plays at a time; nothing is
+   *  added to the project, nothing is rendered. */
+  const audition = (key, sid, gain = 1, it = null) => {
+    if (auditioning === key) { preview.stopAudition(); return; }
+    preview.setAuditionVolume(audVol);
+    setAuditioning(key);
+    preview.audition(project.id, sid, gain, it, () => setAuditioning((cur) => (cur === key ? null : cur)))
+      .then(() => learn([sid]));
+  };
+  React.useEffect(() => () => preview?.stopAudition(), []);
+  /** Load (once, cached) and measure sounds: their length and a small waveform. */
+  const learn = (sids) => {
+    const todo = sids.filter((sid) => !info[sid]);
+    if (!todo.length) return;
+    Promise.all(todo.map((sid) => preview.load(soundUrl(project.id, sid)).then((buf) => [sid, buf]))).then((got) => {
+      const add = {};
+      for (const [sid, buf] of got) if (buf) add[sid] = { seconds: buf.duration, peaks: peaks(buf, 24) };
+      if (Object.keys(add).length) setInfo((cur) => ({ ...cur, ...add }));
+    });
+  };
+  const library = React.useMemo(() => {
+    if (!catalog) return [];
+    const own = mine.map((a) => ({ id: `a:${a.id}`, label: a.name, category: "Your sounds", intensity: 0, mine: true }));
+    const all = [...own, ...catalog.sounds];
+    const q = query.trim().toLowerCase();
+    return all.filter((x) => (category === "all" || (category === "mine" ? x.mine : x.category === category)) &&
+      (!q || `${x.label} ${x.id} ${x.category}`.toLowerCase().includes(q)));
+  }, [catalog, category, query, project.assets]);
+  const libKey = library.slice(0, 60).map((x) => x.id).join(",");
+  React.useEffect(() => { if (browse && libKey) learn(libKey.split(",")); }, [browse, libKey]);
+  const variationsOf = (it) => {
+    const cat = catalog?.byId[it.sound]?.category;
+    return cat ? catalog.sounds.filter((x) => x.category === cat && !/shutter|-seq/.test(x.id)) : [];
+  };
+  const fmtSec = (sid) => (info[sid] ? `${info[sid].seconds.toFixed(2)} s` : "");
 
   const run = async (what, fn) => {
     setBusy(what);
@@ -139,10 +193,10 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
           {error && <p className="micro-note block mg-error">{error}</p>}
 
           <div className="section-label sub"><span>MIX</span></div>
-          <Step label="Narration level" value={narrationVolume} display={pct(narrationVolume)} step={0.05} min={0} max={2} disabled={disabled}
-            onChange={(v) => onNarrationVolume(Math.round(v * 100) / 100)} />
-          <Step label="Effects volume" value={s.master} display={pct(s.master)} step={0.05} min={SFX.limits.master[0]} max={SFX.limits.master[1]} disabled={disabled}
-            onChange={(v) => save({ master: v })} />
+          <LiveRange label="Narration level" value={narrationVolume} format={pct} step={0.05} min={0} max={2} disabled={disabled}
+            onLive={onLiveNarration} onCommit={(v) => onNarrationVolume(Math.round(v * 100) / 100)} />
+          <LiveRange label="Effects volume" value={s.master} format={pct} step={0.05} min={SFX.limits.master[0]} max={SFX.limits.master[1]} disabled={disabled}
+            onLive={onLiveMaster} onCommit={(v) => { save({ master: v }); onLiveMaster(null); }} />
           <Step label="Intensity" value={s.intensity} display={pct(s.intensity)} step={0.05} min={0} max={1} disabled={disabled}
             onChange={(v) => save({ intensity: v, preset: "custom" })} />
           <Step label="Density" value={s.density} display={pct(s.density)} step={0.05} min={0} max={1} disabled={disabled}
@@ -156,6 +210,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
           {s.duck && (
             <p className="micro-note sfx-duck-note">
               {duckStatus === "ready" ? "The preview dips the effects exactly as the export will (same compressor, same voice)."
+                : duckStatus === "approx" ? "Narration level changed: the preview dips by an immediate estimate while the exact dip is remade in the background."
                 : duckStatus === "working" ? "Preparing the preview's dialogue protection from your narration…"
                 : "No narration yet: nothing to dip under."}
             </p>
@@ -232,8 +287,8 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
               )}
               {sel.gone && <p className="micro-note block mg-warn">Left out of the export: {sel.gone}.</p>}
               <div className="st-actions">
-                <button className="btn" onClick={() => preview.audition(project.id, sel.sound, Math.pow(10, (sel.level ?? sel.gain) / 20), sel)}>
-                  <Play size={12} /> Sound
+                <button className="btn" aria-pressed={auditioning === `sel:${sel.id}`} onClick={() => audition(`sel:${sel.id}`, sel.sound, Math.pow(10, (sel.level ?? sel.gain) / 20), sel)}>
+                  {auditioning === `sel:${sel.id}` ? <Square size={12} /> : <Play size={12} />} Sound
                 </button>
                 <button className="btn" disabled={sel.t == null} onClick={() => onPlayFrom(Math.max(0, sel.t - 2))}>
                   <Play size={12} /> In context
@@ -271,8 +326,26 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
                   {!catalog && <option value={sel.sound}>{sel.sound}</option>}
                 </select>
               </label>
-              <Step label="Volume" value={sel.gain} display={db(sel.gain)} step={1} min={SFX.limits.gain[0]} max={SFX.limits.gain[1]} disabled={disabled}
-                onChange={(v) => editScope((it) => ({ gain: it.id === sel.id ? v : clampGain((it.gain || 0) + (v - (sel.gain || 0))) }))} />
+              {variationsOf(sel).length > 1 && (
+                <div className="sfx-vars">
+                  <p className="micro-note">Variations — listen first; nothing changes until you choose “Use”:</p>
+                  {variationsOf(sel).map((x) => (
+                    <div key={x.id} className={`sfx-lib-row ${x.id === sel.sound ? "current" : ""}`}>
+                      <button className="icon-btn" aria-label={`${auditioning === "var:" + x.id ? "Stop" : "Play"} ${x.label}`} onClick={() => audition("var:" + x.id, x.id, Math.pow(10, (sel.level ?? sel.gain) / 20), sel)}>
+                        {auditioning === "var:" + x.id ? <Square size={11} /> : <Play size={11} />}
+                      </button>
+                      <Wave values={info[x.id]?.peaks} />
+                      <span>{x.label}<small> · {fmtSec(x.id)}</small></span>
+                      {x.id === sel.sound ? <small className="sfx-current">in use</small> : (
+                        <button className="text-link" disabled={disabled} onClick={() => editScope({ sound: x.id }, soundTargets)}>Use</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <LiveRange label="Volume" value={sel.gain || 0} format={db} step={0.5} min={SFX.limits.gain[0]} max={SFX.limits.gain[1]} disabled={disabled}
+                onLive={(v) => { for (const it of targets) preview.setItemGain(it.id, Math.pow(10, ((it.id === sel.id ? v : clampGain((it.gain || 0) + (v - (sel.gain || 0)))) - (it.gain || 0)) / 20)); }}
+                onCommit={(v) => editScope((it) => ({ gain: it.id === sel.id ? v : clampGain((it.gain || 0) + (v - (sel.gain || 0))) }))} />
               <Step label="Move" value={sel.offset || 0} display={`${(sel.offset || 0) >= 0 ? "+" : ""}${((sel.offset || 0) * SFX.fps).toFixed(1)} fr`} step={FRAME} min={SFX.limits.offset[0]} max={SFX.limits.offset[1]} disabled={disabled}
                 onChange={(v) => editScope((it) => ({ offset: clampOffset(it.id === sel.id ? v : (it.offset || 0) + (v - (sel.offset || 0))) }))} />
               <Step label="Fade in" value={sel.fade_in || 0} display={`${(sel.fade_in || 0).toFixed(2)} s`} step={0.05} min={0} max={SFX.limits.fade[1]} disabled={disabled}
@@ -293,19 +366,34 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
           {busy === "upload" && <p className="micro-note">Importing…</p>}
           {browse && catalog && (
             <div className="sfx-lib">
-              <select aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
-                {mine.length > 0 && <option value="mine">Your sounds</option>}
-                {catalog.categories.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-              {(category === "mine" ? mine.map((a) => ({ id: `a:${a.id}`, label: a.name, intensity: 0 })) : catalog.sounds.filter((x) => x.category === category)).map((x) => (
-                <div key={x.id} className="sfx-lib-row">
-                  <button className="icon-btn" aria-label={`Play ${x.label}`} onClick={() => preview.audition(project.id, x.id, 0.8)}><Play size={11} /></button>
-                  <span>{x.label}{x.intensity ? <small> · {"•".repeat(x.intensity)}</small> : null}</span>
-                  <button className="text-link" disabled={disabled} title="Add it at the playhead" onClick={() => addAt(x.id, x.label)}><Plus size={11} /> at {clock(time).slice(0, -2)}</button>
-                </div>
-              ))}
+              <div className="sfx-lib-tools">
+                <label className="sfx-search">
+                  <Search size={11} />
+                  <input aria-label="Search sounds" placeholder="Search sounds" value={query} onChange={(e) => setQuery(e.target.value)} />
+                </label>
+                <select aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+                  <option value="all">All categories</option>
+                  {mine.length > 0 && <option value="mine">Your sounds</option>}
+                  {catalog.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <LiveRange label="Audition volume" value={audVol} format={pct} step={0.05} min={0} max={1.5}
+                onLive={(v) => { setAudVol(v); preview.setAuditionVolume(v); }} onCommit={(v) => setAudVol(v)} />
+              <div className="sfx-lib-list">
+                {library.map((x) => (
+                  <div key={x.id} className={`sfx-lib-row ${auditioning === "lib:" + x.id ? "playing" : ""}`}>
+                    <button className="icon-btn" aria-label={`${auditioning === "lib:" + x.id ? "Stop" : "Play"} ${x.label}`} onClick={() => audition("lib:" + x.id, x.id, 1)}>
+                      {auditioning === "lib:" + x.id ? <Square size={11} /> : <Play size={11} />}
+                    </button>
+                    <Wave values={info[x.id]?.peaks} />
+                    <span>{x.label}<small> · {x.mine ? "your sound" : x.category}{fmtSec(x.id) ? ` · ${fmtSec(x.id)}` : ""}{x.intensity ? ` · ${"•".repeat(x.intensity)}` : ""}</small></span>
+                    <button className="text-link" disabled={disabled} title="Add it at the playhead (this changes the project)" onClick={() => addAt(x.id, x.label)}><Plus size={11} /> at {clock(time).slice(0, -2)}</button>
+                  </div>
+                ))}
+                {!library.length && <p className="micro-note">No sound matches.</p>}
+              </div>
               {category === "shutter" && <p className="micro-note mg-warn">A camera shutter can suggest a real police or press photograph. It is never placed automatically; use it only where that is not implied.</p>}
-              <p className="micro-note">Every built-in sound is made on this computer by Casefile (no downloads, no licences to track). Imported sounds are yours: use only sounds you have the right to use.</p>
+              <p className="micro-note">Listening never changes the project: only “+ at” adds a sound. Every built-in sound is made on this computer by Casefile (no downloads, no licences to track). Imported sounds are yours: use only sounds you have the right to use.</p>
             </div>
           )}
         </>

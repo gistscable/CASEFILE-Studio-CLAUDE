@@ -321,8 +321,8 @@ def test_the_break_plays_the_clips_own_sound_and_narration_resumes_at_the_same_w
     assert abs(after - before) < 130  # a 4 s skip would add 200 Hz
     joined = " ".join(" ".join(str(v) for v in cmd) for cmd in calls)
     assert "loudnorm" in joined
-    # No picture loops; the only -stream_loop allowed is the music bed's own (existing) loop.
-    assert joined.count("-stream_loop") == (1 if with_music else 0)
+    # No picture loops; v0.4.58: the music bed has none either (each pass reads the file by reference).
+    assert joined.count("-stream_loop") == 0
     plan_text = (storage.DATA / "exports" / record["id"] / "episode-plan.md").read_text()
     assert "Audio breaks (original sound)" in plan_text
     # Sign-off never clears audio on your behalf.

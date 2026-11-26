@@ -6984,3 +6984,119 @@ body.resizing-row * {
 .sfx-scope { display: grid; gap: 6px; margin: 4px 0 8px; }
 .sfx-scope .text-link { justify-self: start; }
 .sfx-duck-note { margin-top: -2px; }
+
+/* v0.4.58 Live level sliders, music placement, the audition library */
+.live-range-head {
+  display: block;
+}
+.music-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.music-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 4px;
+}
+.music-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #b8bec7;
+}
+.music-time input {
+  width: 68px;
+  height: 22px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.music-summary {
+  color: #c4ae7e;
+}
+.music-scenes {
+  max-height: 180px;
+  overflow-y: auto;
+}
+/* the lane is a button: full width like the other lanes; empty where the music is silent */
+.audio-lane.music-lane {
+  width: 100%;
+  padding: 0;
+}
+.music-lane.has-audio {
+  border-style: dashed;
+  background: #2b282050;
+}
+.music-run {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  background: #3b3324;
+  border: 1px solid #7a6a48;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.music-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  background: linear-gradient(90deg, #c4ae7e00, #e8d3a0aa, #c4ae7e00);
+  pointer-events: auto;
+  z-index: 1;
+}
+.sfx-wave {
+  width: 48px;
+  height: 16px;
+  flex: none;
+  fill: #8ea0d0;
+  opacity: 0.85;
+}
+.sfx-wave.empty {
+  display: inline-block;
+  border-bottom: 1px dashed #3e4760;
+  height: 8px;
+  margin-bottom: 8px;
+}
+.sfx-lib-tools {
+  display: flex;
+  gap: 6px;
+}
+.sfx-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #8e96a3;
+}
+.sfx-search input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  font-size: 11px;
+}
+.sfx-lib-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.sfx-lib-row.playing > span,
+.sfx-lib-row.current > span {
+  color: #e6ecff;
+}
+.sfx-lib-row small {
+  color: #8e96a3;
+}
+.sfx-vars {
+  margin: 4px 0 6px;
+  padding: 4px 6px;
+  border: 1px solid #2c3346;
+  border-radius: 4px;
+}
+.sfx-current {
+  color: #7fb39a;
+}

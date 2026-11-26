@@ -14,6 +14,7 @@ import ai, renderer, editorial, production, episode, fetcher, casedesk, discover
 import motion as motiongfx
 import sfxlib
 import sound as sfxplan
+import music as musiclib
 from storage import (
     ROOT,
     DATA,
@@ -34,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.57", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.58", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -523,6 +524,7 @@ async def browser_session(request: Request):
             "narration_id",
             "music_id",
             "music_volume",
+            "music",
             "look",
             "captions",
             "review",
@@ -598,6 +600,7 @@ async def update_project(id: str, request: Request):
             "stickers",
             "motion",
             "sound",
+            "music",
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
@@ -672,6 +675,8 @@ async def update_project(id: str, request: Request):
             p["stickers"] = stickers.normalise(changes["stickers"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "motion" in changes:
             p["motion"] = motiongfx.normalise(changes["motion"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
+        if "music" in changes:  # v0.4.58: where the music plays and how it loops (never the timeline)
+            p["music"] = musiclib.normalise(changes["music"])
         if "sound" in changes:  # v0.4.56: one edited sound leaves the rest of the plan as it is
             p["sound"] = sfxplan.normalise(changes["sound"])
         if "watermark" in changes:
@@ -2334,6 +2339,7 @@ async def episode_options(id: str, request: Request):
         "narration_id",
         "music_id",
         "music_volume",
+        "music",
         "narration_volume",
         "captions",
         "confirm_timing",
@@ -2396,6 +2402,10 @@ async def episode_options(id: str, request: Request):
                 p["music_volume"] = value
             except (TypeError, ValueError):
                 raise HTTPException(422, "Music level must be between 0 and 0.5.")
+        if "music" in body:  # v0.4.58 placement / loop / fades / ducking (never the timeline)
+            if not isinstance(body["music"], dict):
+                raise HTTPException(422, "Music settings must be an object.")
+            p["music"] = musiclib.normalise(body["music"])
         if "narration_volume" in body:
             try:
                 value = float(body["narration_volume"])

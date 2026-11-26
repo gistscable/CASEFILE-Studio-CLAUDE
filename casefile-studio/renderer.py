@@ -13,6 +13,7 @@ import picture
 import stickers
 import motion as motiongfx
 import sound as sfx
+import music as musiclib
 
 # v0.4.56: the limiter after the effects mix. level=disabled: no automatic make-up gain (the
 # default lifts everything ~0.45 dB); latency=1: the 5 ms look-ahead is compensated. So turning
@@ -663,6 +664,27 @@ def asset_path(asset):
     return p
 
 
+# the music dips under the voice (narration and soundbites); the editor's preview computes the
+# same dip from this same compressor (sound.duck_curve)
+MUSIC_DUCK = "sidechaincompress=threshold=0.03:ratio=8:attack=30:release=800"
+
+
+def music_duration(asset, path=None):
+    """v0.4.58 The length of a music file (seconds): the stored one, else probed."""
+    try:
+        d = float(asset.get("duration") or 0)
+    except (TypeError, ValueError):
+        d = 0.0
+    if d > 0:
+        return d
+    try:
+        info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json",
+                                          str(path or asset_path(asset))], capture_output=True, text=True, timeout=40).stdout)
+        return float(info["format"]["duration"])
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError, TypeError):
+        return 0.0
+
+
 def narration_volume(project):
     """v0.4.57 The narration level (1 = as recorded / as normalised; 0..2)."""
     try:
@@ -1295,10 +1317,18 @@ def render(
             voice_index = inputs
             command += ["-i", str(asset_path(narration))]
             inputs += 1
+        music_args, music_filters = [], []
+        music_settings = musiclib.normalise(project.get("music"))
         if music:
-            music_index = inputs
-            command += ["-stream_loop", "-1", "-i", str(asset_path(music))]
-            inputs += 1
+            # v0.4.58: the music settings say where the track plays and which part of it; every
+            # pass is a reference to the original file (no copies), cut to the timeline
+            mpath = asset_path(music)
+            mlay = musiclib.layout(music_settings, music_duration(music, mpath), total, scenes)
+            music_args, music_filters = musiclib.filters(mlay, mpath, inputs, total)
+            if music_filters:
+                music_index = inputs
+                command += music_args
+                inputs += music_args.count("-i")
         # Mode O: each producer-cleared audio break plays its own clip's sound.
         insert_inputs = {}
         for i, scene in enumerate(scenes):
@@ -1331,18 +1361,18 @@ def render(
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
         af += voice_graph(project, scenes, total, voice_index, insert_inputs)
+        music_duck = music_settings["duck"]
         if music_index is not None:
-            af.append(
-                f"[{music_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=duration={total},asetpts=PTS-STARTPTS,volume={volume},afade=t=in:d=1.5,afade=t=out:st={max(0, total - 2)}:d=2[bed]"
-            )
+            af += music_filters
+            af.append(f"[mus]volume={volume}[bed]")
         if sfx_index is not None:
             # narration (and soundbites) first and untouched; the music and the effects ducked under it
             duck = sfx_settings["duck"] and voice_index is not None
             if voice_index is not None:
-                outs = "[main]" + ("[side]" if music_index is not None else "") + ("[fxkey]" if duck else "")
-                af.append(f"[voice]asplit={outs.count('[')}{outs}")
+                outs = "[main]" + ("[side]" if music_index is not None and music_duck else "") + ("[fxkey]" if duck else "")
+                af.append(f"[voice]asplit={outs.count('[')}{outs}" if outs.count("[") > 1 else "[voice]anull[main]")
             if voice_index is not None and music_index is not None:
-                af.append("[bed][side]sidechaincompress=threshold=0.03:ratio=8:attack=30:release=800[ducked]")
+                af.append(f"[bed][side]{MUSIC_DUCK}[ducked]" if music_duck else "[bed]anull[ducked]")
             af += sfx.mix_filters(sfx_index, total, "[fxkey]" if duck else None, duck)
             parts = (["[main]"] if voice_index is not None else []) + (
                 (["[ducked]"] if voice_index is not None else ["[bed]"]) if music_index is not None else []) + ["[fx]"]
@@ -1354,9 +1384,14 @@ def render(
         elif voice_index is not None and music_index is not None:
             af += [
                 "[voice]asplit=2[main][side]",
-                "[bed][side]sidechaincompress=threshold=0.03:ratio=8:attack=30:release=800[ducked]",
-                "[main][ducked]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[aout]",
+                f"[bed][side]{MUSIC_DUCK}[ducked]",
+                f"[main][ducked]amix=inputs=2:duration=first:normalize=0,{SFX_LIMIT}[aout]",
+            ] if music_duck else [
+                f"[voice][bed]amix=inputs=2:duration=first:normalize=0,{SFX_LIMIT}[aout]",
             ]
+            # v0.4.58: the same transparent limiter as the effects mix — the default alimiter delayed
+            # the narration and soundbites by 239 samples (5 ms) and raised them ~0.45 dB whenever
+            # music played without effects
             audio = "[aout]"
         elif voice_index is not None:
             audio = "[voice]"
