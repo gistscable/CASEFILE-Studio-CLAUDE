@@ -109,7 +109,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.54",
+    version: "0.4.55",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -141,7 +141,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.54";
+const APP_VERSION = "0.4.55";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -478,7 +478,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.54",
+          version: "0.4.55",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -554,7 +554,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.54",
+                version: "0.4.55",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -596,8 +596,16 @@ function App() {
                 setProject((cur) =>
                   cur?.id === p.id ? { ...p, ...pending.current } : cur,
                 );
-                if (job.kind === "render")
-                  notify("Your video export is ready to download.");
+                if (job.kind === "render") {
+                  // v0.4.55: say when something was left out of the video
+                  const warned = (p.exports?.[0]?.warnings || []).length;
+                  notify(
+                    warned
+                      ? `Your video export is ready, but ${warned === 1 ? "1 thing was" : `${warned} things were`} left out. See the warnings under the export in Review.`
+                      : "Your video export is ready to download.",
+                    warned ? "error" : undefined,
+                  );
+                }
                 else if (job.kind === "production")
                   notify(
                     (job.result?.message || "Production stage saved.").slice(
@@ -4384,6 +4392,13 @@ function App() {
                               }`
                             : ""}
                         </p>
+                        {ex.warnings?.length > 0 && (
+                          <ul className="export-warnings" role="alert">
+                            {ex.warnings.map((w, i) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                          </ul>
+                        )}
                         {ex.preflight_url && (
                           <div className="export-companion-links">
                             <a href={ex.preflight_url} download>
