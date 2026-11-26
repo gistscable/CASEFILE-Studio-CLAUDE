@@ -479,6 +479,12 @@ def events(project, mg=None, sents=None, ctx=None):
                 add(anchor, "typing", t, 0.8, [fam], f"{'typing' if fam == 'typewriter' else 'keys'}, key by key, as the {role} is typed",
                     f"Typing — {name}", group=f"mg:{gid}:type", gain=-5.0,
                     typed=[[round(start + on_frame(c[0]), 4), bool(c[1])] for c in e["chars"]])
+                if tpl == "contrast" and role == "line" and contradicts and line_of(e["t"])[0] == first_finding \
+                        and not any(x["anchor"].endswith(":x") and x["group"] == f"mg:{gid}:contradiction" for x in out):
+                    # v0.4.59 a typed contradiction keeps its low pulse (typed legal outcomes keep their thump):
+                    # the keys are the line's sound, the pulse marks the record contradicting the statement
+                    add(f"{anchor}:x", "motion", t, 0.72, pal["contradiction"], "the record contradicts the statement",
+                        f"Contradiction — {name}", group=f"mg:{gid}:contradiction", gain=-9.0)
                 continue
             if role != "exit" and any(abs(t - ta) < 0.35 for ta in typed_at):
                 continue
@@ -1097,11 +1103,24 @@ def _low_priority():  # pragma: no cover - runs in the child
         pass
 
 
+VOICE_LEVEL = "aeval=(abs(val(0))+abs(val(1)))/2:c=mono"  # what the compressors detect (link=average)
+
+
 def _duck_job(project):
-    """(command, key) that computes the effects' gain over time exactly as the export applies it:
-    FFmpeg's sidechaincompress with the export's settings, keyed by the export's own voice bus
-    (renderer.voice_graph), compressing a constant 1.0, so its output IS the gain. None when the
-    export would not duck (ducking off, no narration)."""
+    """v0.4.59 ({"bus": [...], "bus_key": .., "curve": [...]}, key): how the effects' (and music's)
+    gain over time is computed exactly as the export applies it — FFmpeg's sidechaincompress with
+    the export's settings, keyed by the export's own voice bus (renderer.voice_graph), compressing a
+    constant 1.0, so its output IS the gain. None when the export would not duck.
+
+    In two steps, so only a change of the timeline pays for the expensive one:
+      bus   - the voice bus at narration level 100% (the export's loudnorm, scene cuts, soundbites),
+              reduced to what a compressor with link=average detects, (|L| + |R|) / 2, and kept on
+              disk (16-bit FLAC; two channels — narration, soundbites — when there are soundbites);
+              keyed by the timeline and the source files only
+      curve - the two compressors on that level, the narration volume applied to it (an exact
+              scaling: the export applies the volume after the loudnorm, and to the narration
+              only), a few seconds; keyed by the bus, the narration volume and the settings.
+    The "{BUS}" in both commands is the cached file's path (duck_curve fills it in)."""
     import renderer
 
     import music as musiclib
@@ -1125,37 +1144,137 @@ def _duck_job(project):
                 return None, None  # the export refuses this project anyway
             inserts[i] = len(paths)
             paths.append(renderer.asset_path(clip))
-    graph = renderer.voice_graph(project, scenes, total, 0, inserts)
+    level = renderer.narration_volume(project)
+    # the bus at 100% narration: the volume is not part of the timeline's analysis
+    unit = {**project, "narration_volume": 1.0}
+    graph = renderer.voice_graph(unit, scenes, total, 0, inserts, stems=True)
+    two = any(g.endswith("[voicei]") for g in graph)
+    fmt = "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=mono"
+    if two:
+        graph += [f"[voice]aresample=48000,{VOICE_LEVEL},{fmt}[ln]", f"[voicei]aresample=48000,{VOICE_LEVEL},{fmt}[li]",
+                  "[ln][li]amerge=inputs=2[bus]"]
+    else:
+        graph += [f"[voice]aresample=48000,{VOICE_LEVEL},{fmt}[bus]"]
+    bus = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
+    for path in paths:
+        bus += ["-i", str(path)]
+    bus += ["-filter_complex", ";".join(graph), "-map", "[bus]", "-c:a", "flac", "-sample_fmt", "s16",
+            "-compression_level", "0", "-f", "flac", "{BUS}"]
+    stamp = [(str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
+    bus_key = hashlib.sha1(json.dumps([graph, stamp, 2], sort_keys=True).encode()).hexdigest()[:20]
     d = SPEC["duck"]
-    graph += [
-        "[voice]asplit=2[vk1][vk2]",
-        f"aevalsrc=1|1:s=48000:d={total}[one]",
-        f"aevalsrc=1|1:s=48000:d={total}[one2]",
-        f"[one][vk1]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
-        f"release={d['release']}:makeup={d['makeup']},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gf]",
-        f"[one2][vk2]{renderer.MUSIC_DUCK},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gm]",
+    # the narration level scales the narration's part of the level (and the soundbites keep theirs)
+    key_in = f"[0:a]pan=mono|c0={level:.6f}*c0+c1" if two else f"[0:a]volume={level:.6f}"
+    curve = [
+        f"{key_in},{fmt},asplit=2[k1][k2]",
+        f"aevalsrc=1:s=48000:d={total},asplit=2[one][one2]",
+        f"[one][k1]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
+        f"release={d['release']}:makeup={d['makeup']},aresample=1000,{fmt.replace('48000', '1000')}[gf]",
+        f"[one2][k2]{renderer.MUSIC_DUCK},aresample=1000,{fmt.replace('48000', '1000')}[gm]",
         "[gf][gm]amerge=inputs=2[g]",
     ]
-    cmd = ["ffmpeg", "-v", "error", "-nostdin"]
-    for path in paths:
-        cmd += ["-i", str(path)]
-    cmd += ["-filter_complex", ";".join(graph), "-map", "[g]", "-f", "f32le", "-acodec", "pcm_f32le", "-"]
-    stamp = [(str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
-    key = hashlib.sha1(json.dumps([graph, stamp, DUCK_RATE], sort_keys=True).encode()).hexdigest()[:20]
-    return cmd, key
+    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-i", "{BUS}", "-filter_complex", ";".join(curve), "-map", "[g]",
+           "-f", "f32le", "-acodec", "pcm_f32le", "-"]
+    key = hashlib.sha1(json.dumps([bus_key, curve, DUCK_RATE], sort_keys=True).encode()).hexdigest()[:20]
+    return {"bus": bus, "bus_key": bus_key, "curve": cmd}, key
+
+
+BUS_KEEP = 4  # voice-bus analyses kept on disk (the latest used; a 25-minute one is ~50-100 MB)
+_BUS_BUSY: dict = {}  # bus key -> threading.Event, set when that analysis is made (or given up)
+
+
+def _register(pid, key, proc):
+    """Make `proc` the project's running analysis and stop an obsolete one. False (and `proc`
+    stopped) when this job is itself obsolete."""
+    with _DUCK_LOCK:
+        if _DUCK_LATEST.get(pid, key) != key:
+            proc.kill()
+            return False
+        old = _DUCK_PROC.get(pid)
+        if old and old[0] != key and old[1] is not proc:
+            old[1].kill()
+        _DUCK_PROC[pid] = (key, proc)
+        return True
+
+
+def _run(cmd, pid, key):
+    """Run one FFmpeg step of the analysis: (stdout or None if it did not finish, superseded)."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            preexec_fn=_low_priority if os.name == "posix" else None)
+    if not _register(pid, key, proc):
+        proc.communicate()
+        return None, True
+    try:
+        raw, _ = proc.communicate(timeout=1800)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    with _DUCK_LOCK:
+        superseded = _DUCK_LATEST.get(pid, key) != key
+        if _DUCK_PROC.get(pid, (None, None))[1] is proc:
+            _DUCK_PROC.pop(pid, None)
+    if proc.returncode and not superseded:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
+    return (raw if not proc.returncode else None), superseded
+
+
+def _bus(job, folder, pid, key):
+    """The voice-bus analysis of `job` on disk (made now, or by the job already making it): its
+    path, or None when this job became obsolete meanwhile."""
+    path = folder / f"bus-{job['bus_key']}.flac"
+    while True:
+        if path.exists():
+            os.utime(path)  # recently used: kept
+            return path
+        with _DUCK_LOCK:
+            ev = _BUS_BUSY.get(job["bus_key"])
+            mine = ev is None
+            if mine:
+                ev = _BUS_BUSY[job["bus_key"]] = threading.Event()
+        if not mine:  # e.g. the narration level moved while the timeline is analysed: wait for it
+            while not ev.wait(0.25):
+                with _DUCK_LOCK:
+                    if _DUCK_LATEST.get(pid, key) != key:
+                        return None
+            if not path.exists():
+                with _DUCK_LOCK:
+                    if _DUCK_LATEST.get(pid, key) != key:
+                        return None
+            continue
+        superseded = False
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = folder / f"bus-{job['bus_key']}.{threading.get_ident()}.tmp"
+            try:
+                done, superseded = _run([str(tmp) if c == "{BUS}" else c for c in job["bus"]], pid, key)
+                if done is not None and tmp.exists():
+                    tmp.replace(path)  # finished (even if obsolete now: kept for an undo)
+            finally:
+                tmp.unlink(missing_ok=True)
+            buses = sorted(folder.glob("bus-*.flac"), key=lambda q: q.stat().st_mtime)
+            for q in buses[:-BUS_KEEP]:
+                q.unlink(missing_ok=True)
+        finally:
+            with _DUCK_LOCK:
+                _BUS_BUSY.pop(job["bus_key"], None)
+            ev.set()
+        if superseded:
+            return None
 
 
 def duck_curve(project, data, wait=False):
     """{"status": "none"} (no ducking: the effects play at their level), {"status": "working"}, or
     {"status": "ready", "rate": 200, "gain": [uint8 0..255 = gain 0..1, base64]}. Made in the background
-    and cached by the voice bus (narration file, timeline, soundbites, narration volume, settings)."""
+    and cached: the voice bus by the timeline and its sources (narration file, scenes, soundbites),
+    the curve by that and the narration volume and settings (see _duck_job)."""
     import base64
 
     try:
-        cmd, key = _duck_job(project)
+        job, key = _duck_job(project)
     except (ValueError, OSError, KeyError):
         return {"status": "none"}
-    if not cmd:
+    if not job:
         return {"status": "none"}
     folder = Path(data) / "cache" / "sfx" / "duck"
     path = folder / f"{key}.u8"
@@ -1175,29 +1294,17 @@ def duck_curve(project, data, wait=False):
     def run():
         superseded = False
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    preexec_fn=_low_priority if os.name == "posix" else None)
-            with _DUCK_LOCK:  # one curve per project at a time: an edit makes the running one obsolete
-                if _DUCK_LATEST.get(pid, key) != key:
+            if isinstance(job, dict):
+                bus = _bus(job, folder, pid, key)
+                if bus is None:
                     superseded = True
-                    proc.kill()
-                else:
-                    old = _DUCK_PROC.get(pid)
-                    if old and old[0] != key:
-                        old[1].kill()
-                    _DUCK_PROC[pid] = (key, proc)
-            try:
-                raw, _ = proc.communicate(timeout=1800)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate()
-                raise
-            with _DUCK_LOCK:
-                superseded = superseded or _DUCK_LATEST.get(pid, key) != key
+                    return
+                cmd = [str(bus) if c == "{BUS}" else c for c in job["curve"]]
+            else:
+                cmd = job  # one command writing the curve (tests)
+            raw, superseded = _run(cmd, pid, key)
             if superseded:
                 return
-            if proc.returncode:
-                raise subprocess.CalledProcessError(proc.returncode, cmd)
             both = np.frombuffer(raw, dtype="<f4")
             both = both[: len(both) // 2 * 2].reshape(-1, 2)
             step = 1000 // DUCK_RATE
@@ -1218,8 +1325,6 @@ def duck_curve(project, data, wait=False):
         finally:
             with _DUCK_LOCK:
                 _DUCK_BUSY.pop(key, None)
-                if _DUCK_PROC.get(pid, (None,))[0] == key:
-                    _DUCK_PROC.pop(pid, None)
 
     with _DUCK_LOCK:
         _DUCK_LATEST[pid] = key

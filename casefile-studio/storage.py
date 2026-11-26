@@ -62,16 +62,39 @@ def get_project(id):
         return history.adopt(json.loads((DATA / "projects" / f"{id}.json").read_text()))
 
 
-def save_project(project):
+def _follow_music(project):
+    """v0.4.59 Chosen-scene music follows its scenes when an edit changes scene ids (music.follow_scenes).
+    Compared with the project as last saved; only a project with music on chosen scenes reads it."""
+    m = project.get("music")
+    if not isinstance(m, dict) or m.get("mode") != "scenes" or not (m.get("scenes") or m.get("chapters")):
+        return None
+    try:
+        before = json.loads((DATA / "projects" / f"{project['id']}.json").read_text()).get("scenes") or []
+    except (OSError, ValueError):
+        return None
+    import music
+
+    settings, report = music.follow_scenes(m, before, project.get("scenes") or [])
+    project["music"] = settings
+    return report if (report["followed"] or report["lost"]) else None
+
+
+def save_project(project, follow=True):
+    """`follow`: chosen-scene music follows changed scene ids (not on undo / redo, which restore the
+    scenes and the music together)."""
     with LOCK:
         import history
 
+        project.pop("music_follow", None)  # a report of an earlier save is never stored
+        report = _follow_music(project) if follow else None
         # v0.4.51: a begun undo step is stored (only what changed) in data/history/<id>.json,
         # no longer as whole copies inside the project file.
         history.finish(project)
         project.pop("undo", None)
         project["updated_at"] = now()
         atomic_json(DATA / "projects" / f"{project['id']}.json", project)
+    if report:
+        project["music_follow"] = report  # in this response only (not stored): the editor tells you
     return project
 
 

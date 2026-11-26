@@ -694,12 +694,16 @@ def narration_volume(project):
     return 1.0 if v != v else round(min(2.0, max(0.0, v)), 3)
 
 
-def voice_graph(project, scenes, total, voice_index, insert_inputs):
+def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False):
     """v0.4.57 The FFmpeg filters that make the voice bus [voice] (narration, and Mode O soundbites),
     exactly as the export mixes it. The editor preview's effects ducking is computed from this same
     graph (sound.duck_curve), so what you hear while editing is what the export does.
     The narration volume is applied to the narration only (soundbites keep their level); in the
-    scene-sliced path it comes after the loudness normalisation, which would otherwise undo it."""
+    scene-sliced path it comes after the loudness normalisation, which would otherwise undo it.
+    v0.4.59 `stems` (the editor's ducking analysis only, never the export): when the narration
+    pauses for soundbites, [voice] is the narration alone and [voicei] the soundbites alone (each
+    silent where the other plays — they never overlap), so a narration-volume change needs no new
+    analysis of the timeline (sound.duck_curve)."""
     af = []
     if voice_index is None:
         return af
@@ -764,9 +768,24 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs):
                     f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}[vi{i}]"
                 )
                 order.append(f"[vi{i}]")
-        af.append(
-            f"{''.join(order)}concat=n={len(order)}:v=0:a=1,{fmt},atrim=duration={total}[voice]"
-        )
+        if stems:
+            # the same segments, each stem silent where the other plays (sample-exact: the same trims)
+            for name, keep in (("voice", "n"), ("voicei", "i")):
+                parts, k = [], 0
+                for j, g in enumerate(segments):
+                    length = g[2]
+                    src = f"[vn{k}]" if g[0] == "n" else f"[vi{g[1]}]"
+                    k += g[0] == "n"
+                    if g[0] == keep:
+                        parts.append(src)
+                    else:
+                        af.append(f"anullsrc=r=48000:cl=stereo,{fmt},atrim=duration={length}[z{name}{j}]")
+                        parts.append(f"[z{name}{j}]")
+                af.append(f"{''.join(parts)}concat=n={len(parts)}:v=0:a=1,{fmt},atrim=duration={total}[{name}]")
+        else:
+            af.append(
+                f"{''.join(order)}concat=n={len(order)}:v=0:a=1,{fmt},atrim=duration={total}[voice]"
+            )
     elif voice_index is not None and (project.get("episode") or {}).get("guide"):
         # Guide projects retain the continuous uploaded recording, not a sequence
         # of regenerated or rearranged snippets. Only the last frame is padded.
