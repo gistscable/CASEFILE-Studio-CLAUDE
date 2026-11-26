@@ -543,3 +543,81 @@ def test_the_export_video_is_exact_to_the_frame_where_a_scene_starts(tmp_path):
                              capture_output=True, check=True).stdout
         got = np.frombuffer(raw, dtype=np.uint8).reshape(180, 320, 4)
         assert np.array_equal(got, np.asarray(motion.frame(lay, first))), first  # lossless, and the right frame
+
+
+# ------------------------------------------------------------------ v0.4.55: photo backgrounds
+
+@pytest.mark.parametrize("size", [(1920, 1080), (1280, 720), (854, 480), (640, 360), (1080, 1920), (720, 1280), (1080, 1350)])
+@pytest.mark.parametrize("photo", [(1920, 1080), (3000, 4000), (300, 200)])
+def test_a_photo_background_draws_from_the_very_first_frame(tmp_path, size, photo):
+    # The photo was fitted to int(W*1.08) but cropped W*1.08 wide: at the first frames the box was a
+    # fraction of a pixel too wide, Pillow refused it, and the export left out every graphic.
+    pic = tmp_path / "p.jpg"
+    Image.new("RGB", photo, (30, 160, 60)).save(pic)
+    W, H = size
+    lay = motion.build(item(background="photo", photo_id="x", start=0.0, end=4.0), W, H, str(pic))
+    assert lay.bg == "photo"
+    for n in list(range(0, 30)) + [lay.frames // 2, lay.frames - 1]:
+        fr = motion.frame(lay, n)
+        assert fr.size == (W, H)
+    fr = np.asarray(motion.frame(lay, 24).convert("RGB"), dtype=int)
+    assert fr[H - 4, W // 2][1] > fr[H - 4, W // 2][0]  # the photo shows through
+
+
+def test_one_graphic_that_cannot_be_drawn_does_not_take_the_others(tmp_path, monkeypatch):
+    good = item(id="good", status="approved", start=0.0, end=1.5)
+    bad = item(id="bad", status="approved", start=2.0, end=3.5, title="The charges")
+    p = {"motion": {"enabled": True, "items": [good, bad]}}
+    real = motion.build
+
+    def build(it, *a, **kw):
+        if it["id"] == "bad":
+            raise ValueError("box offset can't be negative")
+        return real(it, *a, **kw)
+
+    monkeypatch.setattr(motion, "build", build)
+    failed = []
+    layers = motion.prepare(p, 320, 180, tmp_path, tmp_path / "w", failed=failed)
+    assert [m["id"] for m in layers] == ["good"] and layers[0]["file"].exists()
+    assert [(it["id"], str(e)) for it, e in failed] == [("bad", "box offset can't be negative")]
+    assert motion.describe(bad) == "findings graphic \u201cThe charges\u201d at 0:02"
+    with pytest.raises(ValueError):  # without a list it still says so
+        motion.prepare(p, 320, 180, tmp_path, tmp_path / "w")
+    with pytest.raises(RuntimeError, match="Cancelled"):  # a cancel is never swallowed
+        motion.prepare(p, 320, 180, tmp_path, tmp_path / "w", failed=[], cancelled=lambda: True)
+
+
+def test_the_render_report_lists_the_warnings():
+    t = {"look": "noir", "per_scene": [], "warnings": ["The findings graphic at 3:39 was left out: x"]}
+    assert "Warnings:\n  - The findings graphic at 3:39 was left out: x" in renderer.timing_report(t)
+    assert "Warnings" not in renderer.timing_report({"look": "noir", "per_scene": []})
+
+
+def test_render_with_a_photo_background_shows_it_and_a_failing_graphic_leaves_the_rest(tmp_path, media, monkeypatch):
+    Image.new("RGB", (640, 360), (40, 140, 60)).save(media / "green.png")
+    Image.new("RGB", (1920, 1080), (170, 40, 160)).save(media / "court.jpg")  # magenta "photo"
+    a = {"id": "g", "kind": "image", "path": str(media / "green.png"), "name": "green.png", "width": 640, "height": 360}
+    ph = {"id": "ph", "kind": "image", "path": str(media / "court.jpg"), "name": "court.jpg", "width": 1920, "height": 1080}
+    sc = [{"id": f"s{k}", "title": "", "narration": "Words.", "duration": 3.0, "asset_id": "g", "motion": "none", "show_title": False}
+          for k in range(3)]
+    photo_item = item(id="p1", status="approved", start=0.5, end=3.5, background="photo", photo_id="ph")
+    plain = item(id="c1", status="approved", start=5.0, end=8.0)
+    p = {"id": "mgp", "title": "mgp", "look": "natural", "captions": False, "music_volume": 0, "assets": [a, ph], "scenes": sc,
+         "motion": {"enabled": True, "items": [photo_item, plain]}}
+    opts = {"resolution": "480p", "draft": False, "captions": False}
+    r = renderer.render(p, opts, tmp_path / "a.mp4", lambda *a: None, lambda: False)
+    assert r["warnings"] == []
+    assert sorted(m["id"] for m in r["timing"]["motion_graphics"]) == ["c1", "p1"]
+    px = grab(tmp_path / "a.mp4", 2.5)[470, 427]
+    assert px[0] > px[1] and px[2] > px[1]  # the darkened magenta photo, not the green footage
+    assert grab(tmp_path / "a.mp4", 6.5)[240, 800].max() < 60  # the other graphic's charcoal
+    # one graphic that cannot be drawn: named in a warning, and the other one is still there
+    real = motion.build
+    monkeypatch.setattr(motion, "build", lambda it, *x, **k: (_ for _ in ()).throw(ValueError("broken")) if it["id"] == "p1" else real(it, *x, **k))
+    p["motion"]["items"][0] = item(id="p1", status="approved", start=0.5, end=3.5, background="photo", photo_id="ph", title="Changed")
+    r = renderer.render(p, opts, tmp_path / "b.mp4", lambda *a: None, lambda: False)
+    assert r["warnings"] == ["The findings graphic \u201cChanged\u201d at 0:00 was left out: broken"]
+    assert [m["id"] for m in r["timing"]["motion_graphics"]] == ["c1"]
+    green = lambda q: q[1] > 110 and q[0] < 90
+    assert green(grab(tmp_path / "b.mp4", 2.5)[240, 427])
+    assert grab(tmp_path / "b.mp4", 6.5)[240, 800].max() < 60

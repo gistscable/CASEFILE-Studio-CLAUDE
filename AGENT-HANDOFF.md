@@ -918,3 +918,38 @@ looped crop with blur on 6.0); with fps= on [prev] 7 fail on 6.0. Full suite 578
 6.0 **and** on 7.0.2.
 Not done: no 7.1/8.x binary can be downloaded in the sandbox (GitHub release assets are blocked); 7.1
 covered by the source diff above, 9.0.2 by tests.
+
+## v0.4.55 — approved motion graphics missing from the export (photo backgrounds)
+
+**Report:** "the approved motion graphics do not render with the video" (project with 5 approved
+graphics, 1080p export; preview showed them). The export record carried the warning
+`The motion graphics were left out: box offset can't be negative`, which the UI never displayed.
+
+**Cause (motion.py `frame()`):** a photo/still background is fitted once to `int(W*1.08) x int(H*1.08)`
+(`build`), but each frame cropped a box `W*1.08/z` wide around the centre. At the first frames
+(z = 1 → ~1.0003) the box was a fraction of a pixel wider than the photo (1920 → photo 2073 px, box
+2073.6 px: offset −0.3), and Pillow ≥ 11 raises `ValueError` for a negative box offset. Any W where
+W*1.08 is not a whole number (1920, 1280, 854, 640, all portrait sizes) failed on frames 0..~15.
+* The **export** draws frame 0 first → exception → `renderer.py` dropped **all** graphics (the whole
+  preparation was one try block), including the footage-background ones that were fine.
+* The **preview** asks for frames one by one; the few failing first frames (during the background
+  fade-in, 4–16 frames) just 404'd and the layer kept the previous picture, so it looked right.
+* Earlier tests missed it: the still-background test draws frame 48, and render tests used footage or
+  charcoal backgrounds.
+
+**Fix:**
+* `frame()`: the crop is `photo size / z`, clamped to the photo.
+* `motion.prepare(..., failed=[])`: a graphic that cannot be drawn is skipped on its own and reported
+  as `(item, error)`; the others are still made. A cancel is never swallowed; without `failed` it
+  raises as before. `renderer.py` turns each into a warning naming it (`motion.describe`: template,
+  title, m:ss), and drops its caption gap.
+* Warnings are shown: under each export in Review (`.export-warnings`), in the "export ready" toast
+  (error tone with a count), and in `render-report.txt` ("Warnings:" section; `timing["warnings"]`).
+
+**Verified:** the user's 5 exact items (from their project JSON, with a 1920x1080 photo) draw every
+frame at 1920x1080 and at the preview size (before: both photo items failed at frame 0). 1080p
+end-to-end on FFmpeg 7.0.2 with a photo-background legal graphic + a footage one: both in the MP4,
+no warnings. **Tests** (`tests/test_motion.py`, +24): photo background from frame 0 at 7 sizes × 3
+photo shapes; a failing graphic leaves the others (prepare and full render, warning text checked);
+report lists warnings. All 22 photo tests fail with the old crop. Full suite 602 passed, 1 skipped;
+JS 35 pass.

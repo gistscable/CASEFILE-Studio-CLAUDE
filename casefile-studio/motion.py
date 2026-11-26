@@ -1494,8 +1494,11 @@ def frame(lay, n):
         if lay.bg == "photo" and lay.photo is not None:
             z = 1.0 + 0.04 * min(1.0, ph / max(1.0, lay.length))  # a slow push-in
             pw, phh = lay.photo.size
-            cw, ch = W * 1.08 / z, H * 1.08 / z
-            box = ((pw - cw) / 2, (phh - ch) / 2, (pw + cw) / 2, (phh + ch) / 2)
+            # v0.4.55: the crop comes from the photo's real size. It was W*1.08 wide, but the photo
+            # is int(W*1.08) wide, so at the first frames the box was a fraction of a pixel larger
+            # than the photo and Pillow refused it ("box offset can't be negative").
+            cw, ch = pw / z, phh / z
+            box = (max(0.0, (pw - cw) / 2), max(0.0, (phh - ch) / 2), min(pw, (pw + cw) / 2), min(phh, (phh + ch) / 2))
             canvas = lay.photo.resize((W, H), Image.BILINEAR, box=box).convert("RGBA")
             dark = Image.new("RGBA", (W, H), (8, 8, 10, int(255 * it["dim"])))
             canvas.alpha_composite(dark)
@@ -1833,10 +1836,20 @@ def encode(lay, out, workers=2, cancelled=lambda: False):
     return unique
 
 
-def prepare(project, width, height, data, folder, background=None, workers=None, cancelled=lambda: False):
+def describe(it):
+    """A graphic named for a message: its template, title and time in the video."""
+    s = max(0, int(it.get("start") or 0))
+    title = str(it.get("title") or "").strip()
+    name = f"{it.get('template', 'motion')} graphic" + (f" \u201c{title}\u201d" if title else "")
+    return f"{name} at {s // 60}:{s % 60:02d}"
+
+
+def prepare(project, width, height, data, folder, background=None, workers=None, cancelled=lambda: False, failed=None):
     """Every exported graphic as one transparent video at the export size, cached by content (an
     unchanged graphic is not drawn again). `background(item)` gives its photo or footage still.
-    Returns [{start, end, file, frames, unique, drawn, id}]."""
+    Returns [{start, end, file, frames, unique, drawn, id}].
+    v0.4.55: with a `failed` list, a graphic that cannot be drawn is left out on its own (its item
+    and the error are added to the list) and the others are still made; without it, it raises."""
     layers = []
     items = exported(project)
     if not items:
@@ -1847,18 +1860,24 @@ def prepare(project, width, height, data, folder, background=None, workers=None,
     for it in items:
         if cancelled():
             raise RuntimeError("Cancelled by you. No output was published.")
-        pp = background(it) if (background and it["background"] in ("photo", "still")) else None
-        h = item_hash(it, width, height, pp)
-        cache = cache_root(data) / h
-        cache.mkdir(parents=True, exist_ok=True)
-        out = cache / "export.mov"
-        lay = build(it, width, height, pp)
-        frames, unique = plan(lay)
-        drawn = 0
-        if not out.exists():
-            drawn = encode(lay, out, workers, cancelled)
-        else:
-            os.utime(cache)  # recently used: kept by prune
+        try:
+            pp = background(it) if (background and it["background"] in ("photo", "still")) else None
+            h = item_hash(it, width, height, pp)
+            cache = cache_root(data) / h
+            cache.mkdir(parents=True, exist_ok=True)
+            out = cache / "export.mov"
+            lay = build(it, width, height, pp)
+            frames, unique = plan(lay)
+            drawn = 0
+            if not out.exists():
+                drawn = encode(lay, out, workers, cancelled)
+            else:
+                os.utime(cache)  # recently used: kept by prune
+        except (ValueError, OSError, KeyError, TypeError, ZeroDivisionError, RuntimeError) as e:
+            if failed is None or cancelled():
+                raise
+            failed.append((it, e))
+            continue
         s0 = round(it["start"] * FPS) / FPS
         layers.append({"start": s0, "end": s0 + len(frames) / FPS, "file": out, "frames": len(frames),
                        "unique": unique, "drawn": drawn, "id": it["id"]})

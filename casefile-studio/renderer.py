@@ -627,6 +627,10 @@ def timing_report(t: dict) -> str:
         f"  preparing {mmss(t.get('prepare', 0))} · scenes {mmss(t.get('scenes', 0))} · joining {mmss(t.get('join', 0))}"
         f" · sound and MP4 {mmss(t.get('sound_and_mp4', 0))}",
         f"Settings: {', '.join(used)}",
+    ]
+    if t.get("warnings"):  # v0.4.55: what was left out, also in the report
+        lines += ["", "Warnings:"] + [f"  - {w}" for w in t["warnings"]]
+    lines += [
         "",
         "Slowest scenes (and seconds of work for each second of video):",
     ]
@@ -751,8 +755,16 @@ def render(
                 def background_of(it):  # your photo, or a still from your own footage (v0.4.53)
                     return motiongfx.background_path(project, it, DATA, asset_path)
 
-                motion_layers = motiongfx.prepare(project, width, height, DATA, work / "motion", background_of, cancelled=cancelled)
+                # v0.4.55: one graphic that cannot be drawn no longer takes the others with it.
+                motion_failed = []
+                motion_layers = motiongfx.prepare(project, width, height, DATA, work / "motion", background_of,
+                                                  cancelled=cancelled, failed=motion_failed)
+                for it, e in motion_failed:
+                    warnings.append(f"The {motiongfx.describe(it)} was left out: {e}")
                 motion_hide = motiongfx.caption_gaps(project)
+                if motion_failed:  # no caption gap where no graphic is shown
+                    gone = [(f["start"], f["end"]) for f, _ in motion_failed]
+                    motion_hide = [g for g in motion_hide if not any(abs(g[0] - a) < 0.05 and abs(g[1] - b) < 0.05 for a, b in gone)]
                 motiongfx.prune(DATA)  # the cache stays under ~2 GB (the oldest graphics go first)
                 for t0, t1 in cta_events:
                     if any(t0 < m["end"] and t1 > m["start"] for m in motion_layers):
@@ -1338,5 +1350,6 @@ def render(
             "stickers": len(sticker_layers),
             "motion_graphics": [{k: m[k] for k in ("id", "frames", "unique", "drawn")} for m in motion_layers],
             "per_scene": scene_info,
+            "warnings": list(warnings),
         },
     }
