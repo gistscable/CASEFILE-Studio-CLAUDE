@@ -876,3 +876,45 @@ large type)"; Another layout → list; colour picker → #1f8a8a saved; still ba
 note (the sandbox has no media); undo; no page errors.
 Not done: footage stills were verified with generated test video only (no real footage in the
 sandbox); 2K/4K.
+
+## v0.4.54 — Exports with transitions work on FFmpeg 7
+
+**The failure (user report, Docker on Apple Silicon, v0.4.53):** "Make updated draft video" and "Make
+final video" both stopped with `[Parsed_xfade_13] The inputs needs to be a constant frame rate;
+current rate of 1/0 is invalid` → "Error reinitializing filters!" → "Nothing was written". Any scene
+with a transition failed. **Cause, from the FFmpeg source:** `setpts` sets the output frame rate to 1/0
+unconditionally in FFmpeg 7.0 and 7.1.x (`libavfilter/setpts.c`; 8.0 made it the `strip_fps` option,
+off by default), and `xfade` refuses 1/0. The scene step renumbers frames with `setpts=N/24/TB` right
+before the blend. The Dockerfile installs Debian's ffmpeg (python:3.13-slim → 7.1). The sandbox has
+6.0, so it never showed. Reproduced with a static 7.0.2 (`pip install imageio-ffmpeg==0.6.0`). 7.0.2 →
+7.1 changes to setpts/xfade/fps/settb are only the FilterLink API rename (diffed the sources).
+
+**Fix (renderer.py, scene step):**
+* `[pic0]`: `…,settb=AVTB,setpts=N/24/TB,fps=24,settb=AVTB` — fps states the rate again (the
+  timestamps are already 1/24 apart, so no frame dropped or repeated); settb puts back the time base
+  xfade compares between its inputs.
+* `[prev]` (the previous scene's last frame): `…,format=yuv420p,settb=AVTB` — no setpts, no fps.
+  `-loop 1 -framerate 24` already numbers it. **Do not add fps= here:** FFmpeg 6's xfade treats the
+  blend as over as soon as its first input *reports* EOF (vf_xfade.c, `ff_outlink_get_status`), and
+  fps= reports EOF together with its last frame — the 12th blend frame was dropped and the rest of the
+  scene stamped one frame late (found by showinfo; the final MP4 still had the right frame count, so
+  only a raw-frame timestamp check catches it).
+* Video scenes: `tpad=stop_mode=clone:stop=24` after `fps=24,setpts=PTS-STARTPTS`. Separate, older
+  bug (FFmpeg 6 too): a looped crop (or a clip used to its last frame) shown "over a blur of itself"
+  came out one frame short — the blur's overlay ends the stream at its last frame's *start*, so fps=
+  produced 71 of 72 frames and every later scene ran 1/24 s early. `-frames:v` still cuts each scene to
+  its length. (`stop_duration=1` does NOT work under `-frames:v` on 7.0.2 — use the frame count.)
+
+**Verified:** 3 FFmpeg builds (6.0, 7.0.2, 9.0.2) × fit cover/blur × video 30/25 fps, looped crop,
+photo still/zoom/keyframes, VISUAL NEEDED card, with a look + vignette + grain + letterbox: every export
+24/1 fps and the exact frame count; every transition type on 7.0.2. Against v0.4.53 on FFmpeg 6.0 the
+blended picture is identical except transition frames 1, 4, 7, 10 (≤2 of 255 levels on ~0.5% of
+pixels: the microsecond time base rounds 41666.67 µs differently), so the encode differs at ~47–51 dB.
+**Tests:** `tests/test_transition_rate.py` (16 on the PATH ffmpeg; set `CASEFILE_EXTRA_FFMPEG=dir:dir`
+to also run them on other builds — 46 with 7.0.2 + 9.0.2). Checks the command (rate stated after the
+last setpts, prev untouched), the blend's RAW frame timestamps 0..n-1 per picture kind, every
+transition, and the looped crop. On the v0.4.53 renderer 15 of them fail (all 7.0.2 renders + the
+looped crop with blur on 6.0); with fps= on [prev] 7 fail on 6.0. Full suite 578 passed, 1 skipped on
+6.0 **and** on 7.0.2.
+Not done: no 7.1/8.x binary can be downloaded in the sandbox (GitHub release assets are blocked); 7.1
+covered by the source diff above, 9.0.2 by tests.

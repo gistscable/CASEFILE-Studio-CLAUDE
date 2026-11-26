@@ -913,7 +913,14 @@ def render(
             fit = picture.fit_of(project, scene, asset) if footage else "cover"
             vf = (picture.crop_filter(picture.crop_of(asset)) if footage else "") + picture.fit_filter(fit, width, height)
             if is_video:
-                vf += f",fps={FPS},setpts=PTS-STARTPTS,setsar=1"
+                # v0.4.54: tpad holds the last frame (at most 1 s) when the
+                # footage ends right at the scene's end — a looped crop, or a
+                # clip used to its last frame. With "photo over a blur" the
+                # overlay ends the stream at its last frame's START, so fps=
+                # gave one frame too few and every later scene ran 1/24 s
+                # early against the narration. -frames:v still cuts the scene
+                # to its exact length, so a long enough clip is unchanged.
+                vf += f",fps={FPS},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop={FPS},setsar=1"
                 if cam_keys and footage:
                     vf += "," + picture.camera_filter(cam_keys, width, height, frames, still=False) + ",setsar=1"
             elif motion == "keyframes":
@@ -956,11 +963,20 @@ def render(
             keep_last = i + 1 < len(scenes) and bool(effects.xfade_name(scenes[i + 1]))
             # Number frames in order (never drop or repeat one) so every scene
             # keeps its exact frame count, with or without a transition.
-            filters = f"[0:v]{vf},format=yuv420p,settb=AVTB,setpts=N/{FPS}/TB[pic0]"
+            # v0.4.54: FFmpeg 7.0 marks the frame rate unknown (1/0) after
+            # setpts, and xfade refuses that ("The inputs needs to be a constant
+            # frame rate"), so every export with a transition failed. fps= states
+            # the rate again (the timestamps are already 1/FPS apart, so no frame
+            # is dropped or repeated) and settb puts back the time base xfade
+            # compares. The previous scene's frame [prev] needs neither setpts nor
+            # fps: -loop 1 -framerate numbers it at FPS already, and fps= there
+            # made FFmpeg 6's xfade end the blend one frame early and shift the
+            # rest of the scene a frame late.
+            filters = f"[0:v]{vf},format=yuv420p,settb=AVTB,setpts=N/{FPS}/TB,fps={FPS},settb=AVTB[pic0]"
             if blend > 0:
                 command += ["-loop", "1", "-framerate", str(FPS), "-t", f"{blend:.3f}", "-i", str(work / f"last{i - 1}.jpg")]
                 filters += (
-                    f";[2:v]scale={width}:{height},setsar=1,format=yuv420p,settb=AVTB,setpts=N/{FPS}/TB[prev]"
+                    f";[2:v]scale={width}:{height},setsar=1,format=yuv420p,settb=AVTB[prev]"
                     f";[prev][pic0]xfade=transition={xfade}:duration={blend:.3f}:offset=0[pic1]"
                 )
             else:
