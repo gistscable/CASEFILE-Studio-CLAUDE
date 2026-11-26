@@ -48,6 +48,60 @@ export function editItem(settings, item, patch) {
   return { ...settings, items };
 }
 
+/** v0.4.57 The motion graphic a sound belongs to: {gid, role} for anchors "mg:<gid>:<role>:<k>"
+ *  (typing "mg:<gid>:...:type" counts as its role), else null. */
+export function graphicOf(item) {
+  const m = /^mg:([^:]+):([^:]+):/.exec(item?.anchor || "");
+  return m ? { gid: m[1], role: m[2] } : null;
+}
+
+/** The planned sounds an edit applies to: "this" sound, the same "role" in its graphic (every line,
+ *  every marker…), or the whole "graphic". Pure. */
+export function scopeItems(planItems, item, scope) {
+  const g = graphicOf(item);
+  if (!g || scope === "this") return [item];
+  return (planItems || []).filter((x) => {
+    const o = graphicOf(x);
+    return o && o.gid === g.gid && (scope === "graphic" || o.role === g.role);
+  });
+}
+
+/** editItem for several sounds at once: one stored change each, one undo step for the caller.
+ *  `patch` is an object, or a function (item) -> object (e.g. a relative volume change). */
+export function editItems(settings, items, patch) {
+  let s = settings;
+  for (const it of items) s = editItem(s, it, typeof patch === "function" ? patch(it) : patch);
+  return s;
+}
+
+/** v0.4.57 The ducking automation for the preview: [[ctxTime, gain]] from timeline time `t` (at
+ *  context time `now`) up to `horizon` seconds ahead, from the server's curve ({rate, gain: 0..1
+ *  values, each the mean of its 1/rate window, so centred at (i + 0.5) / rate}). Pure. */
+export function duckEvents(duck, t, now, horizon = 4) {
+  if (!duck || !duck.gain || !duck.gain.length) return [[now, 1]];
+  const { rate, gain } = duck;
+  const at = (i) => now + ((i + 0.5) / rate - t);
+  const first = Math.max(0, Math.floor(t * rate - 0.5));
+  const last = Math.min(gain.length - 1, Math.ceil((t + horizon) * rate));
+  const out = [];
+  // the value right now (between two points) first, then every point ahead
+  const x = t * rate - 0.5, i0 = Math.max(0, Math.min(gain.length - 1, Math.floor(x))), i1 = Math.min(gain.length - 1, i0 + 1);
+  const f = Math.max(0, Math.min(1, x - i0));
+  out.push([now, gain[i0] * (1 - f) + gain[i1] * f]);
+  for (let i = first; i <= last; i++) if (at(i) > now) out.push([at(i), gain[i]]);
+  if (first >= gain.length) return [[now, 1]];
+  return out;
+}
+
+/** The server's {gain: base64 uint8} as numbers 0..1. */
+export function decodeDuck(d) {
+  if (!d || d.status !== "ready" || !d.gain) return null;
+  const bin = typeof atob === "function" ? atob(d.gain) : Buffer.from(d.gain, "base64").toString("binary");
+  const g = new Float32Array(bin.length);
+  for (let i = 0; i < bin.length; i++) g[i] = bin.charCodeAt(i) / 255;
+  return { rate: d.rate, gain: g, key: d.key };
+}
+
 export function soundUrl(projectId, sid) {
   return sid.startsWith("a:") ? `/api/projects/${projectId}/sound/custom/${sid.slice(2)}.wav` : `/api/sound/lib/${sid}.wav`;
 }
@@ -77,6 +131,46 @@ export class SfxPreview {
     this.next = 0; // index into the schedule of the next sound to start
     this.list = [];
     this.anchor = null; // {t, at}: timeline time t was at ctx time `at`
+    this.duck = null; // v0.4.57: {rate, gain} — the export's ducking, applied in the preview
+    this.duckUntil = 0; // ctx time up to which the ducking is scheduled
+    this.narr = new WeakMap(); // <audio> -> its gain node, when the narration is boosted over 100%
+  }
+  setDuck(d) {
+    this.duck = d;
+    this.duckUntil = 0;
+    if (this.anchor && this.ctx) this.scheduleDuck(this.anchor.t + (this.ctx.currentTime - this.anchor.at), this.ctx.currentTime, true);
+    else if (this.duckNode && this.ctx) { this.duckNode.gain.cancelScheduledValues(0); this.duckNode.gain.setValueAtTime(1, this.ctx.currentTime); }
+  }
+  scheduleDuck(t, now, reset) {
+    if (!this.duckNode) return;
+    const p = this.duckNode.gain;
+    const from = reset ? t : t + (this.duckUntil - now);
+    const ev = duckEvents(this.duck, from, reset ? now : this.duckUntil, 4);
+    if (reset) {
+      p.cancelScheduledValues(0);
+      p.setValueAtTime(ev[0][1], now);
+    }
+    for (const [at, v] of ev.slice(1)) p.linearRampToValueAtTime(v, at);
+    this.duckUntil = ev.length > 1 ? ev[ev.length - 1][0] : now + 4;
+  }
+  /** v0.4.57 The narration level in the preview: the element's own volume up to 100%, a WebAudio
+   *  gain above (an <audio> element cannot go over 1). */
+  narration(el, level) {
+    if (!el) return;
+    const v = Math.max(0, Math.min(2, Number.isFinite(+level) ? +level : 1));
+    let g = this.narr.get(el);
+    if (v <= 1 && !g) { el.volume = v; return; }
+    if (!g) {
+      const ctx = this.ensure();
+      if (!ctx) { el.volume = Math.min(1, v); return; }
+      try {
+        g = ctx.createGain();
+        ctx.createMediaElementSource(el).connect(g).connect(ctx.destination);
+        this.narr.set(el, g);
+      } catch { el.volume = Math.min(1, v); return; }
+    }
+    el.volume = 1;
+    g.gain.value = v;
   }
   ensure() {
     if (!this.ctx) {
@@ -85,6 +179,8 @@ export class SfxPreview {
       this.ctx = new C({ latencyHint: "interactive" });
       this.out = this.ctx.createGain();
       this.out.connect(this.ctx.destination);
+      this.duckNode = this.ctx.createGain(); // every effect goes through the ducking, then the volume
+      this.duckNode.connect(this.out);
     }
     if (this.ctx.state === "suspended") this.ctx.resume().catch(() => {});
     return this.ctx;
@@ -106,7 +202,7 @@ export class SfxPreview {
   preload(projectId, list) {
     for (const sid of new Set(list.map((x) => x[1]))) this.load(soundUrl(projectId, sid));
   }
-  play(buf, when, offset, gain, it) {
+  play(buf, when, offset, gain, it, ducked = false) {
     const ctx = this.ctx, src = ctx.createBufferSource(), g = ctx.createGain();
     src.buffer = buf;
     const len = it && it.length ? Math.min(buf.duration, it.length) : buf.duration;
@@ -120,7 +216,7 @@ export class SfxPreview {
       g.gain.setValueAtTime(gain, when + Math.max(0, len - fo - offset));
       g.gain.linearRampToValueAtTime(0.0001, when + Math.max(0.001, len - offset));
     }
-    src.connect(g).connect(this.out);
+    src.connect(g).connect(ducked ? this.duckNode : this.out); // auditions are not ducked
     src.start(when, Math.max(0, offset), Math.max(0.001, len - offset));
     this.live.push(src);
     src.onended = () => (this.live = this.live.filter((s) => s !== src));
@@ -152,23 +248,25 @@ export class SfxPreview {
       // started, seeked or the plan changed: begin again from here
       this.stop();
       this.list = list;
+      this.scheduleDuck(t, now, true);
       this.next = list.findIndex((x) => x[0] + 0.02 >= t);
       if (this.next < 0) this.next = list.length;
       // a longer sound that began just before the playhead plays on from its middle
       for (const x of list.slice(Math.max(0, this.next - 12), this.next)) {
         const buf = this.buffers.get(soundUrl(projectId, x[1]));
-        if (buf && x[0] + buf.duration > t + 0.05) this.play(buf, now + 0.01, t - x[0], x[2], x[3]);
+        if (buf && x[0] + buf.duration > t + 0.05) this.play(buf, now + 0.01, t - x[0], x[2], x[3], true);
       }
     }
     this.anchor = { t, at: now };
+    if (this.duckUntil - now < 1.5) this.scheduleDuck(t, now, false);
     const ahead = 0.3;
     while (this.next < list.length && list[this.next][0] < t + ahead) {
       const [s, sid, g, it] = list[this.next++];
       const buf = this.buffers.get(soundUrl(projectId, sid));
       if (!buf) { this.load(soundUrl(projectId, sid)); continue; }
       const when = now + (s - t);
-      if (when >= now) this.play(buf, when, 0, g, it);
-      else if (now - when < buf.duration) this.play(buf, now, now - when, g, it);
+      if (when >= now) this.play(buf, when, 0, g, it, true);
+      else if (now - when < buf.duration) this.play(buf, now, now - when, g, it, true);
     }
   }
 }

@@ -36,7 +36,7 @@ OPEN_SECONDS = 300  # a begun step whose save never came (the edit failed) is fo
 FIELDS = (
     "title", "topic", "target_minutes",
     "script", "script_dirty", "script_origin", "script_approved_hash",
-    "scenes", "assets", "look", "captions", "narration_id", "music_id", "music_volume", "review",
+    "scenes", "assets", "look", "captions", "narration_id", "music_id", "music_volume", "narration_volume", "review",
     "episode", "caption_style", "effects", "aspect", "vertical_fit", "cta", "name_cards",
     "watermark", "stickers", "motion", "sound",
 )
@@ -228,7 +228,7 @@ SCENE_WORDS = {
 FIELD_WORDS = {
     "title": "Project title", "topic": "Topic", "target_minutes": "Target length", "script": "Script edit",
     "look": "Look", "captions": "Captions on/off", "narration_id": "Narration track", "music_id": "Music track",
-    "music_volume": "Music volume", "review": "Review checklist", "episode": "Episode setup",
+    "music_volume": "Music volume", "narration_volume": "Narration volume", "review": "Review checklist", "episode": "Episode setup",
     "caption_style": "Caption style", "effects": "Effects", "aspect": "Format", "vertical_fit": "Vertical fill",
     "name_cards": "Name cards", "watermark": "Watermark",
 }
@@ -366,6 +366,13 @@ def _sound_name(b, a):
         # in automatic mode a planned sound is stored only once you change it
         x = now[added[0]]
         return ("Remove sound effect" if x.get("status") == "removed" else "Edit sound effect"), None
+    if added and not removed and all(now[i].get("source") == "auto" and now[i].get("edited") for i in added):
+        # v0.4.57 several planned sounds changed at once ("every line in this graphic", "the whole
+        # graphic"): stored the first time they are changed, so they arrive as additions
+        n = len(added) + len(changed)
+        if all(now[i].get("status") == "removed" for i in added + changed):
+            return f"Remove {n} sound effects", None
+        return f"Edit {n} sound effects", None
     if added and len(added) > 1:
         return f"Plan {len(added)} sound effects", None
     if added:

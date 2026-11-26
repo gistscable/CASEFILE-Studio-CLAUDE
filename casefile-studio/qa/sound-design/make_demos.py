@@ -161,6 +161,26 @@ def measure(before, after, placed, stem=None):
         best = max(range(-L, L + 1, 4), key=lambda k: float(np.dot(diff[max(0, k):n + min(0, k)], ref[max(0, -k):n - max(0, k)])))
         best = max(range(best - 4, best + 5), key=lambda k: float(np.dot(diff[max(0, k):n + min(0, k)], ref[max(0, -k):n - max(0, k)])))
         lag_ms = round(best / sr * 1000, 3)
+    # v0.4.57 exact placement: every sound (and every typed key) found in the stem by
+    # cross-correlating its own waveform (the onset estimates above are read through AAC, whose
+    # pre-echo smears quiet onsets; the stem is what the export mixes, at 0.0 ms lag)
+    place = []
+    if stem is not None:
+        st = pcm(stem)
+        for p in placed:
+            for t, sid in ([(k[0], k[1]) for k in p["keys"]] if p["keys"] else [(p["t"], p["sound"])]):
+                info = sound.sfxlib.BY_ID.get(sid)
+                if not info:
+                    continue
+                w, sync = sound.sfxlib.synth(sid)
+                w = w[0][: int(0.25 * sr)]
+                start = int(round((t - sync) * sr))
+                L = int(0.02 * sr)
+                seg = st[max(0, start - L): start + L + len(w)]
+                if start - L < 0 or len(seg) < 2 * L + len(w):
+                    continue
+                c = np.correlate(seg, w, mode="valid")
+                place.append(abs(int(np.argmax(c)) - L) / sr * 1000)
     keys = [k for p in placed if p["keys"] for k in p["keys"]]
     kerr = []
     for t, _, _ in keys:
@@ -177,6 +197,7 @@ def measure(before, after, placed, stem=None):
                                  "median": round(float(np.median(kerr)), 1) if kerr else None,
                                  "p95": round(float(np.percentile(kerr, 95)), 1) if kerr else None},
         "export_vs_stem_lag_ms": lag_ms,
+        "exact_placement_error_ms": {"n": len(place), "max": round(max(place), 3) if place else None},
     }
 
 
@@ -376,7 +397,7 @@ def main(names):
             "silenced": info["silenced"], "warnings": ra["warnings"], "render_s": {"before": round(tb, 2), "after": round(ta, 2)},
             "plan_s": round(t_plan, 3), **m, "loudness_after": loudness(after), "loudness_before": loudness(before),
         }
-        print(name, json.dumps({k: report[name][k] for k in ("render_s", "transient_sync_error_ms", "typing_sync_error_ms", "export_vs_stem_lag_ms",
+        print(name, json.dumps({k: report[name][k] for k in ("render_s", "transient_sync_error_ms", "typing_sync_error_ms", "exact_placement_error_ms", "export_vs_stem_lag_ms",
                                                             "loudest_effect_vs_speech_db", "after_peak_dbfs")}))
         for r in placed:
             print(f"   {r['t']:6.2f}s {r['sound']:16s} {r['label']}" + (f" ({len(r['keys'])} keys)" if r["keys"] else ""))

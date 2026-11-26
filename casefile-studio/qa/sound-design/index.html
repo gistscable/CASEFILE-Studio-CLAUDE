@@ -1,0 +1,409 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Casefile sound design — v0.4.57 demos and library</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font:15px/1.5 Inter,system-ui,sans-serif;background:#111317;color:#e9e5dc;margin:0;padding:28px 36px;max-width:1500px}
+h1{font-size:26px;margin:0 0 4px} h2{margin-top:44px;border-bottom:1px solid #333;padding-bottom:6px} h3{margin:26px 0 6px;color:#d9b77a}
+a{color:#d9b77a} code{color:#cfc6b4} small{color:#9a968e}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px} figure{margin:0} figcaption{font-size:13px;color:#9a968e;margin-bottom:4px}
+video{width:100%;background:#000;border-radius:6px} .listen{color:#cfc6b4;margin:0 0 10px}
+.facts{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0;list-style:none;font-size:13px;color:#b8b2a6;margin:10px 0}
+details{font-size:13px;color:#b8b2a6} table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border-bottom:1px solid #26292f;padding:6px 8px;text-align:left;vertical-align:middle} audio{height:30px;width:230px}
+.same{color:#6f6b64} .note{background:#1a1d22;border-left:3px solid #d9b77a;padding:10px 14px;margin:14px 0}
+</style></head><body>
+<h1>Casefile sound design — v0.4.57</h1>
+<p>Rendered by the real exporter at 720p. Narration voices are AI-generated for these demos; the pictures are neutral plates (no case imagery is made up).
+Use headphones for the low sounds. <a href="demo-reel.mp4">All 7 demos in one video (before, then after)</a>.</p>
+<div class="note">Not a final approval: this page is for your review. The measurements say where each sound landed and how loud it is;
+only listening says whether it sounds right.</div>
+<h2>The seven demos</h2>
+
+<section class="demo" id="demo-1">
+  <h3>Demo 1 — Bullet reveals</h3>
+  <p class="listen">A whoosh as the graphic enters, a soft sweep on the divider, a click on the exact frame each line appears.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-1-bullet-reveals-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-1-bullet-reveals-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 5</li><li>exact placement in the mix: 0 ms max over 5</li><li>onset read through AAC: 2.4 ms max</li><li>loudest effect vs the speech: -10.7 dB</li><li>peak -3.06 dBFS, 0 samples at full scale</li><li>loudness -19.3 → -19.3 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>0.59 s — <code>whoosh-mid-2</code> Entrance — findings graphic at 0:00</li><li>1.40 s — <code>sweep-down-1</code> Divider — findings graphic at 0:00</li><li>1.67 s — <code>click-mech-2</code> Line 1 — findings graphic at 0:00</li><li>4.92 s — <code>click-mech-2</code> Line 2 — findings graphic at 0:00</li><li>8.67 s — <code>click-mech-2</code> Line 3 — findings graphic at 0:00</li></ul></details>
+</section>
+<section class="demo" id="demo-2">
+  <h3>Demo 2 — Typing</h3>
+  <p class="listen">A typewriter key on every typed character (6 different keys and a space bar, at slightly different strengths), never one loop.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-2-typing-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-2-typing-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 3 (84 typed keys)</li><li>exact placement in the mix: 0 ms max over 84</li><li>typed keys read through AAC: median 0.3 ms, p95 14.1 ms</li><li>loudest effect vs the speech: -14.4 dB</li><li>peak -4.79 dBFS, 0 samples at full scale</li><li>loudness -19.7 → -19.8 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>0.58 s — <code>type-strike-1</code> Typing — findings graphic at 0:00</li><li>1.71 s — <code>type-strike-1</code> Typing — findings graphic at 0:00</li><li>6.50 s — <code>type-strike-1</code> Typing — findings graphic at 0:00</li></ul></details>
+</section>
+<section class="demo" id="demo-3">
+  <h3>Demo 3 — Diagram</h3>
+  <p class="listen">A directional whoosh in, then a tick on each timeline marker as it is drawn.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-3-diagram-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-3-diagram-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 5</li><li>exact placement in the mix: 0 ms max over 5</li><li>onset read through AAC: 0.7 ms max</li><li>loudest effect vs the speech: -10.3 dB</li><li>peak -4.11 dBFS, 0 samples at full scale</li><li>loudness -19.5 → -19.4 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>0.59 s — <code>whoosh-dir-r</code> Entrance — timeline graphic at 0:00</li><li>1.40 s — <code>sweep-down-1</code> Divider — timeline graphic at 0:00</li><li>1.67 s — <code>tick-2</code> Diagram marker 1 — timeline graphic at 0:00</li><li>5.67 s — <code>tick-2</code> Diagram marker 2 — timeline graphic at 0:00</li><li>8.96 s — <code>tick-2</code> Diagram marker 3 — timeline graphic at 0:00</li></ul></details>
+</section>
+<section class="demo" id="demo-4">
+  <h3>Demo 4 — Transitions</h3>
+  <p class="listen">Each transition gets the sound its movement suggests: a right-to-left whoosh on the slide, a tonal sweep on the circle, a swell on the chapter change; the dissolve stays silent.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-4-transitions-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-4-transitions-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 3</li><li>exact placement in the mix: 0 ms max over 3</li><li>loudest effect vs the speech: -10.9 dB</li><li>peak -4.06 dBFS, 0 samples at full scale</li><li>loudness -19.6 → -19.6 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>2.88 s — <code>whoosh-dir-l</code> Transition into Scene 2</li><li>5.28 s — <code>sweep-up-1</code> Transition into Scene 3</li><li>7.46 s — <code>swell-3</code> Chapter: CHAPTER 4 — THE EVIDENCE</li></ul></details>
+</section>
+<section class="demo" id="demo-5">
+  <h3>Demo 5 — Narrative development</h3>
+  <p class="listen">One restrained low thump on the word that carries the finding (“matched”), nothing elsewhere.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-5-narrative-development-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-5-narrative-development-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 1</li><li>exact placement in the mix: 0 ms max over 1</li><li>onset read through AAC: 2.2 ms max</li><li>loudest effect vs the speech: -7.5 dB</li><li>peak -4.36 dBFS, 0 samples at full scale</li><li>loudness -19.5 → -19.4 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>7.22 s — <code>thump-deep-1</code> “The DNA on the receipt matched him.”</li></ul></details>
+</section>
+<section class="demo" id="demo-6">
+  <h3>Demo 6 — Subscribe animation</h3>
+  <p class="listen">Whoosh in, the click on SUBSCRIBE, the bell when it rings, a quieter whoosh out — on the animation&#x27;s own keyframes.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-6-cta-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-6-cta-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 4</li><li>exact placement in the mix: 0 ms max over 4</li><li>onset read through AAC: 1.6 ms max</li><li>loudest effect vs the speech: -18.6 dB</li><li>peak -4.63 dBFS, 0 samples at full scale</li><li>loudness -19.2 → -19.2 LUFS</li></ul>
+  <details><summary>Every sound placed</summary><ul><li>0.30 s — <code>whoosh-short-1</code> Subscribe — entrance</li><li>1.65 s — <code>cta-click-1</code> Subscribe — click</li><li>2.10 s — <code>bell-2</code> Subscribe — bell</li><li>4.60 s — <code>whoosh-short-1</code> Subscribe — exit</li></ul></details>
+</section>
+<section class="demo" id="demo-7">
+  <h3>Demo 7 — Interview: nothing added</h3>
+  <p class="listen">Original source audio is never touched: no sound goes in or near the soundbite. Before and after are identical.</p>
+  <div class="pair">
+    <figure><figcaption>Before (sound design off)</figcaption><video controls preload="metadata" src="demo-7-interview-suppression-before.mp4"></video></figure>
+    <figure><figcaption>After (sound design on)</figcaption><video controls preload="metadata" src="demo-7-interview-suppression-after.mp4"></video></figure>
+  </div>
+  <ul class="facts"><li>sounds placed: 0</li><li>exact placement in the mix: — max over 0</li><li>no effect added</li><li>peak -1.14 dBFS, 0 samples at full scale</li><li>loudness -17.4 → -17.4 LUFS</li></ul>
+  <details><summary>Every sound placed and every moment left silent</summary><ul><li>5.26 s — Transition into Interview: Silence: original source audio (a soundbite).</li><li>24.01 s — Transition into Back to the case: Silence: original source audio (a soundbite).</li><li>24.01 s — Photograph — Back to the case: Silence: original source audio (a soundbite).</li></ul></details>
+</section>
+<h2>The library: 78 sounds, 66 improved, 12 unchanged</h2>
+<p>Every sound is made on this computer (NumPy synthesis, no downloads). Same ids, categories and sync points as before; each improved
+sound keeps its loudness in the mix within 1.5 dB of v0.4.56 (the two lighter keystrokes are lighter on purpose).
+<b>peaks</b> = spectral peaks within 30 dB (richness; a bare sine has 1–2), <b>flatness</b> near the loudest moment (very low = a pure test tone),
+<b>tail cut</b> = a click where a layer stopped abruptly instead of dying away (v0.4.56: up to 111 dB on the thumps and impacts).</p>
+<h3>bass-impact</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>bass-hit-1</code><br><small>Subtle bass impact</small></td>
+<td><audio controls preload="none" src="library/v1/bass-hit-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bass-hit-1.mp3"></audio></td>
+<td><small>tail dies away (was cut), texture, warm harmonics</small></td>
+<td><small>peaks 2&rarr;7<br>flatness -90.9&rarr;-37.4 dB<br>
+tail cut 110.0&rarr;5.7 dB<br>RMS -21.9&rarr;-22.0 dB</small></td></tr><tr><td><code>bass-hit-2</code><br><small>Bass impact, soft</small></td>
+<td><audio controls preload="none" src="library/v1/bass-hit-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bass-hit-2.mp3"></audio></td>
+<td><small>tail dies away (was cut), texture, warm harmonics</small></td>
+<td><small>peaks 2&rarr;3<br>flatness -107.3&rarr;-69.6 dB<br>
+tail cut 111.0&rarr;5.7 dB<br>RMS -24.2&rarr;-24.7 dB</small></td></tr><tr><td><code>bass-hit-3</code><br><small>Bass impact, wide</small></td>
+<td><audio controls preload="none" src="library/v1/bass-hit-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bass-hit-3.mp3"></audio></td>
+<td><small>tail dies away (was cut), texture, warm harmonics</small></td>
+<td><small>peaks 4&rarr;7<br>flatness -67.0&rarr;-67.7 dB<br>
+tail cut 104.7&rarr;6.7 dB<br>RMS -22.3&rarr;-22.3 dB</small></td></tr></table><h3>bell</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>bell-1</code><br><small>Notification bell</small></td>
+<td><audio controls preload="none" src="library/v1/bell-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bell-1.mp3"></audio></td>
+<td><small>beating partial pairs, striker tap</small></td>
+<td><small>peaks 7&rarr;6<br>flatness -30.5&rarr;-47.0 dB<br>
+tail cut 10.4&rarr;6.5 dB<br>RMS -33.7&rarr;-35.0 dB</small></td></tr><tr><td><code>bell-2</code><br><small>Notification bell, double</small></td>
+<td><audio controls preload="none" src="library/v1/bell-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bell-2.mp3"></audio></td>
+<td><small>beating partial pairs, striker tap</small></td>
+<td><small>peaks 9&rarr;6<br>flatness -52.6&rarr;-61.2 dB<br>
+tail cut 4.0&rarr;7.8 dB<br>RMS -33.9&rarr;-34.9 dB</small></td></tr><tr><td><code>bell-3</code><br><small>Bell, small</small></td>
+<td><audio controls preload="none" src="library/v1/bell-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/bell-3.mp3"></audio></td>
+<td><small>beating partial pairs, striker tap</small></td>
+<td><small>peaks 10&rarr;11<br>flatness -26.0&rarr;-30.1 dB<br>
+tail cut 2.4&rarr;2.9 dB<br>RMS -36.7&rarr;-36.9 dB</small></td></tr></table><h3>click</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>click-mech-1</code><br><small>Mechanical click</small></td>
+<td><audio controls preload="none" src="library/v1/click-mech-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-mech-1.mp3"></audio></td>
+<td><small>switch modes, rattle, distinct press/release</small></td>
+<td><small>peaks 237&rarr;248<br>flatness -6.3&rarr;-6.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.2&rarr;-39.9 dB</small></td></tr><tr><td><code>click-mech-2</code><br><small>Mechanical click, tight</small></td>
+<td><audio controls preload="none" src="library/v1/click-mech-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-mech-2.mp3"></audio></td>
+<td><small>switch modes, rattle, distinct press/release</small></td>
+<td><small>peaks 208&rarr;274<br>flatness -6.6&rarr;-5.0 dB<br>
+tail cut —&rarr;— dB<br>RMS -41.0&rarr;-40.5 dB</small></td></tr><tr><td><code>click-mech-3</code><br><small>Mechanical click, heavy</small></td>
+<td><audio controls preload="none" src="library/v1/click-mech-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-mech-3.mp3"></audio></td>
+<td><small>switch modes, rattle, distinct press/release</small></td>
+<td><small>peaks 191&rarr;204<br>flatness -7.9&rarr;-7.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -37.6&rarr;-38.2 dB</small></td></tr></table><h3>click-muted</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>click-muted-1</code><br><small>Muted button click</small></td>
+<td><audio controls preload="none" src="library/v1/click-muted-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-muted-1.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 33&rarr;30<br>flatness -43.2&rarr;-36.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -36.0&rarr;-36.2 dB</small></td></tr><tr><td><code>click-muted-2</code><br><small>Muted click, soft</small></td>
+<td><audio controls preload="none" src="library/v1/click-muted-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-muted-2.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 41&rarr;38<br>flatness -33.7&rarr;-37.2 dB<br>
+tail cut —&rarr;— dB<br>RMS -38.7&rarr;-38.6 dB</small></td></tr><tr><td><code>click-muted-3</code><br><small>Muted click, felt</small></td>
+<td><audio controls preload="none" src="library/v1/click-muted-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/click-muted-3.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 29&rarr;30<br>flatness -42.8&rarr;-40.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.8&rarr;-36.0 dB</small></td></tr></table><h3>cta-click</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>cta-click-1</code><br><small>Subscribe button click</small></td>
+<td><audio controls preload="none" src="library/v1/cta-click-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/cta-click-1.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 150&rarr;122<br>flatness -14.8&rarr;-15.6 dB<br>
+tail cut —&rarr;— dB<br>RMS -38.2&rarr;-39.2 dB</small></td></tr><tr><td><code>cta-click-2</code><br><small>Button click, soft</small></td>
+<td><audio controls preload="none" src="library/v1/cta-click-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/cta-click-2.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 86&rarr;66<br>flatness -15.6&rarr;-13.1 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.9&rarr;-36.0 dB</small></td></tr><tr><td><code>cta-click-3</code><br><small>Button click, bright</small></td>
+<td><audio controls preload="none" src="library/v1/cta-click-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/cta-click-3.mp3"></audio></td>
+<td><small>switch modes, rattle</small></td>
+<td><small>peaks 212&rarr;158<br>flatness -11.3&rarr;-12.0 dB<br>
+tail cut —&rarr;— dB<br>RMS -41.8&rarr;-41.2 dB</small></td></tr></table><h3>document</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>doc-1</code><br><small>Document reveal</small></td>
+<td><audio controls preload="none" src="library/v1/doc-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/doc-1.mp3"></audio></td>
+<td><small>the landing thump's tail dies away</small></td>
+<td><small>peaks 136&rarr;136<br>flatness -25.1&rarr;-25.1 dB<br>
+tail cut 11.8&rarr;11.8 dB<br>RMS -36.3&rarr;-36.8 dB</small></td></tr><tr><td><code>doc-2</code><br><small>Document reveal, quick</small></td>
+<td><audio controls preload="none" src="library/v1/doc-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/doc-2.mp3"></audio></td>
+<td><small>the landing thump's tail dies away</small></td>
+<td><small>peaks 14&rarr;29<br>flatness -31.0&rarr;-26.4 dB<br>
+tail cut 11.0&rarr;-2.2 dB<br>RMS -35.9&rarr;-35.9 dB</small></td></tr><tr><td><code>doc-3</code><br><small>Document reveal, slow</small></td>
+<td><audio controls preload="none" src="library/v1/doc-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/doc-3.mp3"></audio></td>
+<td><small>the landing thump's tail dies away</small></td>
+<td><small>peaks 46&rarr;27<br>flatness -27.6&rarr;-26.6 dB<br>
+tail cut 4.0&rarr;-1.6 dB<br>RMS -33.4&rarr;-33.2 dB</small></td></tr></table><h3>keyboard</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>key-soft-1</code><br><small>Keyboard key 1</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-1.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 11&rarr;28<br>flatness -23.3&rarr;-21.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -40.1&rarr;-40.4 dB</small></td></tr><tr><td><code>key-soft-2</code><br><small>Keyboard key 2</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-2.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 5&rarr;33<br>flatness -25.7&rarr;-19.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -41.9&rarr;-41.7 dB</small></td></tr><tr><td><code>key-soft-3</code><br><small>Keyboard key 3</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-3.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 234&rarr;112<br>flatness -6.3&rarr;-8.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -41.5&rarr;-41.0 dB</small></td></tr><tr><td><code>key-soft-4</code><br><small>Keyboard key 4</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-4.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-4.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 3&rarr;7<br>flatness -24.9&rarr;-22.7 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.7&rarr;-40.0 dB</small></td></tr><tr><td><code>key-soft-5</code><br><small>Keyboard key 5</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-5.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-5.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 189&rarr;9<br>flatness -5.7&rarr;-27.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -40.9&rarr;-40.7 dB</small></td></tr><tr><td><code>key-soft-6</code><br><small>Keyboard key 6</small></td>
+<td><audio controls preload="none" src="library/v1/key-soft-6.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-soft-6.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 9&rarr;25<br>flatness -22.6&rarr;-19.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.5&rarr;-41.6 dB</small></td></tr><tr><td><code>key-space-1</code><br><small>Keyboard space bar</small></td>
+<td><audio controls preload="none" src="library/v1/key-space-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/key-space-1.mp3"></audio></td>
+<td><small>plate modes, rattle; 6 distinct keys</small></td>
+<td><small>peaks 6&rarr;5<br>flatness -30.0&rarr;-33.2 dB<br>
+tail cut —&rarr;— dB<br>RMS -37.8&rarr;-37.9 dB</small></td></tr></table><h3>notification</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>notify-1</code><br><small>Digital notification, two notes</small></td>
+<td><audio controls preload="none" src="library/v1/notify-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/notify-1.mp3"></audio></td>
+<td><small>FM glass attack, shimmer, mallet tap</small></td>
+<td><small>peaks 6&rarr;6<br>flatness -65.5&rarr;-65.3 dB<br>
+tail cut 12.3&rarr;3.3 dB<br>RMS -35.5&rarr;-35.3 dB</small></td></tr><tr><td><code>notify-2</code><br><small>Digital notification, single</small></td>
+<td><audio controls preload="none" src="library/v1/notify-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/notify-2.mp3"></audio></td>
+<td><small>FM glass attack, shimmer, mallet tap</small></td>
+<td><small>peaks 5&rarr;4<br>flatness -29.1&rarr;-64.8 dB<br>
+tail cut 1.1&rarr;3.7 dB<br>RMS -34.3&rarr;-34.0 dB</small></td></tr><tr><td><code>notify-3</code><br><small>Digital notification, low</small></td>
+<td><audio controls preload="none" src="library/v1/notify-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/notify-3.mp3"></audio></td>
+<td><small>FM glass attack, shimmer, mallet tap</small></td>
+<td><small>peaks 6&rarr;10<br>flatness -78.7&rarr;-60.4 dB<br>
+tail cut 1.0&rarr;8.6 dB<br>RMS -35.3&rarr;-34.0 dB</small></td></tr></table><h3>paper</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>paper-1</code><br><small>Paper movement</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/paper-1.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 303&rarr;303<br>flatness -7.1&rarr;-7.1 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.7&rarr;-39.7 dB</small></td></tr><tr><td><code>paper-2</code><br><small>Paper movement, crisp</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/paper-2.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 339&rarr;339<br>flatness -6.9&rarr;-6.9 dB<br>
+tail cut —&rarr;— dB<br>RMS -38.5&rarr;-38.5 dB</small></td></tr><tr><td><code>paper-3</code><br><small>Paper slide</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/paper-3.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 170&rarr;170<br>flatness -19.9&rarr;-19.9 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.5&rarr;-39.5 dB</small></td></tr></table><h3>pop</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>pop-soft-1</code><br><small>Soft pop, round</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/pop-soft-1.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 5&rarr;5<br>flatness -30.7&rarr;-30.7 dB<br>
+tail cut —&rarr;— dB<br>RMS -31.1&rarr;-31.1 dB</small></td></tr><tr><td><code>pop-soft-2</code><br><small>Soft pop, low</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/pop-soft-2.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 6&rarr;6<br>flatness -28.8&rarr;-28.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -28.9&rarr;-28.9 dB</small></td></tr><tr><td><code>pop-soft-3</code><br><small>Soft pop, bright</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/pop-soft-3.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 13&rarr;13<br>flatness -31.2&rarr;-31.2 dB<br>
+tail cut —&rarr;— dB<br>RMS -31.8&rarr;-31.8 dB</small></td></tr></table><h3>pulse</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>pulse-low-1</code><br><small>Low-frequency pulse</small></td>
+<td><audio controls preload="none" src="library/v1/pulse-low-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/pulse-low-1.mp3"></audio></td>
+<td><small>felt thud with pitch drop instead of a sine; lub-dub</small></td>
+<td><small>peaks 4&rarr;9<br>flatness -137.5&rarr;-39.0 dB<br>
+tail cut 19.7&rarr;6.1 dB<br>RMS -21.8&rarr;-21.7 dB</small></td></tr><tr><td><code>pulse-low-2</code><br><small>Low pulse, double</small></td>
+<td><audio controls preload="none" src="library/v1/pulse-low-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/pulse-low-2.mp3"></audio></td>
+<td><small>felt thud with pitch drop instead of a sine; lub-dub</small></td>
+<td><small>peaks 4&rarr;8<br>flatness -139.4&rarr;-95.0 dB<br>
+tail cut 89.8&rarr;6.1 dB<br>RMS -19.7&rarr;-19.7 dB</small></td></tr><tr><td><code>pulse-low-3</code><br><small>Low pulse, short</small></td>
+<td><audio controls preload="none" src="library/v1/pulse-low-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/pulse-low-3.mp3"></audio></td>
+<td><small>felt thud with pitch drop instead of a sine; lub-dub</small></td>
+<td><small>peaks 4&rarr;6<br>flatness -137.0&rarr;-48.7 dB<br>
+tail cut 41.9&rarr;4.5 dB<br>RMS -23.6&rarr;-23.7 dB</small></td></tr></table><h3>reverse-whoosh</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>rwhoosh-1</code><br><small>Reverse whoosh</small></td>
+<td><audio controls preload="none" src="library/v1/rwhoosh-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/rwhoosh-1.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 68&rarr;170<br>flatness -62.2&rarr;-17.5 dB<br>
+tail cut 5.0&rarr;1.7 dB<br>RMS -33.1&rarr;-33.5 dB</small></td></tr><tr><td><code>rwhoosh-2</code><br><small>Reverse whoosh, long</small></td>
+<td><audio controls preload="none" src="library/v1/rwhoosh-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/rwhoosh-2.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 49&rarr;122<br>flatness -82.4&rarr;-27.5 dB<br>
+tail cut 3.2&rarr;1.2 dB<br>RMS -34.6&rarr;-35.0 dB</small></td></tr><tr><td><code>rwhoosh-3</code><br><small>Reverse whoosh, short</small></td>
+<td><audio controls preload="none" src="library/v1/rwhoosh-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/rwhoosh-3.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 94&rarr;254<br>flatness -44.1&rarr;-11.0 dB<br>
+tail cut 3.0&rarr;2.5 dB<br>RMS -38.1&rarr;-38.5 dB</small></td></tr></table><h3>riser</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>riser-1</code><br><small>Cinematic riser, two seconds</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/riser-1.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 165&rarr;165<br>flatness -17.1&rarr;-17.1 dB<br>
+tail cut 2.5&rarr;2.5 dB<br>RMS -35.0&rarr;-35.0 dB</small></td></tr><tr><td><code>riser-2</code><br><small>Cinematic riser, three seconds</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/riser-2.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 117&rarr;117<br>flatness -22.8&rarr;-22.8 dB<br>
+tail cut 2.1&rarr;2.1 dB<br>RMS -35.3&rarr;-35.3 dB</small></td></tr><tr><td><code>riser-3</code><br><small>Riser, short</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/riser-3.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 244&rarr;244<br>flatness -12.5&rarr;-12.5 dB<br>
+tail cut 3.1&rarr;3.1 dB<br>RMS -36.4&rarr;-36.4 dB</small></td></tr></table><h3>scan</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>scan-1</code><br><small>Digital scan</small></td>
+<td><audio controls preload="none" src="library/v1/scan-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/scan-1.mp3"></audio></td>
+<td><small>soft grains instead of a hard square gate</small></td>
+<td><small>peaks 227&rarr;207<br>flatness -10.0&rarr;-12.1 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.8&rarr;-35.6 dB</small></td></tr><tr><td><code>scan-2</code><br><small>Digital scan, short</small></td>
+<td><audio controls preload="none" src="library/v1/scan-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/scan-2.mp3"></audio></td>
+<td><small>soft grains instead of a hard square gate</small></td>
+<td><small>peaks 256&rarr;241<br>flatness -9.8&rarr;-11.2 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.9&rarr;-35.8 dB</small></td></tr><tr><td><code>scan-3</code><br><small>Digital scan, long, low</small></td>
+<td><audio controls preload="none" src="library/v1/scan-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/scan-3.mp3"></audio></td>
+<td><small>soft grains instead of a hard square gate</small></td>
+<td><small>peaks 193&rarr;163<br>flatness -9.8&rarr;-12.0 dB<br>
+tail cut —&rarr;— dB<br>RMS -37.0&rarr;-36.8 dB</small></td></tr></table><h3>shutter</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>shutter-1</code><br><small>Camera shutter (manual use only)</small></td>
+<td><audio controls preload="none" src="library/v1/shutter-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/shutter-1.mp3"></audio></td>
+<td><small>two different shutters (were the same)</small></td>
+<td><small>peaks 301&rarr;314<br>flatness -5.3&rarr;-4.7 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.4&rarr;-38.2 dB</small></td></tr><tr><td><code>shutter-2</code><br><small>Camera shutter, soft (manual use only)</small></td>
+<td><audio controls preload="none" src="library/v1/shutter-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/shutter-2.mp3"></audio></td>
+<td><small>two different shutters (were the same)</small></td>
+<td><small>peaks 293&rarr;87<br>flatness -5.0&rarr;-22.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -39.3&rarr;-39.3 dB</small></td></tr></table><h3>swell</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>swell-1</code><br><small>Atmospheric swell, minor</small></td>
+<td><audio controls preload="none" src="library/v1/swell-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/swell-1.mp3"></audio></td>
+<td><small>detuned saw pad with an opening filter instead of sines</small></td>
+<td><small>peaks 16&rarr;38<br>flatness -38.7&rarr;-37.1 dB<br>
+tail cut 4.5&rarr;6.0 dB<br>RMS -31.2&rarr;-32.3 dB</small></td></tr><tr><td><code>swell-2</code><br><small>Atmospheric swell, low</small></td>
+<td><audio controls preload="none" src="library/v1/swell-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/swell-2.mp3"></audio></td>
+<td><small>detuned saw pad with an opening filter instead of sines</small></td>
+<td><small>peaks 5&rarr;17<br>flatness -49.5&rarr;-47.7 dB<br>
+tail cut 5.3&rarr;6.5 dB<br>RMS -32.3&rarr;-32.2 dB</small></td></tr><tr><td><code>swell-3</code><br><small>Atmospheric swell, open</small></td>
+<td><audio controls preload="none" src="library/v1/swell-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/swell-3.mp3"></audio></td>
+<td><small>detuned saw pad with an opening filter instead of sines</small></td>
+<td><small>peaks 33&rarr;39<br>flatness -32.2&rarr;-33.8 dB<br>
+tail cut 4.7&rarr;5.5 dB<br>RMS -31.4&rarr;-31.5 dB</small></td></tr></table><h3>thump</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>thump-deep-1</code><br><small>Deep cinematic thump</small></td>
+<td><audio controls preload="none" src="library/v1/thump-deep-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/thump-deep-1.mp3"></audio></td>
+<td><small>tail dies away (was cut), skin and beater, warm harmonics</small></td>
+<td><small>peaks 3&rarr;8<br>flatness -74.0&rarr;-57.0 dB<br>
+tail cut 100.7&rarr;4.2 dB<br>RMS -21.4&rarr;-22.8 dB</small></td></tr><tr><td><code>thump-deep-2</code><br><small>Deep thump, short</small></td>
+<td><audio controls preload="none" src="library/v1/thump-deep-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/thump-deep-2.mp3"></audio></td>
+<td><small>tail dies away (was cut), skin and beater, warm harmonics</small></td>
+<td><small>peaks 5&rarr;6<br>flatness -57.7&rarr;-65.5 dB<br>
+tail cut 88.6&rarr;3.8 dB<br>RMS -23.2&rarr;-24.7 dB</small></td></tr><tr><td><code>thump-deep-3</code><br><small>Deep thump, round</small></td>
+<td><audio controls preload="none" src="library/v1/thump-deep-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/thump-deep-3.mp3"></audio></td>
+<td><small>tail dies away (was cut), skin and beater, warm harmonics</small></td>
+<td><small>peaks 4&rarr;6<br>flatness -75.1&rarr;-58.9 dB<br>
+tail cut 105.9&rarr;5.5 dB<br>RMS -20.0&rarr;-20.0 dB</small></td></tr></table><h3>tick</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>tick-1</code><br><small>Soft tick</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/tick-1.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 55&rarr;55<br>flatness -20.5&rarr;-20.5 dB<br>
+tail cut —&rarr;— dB<br>RMS -42.3&rarr;-42.3 dB</small></td></tr><tr><td><code>tick-2</code><br><small>Soft tick, low</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/tick-2.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 94&rarr;94<br>flatness -19.7&rarr;-19.7 dB<br>
+tail cut —&rarr;— dB<br>RMS -42.5&rarr;-42.5 dB</small></td></tr><tr><td><code>tick-seq-1</code><br><small>Ticking, four seconds</small></td>
+<td><span class="same">unchanged</span></td><td><audio controls preload="none" src="library/v2/tick-seq-1.mp3"></audio></td>
+<td><small></small></td>
+<td><small>peaks 68&rarr;68<br>flatness -12.4&rarr;-12.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -53.0&rarr;-53.0 dB</small></td></tr></table><h3>tonal-sweep</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>sweep-up-1</code><br><small>Tonal sweep, up</small></td>
+<td><audio controls preload="none" src="library/v1/sweep-up-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/sweep-up-1.mp3"></audio></td>
+<td><small>breathy tone with vibrato instead of pure glides</small></td>
+<td><small>peaks 10&rarr;15<br>flatness -90.4&rarr;-67.4 dB<br>
+tail cut 5.1&rarr;4.0 dB<br>RMS -33.7&rarr;-34.5 dB</small></td></tr><tr><td><code>sweep-up-2</code><br><small>Tonal sweep, up, short</small></td>
+<td><audio controls preload="none" src="library/v1/sweep-up-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/sweep-up-2.mp3"></audio></td>
+<td><small>breathy tone with vibrato instead of pure glides</small></td>
+<td><small>peaks 24&rarr;30<br>flatness -69.2&rarr;-53.4 dB<br>
+tail cut 5.1&rarr;3.1 dB<br>RMS -34.9&rarr;-35.7 dB</small></td></tr><tr><td><code>sweep-down-1</code><br><small>Tonal sweep, down</small></td>
+<td><audio controls preload="none" src="library/v1/sweep-down-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/sweep-down-1.mp3"></audio></td>
+<td><small>breathy tone with vibrato instead of pure glides</small></td>
+<td><small>peaks 6&rarr;10<br>flatness -95.6&rarr;-67.3 dB<br>
+tail cut 3.4&rarr;4.3 dB<br>RMS -33.8&rarr;-34.0 dB</small></td></tr></table><h3>transition-impact</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>impact-tr-1</code><br><small>Transition impact</small></td>
+<td><audio controls preload="none" src="library/v1/impact-tr-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/impact-tr-1.mp3"></audio></td>
+<td><small>whole crack tail (was cut at 0.25 s), low-mid boom</small></td>
+<td><small>peaks 5&rarr;10<br>flatness -48.2&rarr;-33.2 dB<br>
+tail cut 99.9&rarr;3.2 dB<br>RMS -21.7&rarr;-21.6 dB</small></td></tr><tr><td><code>impact-tr-2</code><br><small>Transition impact, light</small></td>
+<td><audio controls preload="none" src="library/v1/impact-tr-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/impact-tr-2.mp3"></audio></td>
+<td><small>whole crack tail (was cut at 0.25 s), low-mid boom</small></td>
+<td><small>peaks 5&rarr;4<br>flatness -32.6&rarr;-49.7 dB<br>
+tail cut 101.4&rarr;2.9 dB<br>RMS -23.8&rarr;-24.0 dB</small></td></tr><tr><td><code>impact-tr-3</code><br><small>Transition impact, heavy</small></td>
+<td><audio controls preload="none" src="library/v1/impact-tr-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/impact-tr-3.mp3"></audio></td>
+<td><small>whole crack tail (was cut at 0.25 s), low-mid boom</small></td>
+<td><small>peaks 4&rarr;10<br>flatness -53.9&rarr;-38.1 dB<br>
+tail cut 95.5&rarr;2.6 dB<br>RMS -20.8&rarr;-20.8 dB</small></td></tr></table><h3>typewriter</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>type-strike-1</code><br><small>Typewriter key 1</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-1.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 6&rarr;10<br>flatness -29.5&rarr;-19.3 dB<br>
+tail cut —&rarr;— dB<br>RMS -34.6&rarr;-36.1 dB</small></td></tr><tr><td><code>type-strike-2</code><br><small>Typewriter key 2</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-2.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 8&rarr;13<br>flatness -27.8&rarr;-20.7 dB<br>
+tail cut —&rarr;— dB<br>RMS -37.7&rarr;-38.1 dB</small></td></tr><tr><td><code>type-strike-3</code><br><small>Typewriter key 3</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-3.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-3.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 7&rarr;14<br>flatness -26.9&rarr;-20.4 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.0&rarr;-35.4 dB</small></td></tr><tr><td><code>type-strike-4</code><br><small>Typewriter key 4</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-4.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-4.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 5&rarr;12<br>flatness -27.0&rarr;-18.6 dB<br>
+tail cut —&rarr;— dB<br>RMS -36.7&rarr;-36.1 dB</small></td></tr><tr><td><code>type-strike-5</code><br><small>Typewriter key 5</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-5.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-5.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 7&rarr;9<br>flatness -26.6&rarr;-21.2 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.7&rarr;-37.1 dB</small></td></tr><tr><td><code>type-strike-6</code><br><small>Typewriter key 6</small></td>
+<td><audio controls preload="none" src="library/v1/type-strike-6.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-strike-6.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 7&rarr;14<br>flatness -29.2&rarr;-18.8 dB<br>
+tail cut —&rarr;— dB<br>RMS -35.9&rarr;-38.3 dB</small></td></tr><tr><td><code>type-space-1</code><br><small>Typewriter space bar</small></td>
+<td><audio controls preload="none" src="library/v1/type-space-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/type-space-1.mp3"></audio></td>
+<td><small>finger contact, mechanism rattle, carriage step; 6 distinct keys</small></td>
+<td><small>peaks 6&rarr;10<br>flatness -29.6&rarr;-34.3 dB<br>
+tail cut —&rarr;— dB<br>RMS -33.3&rarr;-33.3 dB</small></td></tr></table><h3>whoosh</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr><tr><td><code>whoosh-short-1</code><br><small>Whoosh, short</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-short-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-short-1.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 61&rarr;153<br>flatness -67.0&rarr;-20.1 dB<br>
+tail cut 2.4&rarr;1.6 dB<br>RMS -35.8&rarr;-35.8 dB</small></td></tr><tr><td><code>whoosh-short-2</code><br><small>Whoosh, short, airy</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-short-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-short-2.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 98&rarr;208<br>flatness -37.7&rarr;-13.2 dB<br>
+tail cut 2.7&rarr;3.8 dB<br>RMS -39.7&rarr;-39.7 dB</small></td></tr><tr><td><code>whoosh-mid-1</code><br><small>Whoosh, medium</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-mid-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-mid-1.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 45&rarr;90<br>flatness -96.9&rarr;-34.7 dB<br>
+tail cut 5.2&rarr;2.3 dB<br>RMS -33.6&rarr;-33.6 dB</small></td></tr><tr><td><code>whoosh-mid-2</code><br><small>Whoosh, medium, dark</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-mid-2.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-mid-2.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 32&rarr;69<br>flatness -111.8&rarr;-47.1 dB<br>
+tail cut 5.7&rarr;3.3 dB<br>RMS -31.8&rarr;-31.5 dB</small></td></tr><tr><td><code>whoosh-long-1</code><br><small>Whoosh, long</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-long-1.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-long-1.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 28&rarr;62<br>flatness -112.7&rarr;-53.1 dB<br>
+tail cut 3.3&rarr;3.5 dB<br>RMS -32.1&rarr;-31.8 dB</small></td></tr><tr><td><code>whoosh-dir-r</code><br><small>Whoosh, left to right</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-dir-r.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-dir-r.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 44&rarr;114<br>flatness -91.3&rarr;-31.8 dB<br>
+tail cut 4.4&rarr;2.1 dB<br>RMS -33.1&rarr;-33.5 dB</small></td></tr><tr><td><code>whoosh-dir-l</code><br><small>Whoosh, right to left</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-dir-l.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-dir-l.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 41&rarr;97<br>flatness -92.6&rarr;-32.1 dB<br>
+tail cut 2.4&rarr;1.8 dB<br>RMS -32.4&rarr;-33.0 dB</small></td></tr><tr><td><code>whoosh-dir-up</code><br><small>Whoosh, rising</small></td>
+<td><audio controls preload="none" src="library/v1/whoosh-dir-up.mp3"></audio></td><td><audio controls preload="none" src="library/v2/whoosh-dir-up.mp3"></audio></td>
+<td><small>broad moving air instead of a whistling band</small></td>
+<td><small>peaks 51&rarr;107<br>flatness -77.3&rarr;-33.1 dB<br>
+tail cut 3.1&rarr;3.3 dB<br>RMS -33.3&rarr;-34.3 dB</small></td></tr></table>
+</body></html>

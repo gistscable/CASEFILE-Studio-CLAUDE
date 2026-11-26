@@ -1,6 +1,6 @@
 import React from "react";
 import { Play, Sparkles, Trash2, RotateCcw, Shuffle, Volume2, VolumeX, Headphones, Plus, Upload, Undo2 } from "lucide-react";
-import { SFX, PRESETS, KIND_LABEL, normaliseSound, withPreset, editItem } from "./sound.js";
+import { SFX, PRESETS, KIND_LABEL, normaliseSound, withPreset, editItem, editItems, scopeItems, graphicOf } from "./sound.js";
 import { Step, clock } from "./Effects.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
@@ -12,7 +12,8 @@ const FRAME = 1 / SFX.fps;
 // every sound says why it is there, and the moments left silent say why too. Editing one sound
 // changes only that sound.
 export default function SoundPanel({ project, plan, planError, time, playing, selectedId, onSelect, onChange, onGenerate, onSeek, onPlayFrom,
-                                     preview, mute, solo, onMute, onSolo, onUploadSound, disabled }) {
+                                     preview, mute, solo, onMute, onSolo, onUploadSound, disabled,
+                                     duckStatus = "none", narrationVolume = 1, onNarrationVolume = () => {}, onSelectMany = () => {} }) {
   const s = normaliseSound(project.sound);
   const [catalog, setCatalog] = React.useState(null);
   const [browse, setBrowse] = React.useState(false);
@@ -73,6 +74,28 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
   const stored = (it) => s.items.find((x) => x.id === it.id);
   const resetToPlan = (it) => onChange({ ...s, items: s.items.filter((x) => x.id !== it.id) });
 
+  // v0.4.57 One change for a whole motion graphic (or every line / marker of it): "Apply to"
+  const [scope, setScope] = React.useState("this");
+  const g = sel ? graphicOf(sel) : null;
+  React.useEffect(() => { setScope("this"); }, [selectedId]);
+  const targets = sel ? scopeItems(items, sel, g ? scope : "this").filter((x) => !x.gone || x.id === sel.id) : [];
+  const targetKey = targets.length > 1 ? targets.map((x) => x.id).join(",") : "";
+  React.useEffect(() => { onSelectMany(targetKey ? targetKey.split(",") : []); }, [targetKey]); // ids, not arrays: no re-render loop
+  React.useEffect(() => () => onSelectMany([]), []);
+  const clampGain = (v) => Math.max(SFX.limits.gain[0], Math.min(SFX.limits.gain[1], Math.round(v * 2) / 2));
+  const clampOffset = (v) => Math.max(SFX.limits.offset[0], Math.min(SFX.limits.offset[1], Math.round(v * 10000) / 10000));
+  /** Apply `patch` (object or item -> object) to every sound in the scope, as one change. */
+  const editScope = (patch, only = targets) => {
+    if (only.length <= 1) return edit(sel, typeof patch === "function" ? patch(sel) : patch);
+    onChange(editItems(s, only, patch));
+  };
+  // a new sound is for the same kind of moment: typed keys keep key sounds unless a typed sound is chosen
+  const soundTargets = targets.filter((x) => (sel?.kind === "typing") === (x.kind === "typing"));
+  const roleName = { line: "line", marker: "marker", tag: "step", connector: "connecting line", heading: "heading", title: "title",
+                     divider: "divider", background: "entrance", exit: "exit", verdict: "outcome", date: "date", label: "label" };
+  const roleCount = sel && g ? scopeItems(items, sel, "role").length : 0;
+  const graphicCount = sel && g ? scopeItems(items, sel, "graphic").length : 0;
+
   return (
     <div className="inspector-content cs sfx">
       <div className="section-label">
@@ -116,6 +139,8 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
           {error && <p className="micro-note block mg-error">{error}</p>}
 
           <div className="section-label sub"><span>MIX</span></div>
+          <Step label="Narration level" value={narrationVolume} display={pct(narrationVolume)} step={0.05} min={0} max={2} disabled={disabled}
+            onChange={(v) => onNarrationVolume(Math.round(v * 100) / 100)} />
           <Step label="Effects volume" value={s.master} display={pct(s.master)} step={0.05} min={SFX.limits.master[0]} max={SFX.limits.master[1]} disabled={disabled}
             onChange={(v) => save({ master: v })} />
           <Step label="Intensity" value={s.intensity} display={pct(s.intensity)} step={0.05} min={0} max={1} disabled={disabled}
@@ -128,6 +153,13 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             <input type="checkbox" checked={s.duck} disabled={disabled} onChange={(e) => save({ duck: e.target.checked })} />
             Dialogue protection (effects dip under the voice)
           </label>
+          {s.duck && (
+            <p className="micro-note sfx-duck-note">
+              {duckStatus === "ready" ? "The preview dips the effects exactly as the export will (same compressor, same voice)."
+                : duckStatus === "working" ? "Preparing the preview's dialogue protection from your narration…"
+                : "No narration yet: nothing to dip under."}
+            </p>
+          )}
           <label className="cs-check">
             <input type="checkbox" checked={s.variation} disabled={disabled} onChange={(e) => save({ variation: e.target.checked })} />
             Prevent repetition (rotate variations)
@@ -177,6 +209,27 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
                 <small>{sel.t != null ? clock(sel.t) : "not placed"}</small>
               </div>
               {sel.reason && <p className="micro-note block">Why: {sel.reason}.</p>}
+              {g && graphicCount > 1 && (
+                <div className="sfx-scope">
+                  <label className="field mg-field">
+                    Apply changes to
+                    <select aria-label="Apply changes to" value={scope} disabled={disabled} onChange={(e) => setScope(e.target.value)}>
+                      <option value="this">This sound only</option>
+                      {roleCount > 1 && <option value="role">Every {roleName[g.role] || g.role} in this graphic ({roleCount})</option>}
+                      <option value="graphic">The whole graphic ({graphicCount} sounds)</option>
+                    </select>
+                  </label>
+                  {scope === "this" && (
+                    <button className="text-link" disabled={disabled} onClick={() => setScope("graphic")}>Select all in this graphic</button>
+                  )}
+                  {scope !== "this" && (
+                    <p className="micro-note">
+                      {targets.length} sounds selected (highlighted on the Sound FX lane). A sound you choose goes to {soundTargets.length === targets.length ? "all of them" : `the ${soundTargets.length} ${sel.kind === "typing" ? "typed" : "non-typed"} ones (typing keeps its keys)`};
+                      volume and move change each by the same amount; fades are set on all.
+                    </p>
+                  )}
+                </div>
+              )}
               {sel.gone && <p className="micro-note block mg-warn">Left out of the export: {sel.gone}.</p>}
               <div className="st-actions">
                 <button className="btn" onClick={() => preview.audition(project.id, sel.sound, Math.pow(10, (sel.level ?? sel.gain) / 20), sel)}>
@@ -185,26 +238,26 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
                 <button className="btn" disabled={sel.t == null} onClick={() => onPlayFrom(Math.max(0, sel.t - 2))}>
                   <Play size={12} /> In context
                 </button>
-                <button className="btn" disabled={disabled || !variation(sel)} title="Another variation of the same kind of sound" onClick={() => edit(sel, { sound: variation(sel) })}>
+                <button className="btn" disabled={disabled || !variation(sel)} title="Another variation of the same kind of sound" onClick={() => editScope({ sound: variation(sel) }, soundTargets)}>
                   <Shuffle size={12} /> Another
                 </button>
                 {sel.status === "removed" ? (
-                  <button className="btn" disabled={disabled} onClick={() => edit(sel, { status: "approved" })}><Undo2 size={12} /> Restore</button>
+                  <button className="btn" disabled={disabled} onClick={() => editScope({ status: "approved" })}><Undo2 size={12} /> Restore</button>
                 ) : sel.status === "suggested" ? (
                   <button className="btn primary" disabled={disabled} onClick={() => edit(sel, { status: "approved" })}>Keep</button>
                 ) : null}
                 {sel.status !== "removed" && (
-                  <button className="btn danger" disabled={disabled} onClick={() => (sel.source === "manual" ? onChange({ ...s, items: s.items.filter((x) => x.id !== sel.id) }) : edit(sel, { status: "removed" }))}>
-                    <Trash2 size={12} /> Remove
+                  <button className="btn danger" disabled={disabled} onClick={() => (sel.source === "manual" ? onChange({ ...s, items: s.items.filter((x) => x.id !== sel.id) }) : editScope({ status: "removed" }))}>
+                    <Trash2 size={12} /> {targets.length > 1 ? `Remove ${targets.length}` : "Remove"}
                   </button>
                 )}
                 {sel.source === "auto" && stored(sel) && (
-                  <button className="btn" disabled={disabled} title="Back to what the plan chose" onClick={() => resetToPlan(sel)}><RotateCcw size={12} /> Reset</button>
+                  <button className="btn" disabled={disabled} title="Back to what the plan chose" onClick={() => (targets.length > 1 ? onChange({ ...s, items: s.items.filter((x) => !targets.some((t) => t.id === x.id)) }) : resetToPlan(sel))}><RotateCcw size={12} /> Reset</button>
                 )}
               </div>
               <label className="field mg-field">
                 Sound
-                <select aria-label="Sound" value={sel.sound} disabled={disabled} onChange={(e) => edit(sel, { sound: e.target.value })}>
+                <select aria-label="Sound" value={sel.sound} disabled={disabled} onChange={(e) => editScope({ sound: e.target.value }, soundTargets)}>
                   {mine.length > 0 && (
                     <optgroup label="Your sounds">
                       {mine.map((a) => <option key={a.id} value={`a:${a.id}`}>{a.name}</option>)}
@@ -219,13 +272,13 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
                 </select>
               </label>
               <Step label="Volume" value={sel.gain} display={db(sel.gain)} step={1} min={SFX.limits.gain[0]} max={SFX.limits.gain[1]} disabled={disabled}
-                onChange={(v) => edit(sel, { gain: v })} />
+                onChange={(v) => editScope((it) => ({ gain: it.id === sel.id ? v : clampGain((it.gain || 0) + (v - (sel.gain || 0))) }))} />
               <Step label="Move" value={sel.offset || 0} display={`${(sel.offset || 0) >= 0 ? "+" : ""}${((sel.offset || 0) * SFX.fps).toFixed(1)} fr`} step={FRAME} min={SFX.limits.offset[0]} max={SFX.limits.offset[1]} disabled={disabled}
-                onChange={(v) => edit(sel, { offset: Math.round(v * 10000) / 10000 })} />
+                onChange={(v) => editScope((it) => ({ offset: clampOffset(it.id === sel.id ? v : (it.offset || 0) + (v - (sel.offset || 0))) }))} />
               <Step label="Fade in" value={sel.fade_in || 0} display={`${(sel.fade_in || 0).toFixed(2)} s`} step={0.05} min={0} max={SFX.limits.fade[1]} disabled={disabled}
-                onChange={(v) => edit(sel, { fade_in: v })} />
+                onChange={(v) => editScope({ fade_in: v })} />
               <Step label="Fade out" value={sel.fade_out || 0} display={`${(sel.fade_out || 0).toFixed(2)} s`} step={0.05} min={0} max={SFX.limits.fade[1]} disabled={disabled}
-                onChange={(v) => edit(sel, { fade_out: v })} />
+                onChange={(v) => editScope({ fade_out: v })} />
               <p className="micro-note">Drag it on the Sound FX lane of the timeline to move it; it stays tied to {sel.anchor.startsWith("mg:") ? "its graphic" : sel.anchor.startsWith("tr:") ? "its transition" : sel.anchor.startsWith("cta:") ? "the subscribe animation" : "its scene"} when you edit.</p>
             </div>
           )}

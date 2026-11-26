@@ -1014,3 +1014,46 @@ Remotion/Node/cloud; never change narration, soundbites or the timeline. Full wr
 `SENSITIVE_PICTURE` is broad (protects e.g. "vehicle registered to … mother"), the first plan after a
 server start lays out every approved graphic (~0.65 s each). Tuning ideas: narrower picture rule, fewer
 document/photo sounds by default.
+
+## v0.4.57 — sound design corrections (narration level, select several, preview ducking, context, library v2)
+
+**Request:** narration volume control; "select all" on a motion graphic so one sound applies to the whole
+part; and before final approval of v0.4.56: preview/export ducking parity, contextual (not keyword)
+decisions, a quality review of all 78 sounds (improve, don't add), playable demos, sync verified through
+edits, no new dependencies, targeted fixes only. **Not finally approved yet** — the user reviews the demos
+first (`casefile-studio/qa/sound-design/index.html`). Write-up: `SOUND-DESIGN.md` ("v0.4.57 corrections").
+
+**What changed**
+* `renderer.py`: `voice_graph()` (the voice bus, factored out unchanged so the duck curve uses the exact
+  same filters) and `narration_volume` (0–2, after loudnorm). `app.py`: PATCH/validation, render option,
+  `GET /api/projects/{id}/sound/duck`. `history.py`: field + "Edit N sound effects" for bulk edits.
+* `sound.py`: `context()` scores sentences and pictures (sentence evidence by whose family / charge vs
+  violence / case record, neighbours in the same chapter, chapter kind, story role, picture bucket, title,
+  what is said over it); `protected`/`events` use it; `_evidence` is lru-cached. Duck curve: `_duck_job` /
+  `duck_curve` (sidechaincompress on aevalsrc=1 keyed by the voice bus → uint8 at 200/s, cached under
+  `cache/sfx/duck/`); one FFmpeg job per project (`_DUCK_LATEST`/`_DUCK_PROC`, obsolete jobs killed, nice 10).
+* `sfxlib.py`: LIB_VERSION 2 (`cache/sfx/lib-2/`), SEED_VERSION 1 (unchanged recipes are bit-identical);
+  66 sounds rebuilt with new helpers (`_room`, `_tail`, `_partials`, `_saw`…), 12 unchanged, levels
+  compensated (RMS within 1.5 dB of v1 except type-strike-6/key-soft-6, lighter on purpose).
+* UI: `SoundPanel.jsx` "Apply changes to" (this / every line / whole graphic; `scopeItems`/`editItems` in
+  `sound.js`), lane highlight (`onSelectMany`, keyed by ids), duck note; `main.jsx` duck effect (polls
+  `/sound/duck`, keeps the previous curve while working), narration slider (Audio tab + Sound → Mix).
+* QA: `library_audit.py`, `make_page.py` (index.html, demo-reel.mp4, library/v1|v2 MP3s,
+  library-audit.json), `make_demos.py` adds `exact_placement_error_ms`.
+
+**Verified**
+* Duck curve vs export gain: median 0.02 dB, p95 1.0, max 2.3 dB (nv 1.0); max 0.48 dB (nv 0.4).
+* gg context diff: planned 36→37, silenced 119→99 (pictures 21→59, text 98→40); suspect's-mother lines no
+  longer silenced; grief/violence lines still are.
+* Demos re-rendered with v2: exact placement 0.0 ms for all 102 sounds/keys, export vs stem 0.0 ms, no full
+  scale; AAC onset p95 14.1 ms on typing is a pre-echo measurement artifact.
+* Benchmark v0.4.56 vs v0.4.57 same sandbox: plan 0.089→0.095 s, one edit 0.250→0.272 s, stem 2.76→2.83 s;
+  everyday peak 84→90 MB. All-78 library build 3.5→7.1 s (lazy per sound, once). Duck curve 18 min ≈ 65 s
+  in background (loudnorm ≈ 50 s of it).
+* Browser (headless Chromium): Sound tab, scope options (3 lines / whole graphic 5), bulk replace saved to
+  all 3 lines, narration slider saved 1.4, duck note, no page errors.
+* Tests: `test_sound.py` 24, `sound.test.mjs` 10; full suite 626 passed, 1 skipped; JS 42.
+  `test_audio_continuity` source check now reads `render` + `voice_graph`.
+
+**Limits:** still rule-based; on long timelines the preview's ducking lags an edit by ~1 min; key
+variations remain fairly similar (0.93–0.96) — variety comes from the cycle and strengths.

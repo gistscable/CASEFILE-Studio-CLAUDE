@@ -25,7 +25,8 @@ from pathlib import Path
 import numpy as np
 
 SR = 48000
-LIB_VERSION = 1  # bump when a recipe changes: the files are made again
+LIB_VERSION = 2  # bump when a recipe changes: the files are made again (v0.4.57: 2)
+SEED_VERSION = 1  # the random seeds: unchanged recipes make exactly the same sound as before
 _LOCK = threading.Lock()
 
 
@@ -167,25 +168,63 @@ def _sat(x, drive=1.5):
     return np.tanh(x * drive) / np.tanh(drive)
 
 
+def _warm(x, drive=1.5, even=0.2):
+    """Saturation with a little even-harmonic colour (asymmetric), DC removed: weight, not distortion."""
+    return _band(_sat(x + even * x * x, drive), lo=24)
+
+
+def _tail(n, last):
+    """1 -> 0 over the final `last` seconds (squared cosine): no layer stops abruptly."""
+    k = min(n, _n(last))
+    w = np.ones(n)
+    w[n - k:] = np.cos(np.linspace(0, np.pi / 2, k)) ** 2
+    return w
+
+
+def _bursts(n, rng, at, lo, hi, amp, decay=0.0008):
+    """Small mechanical after-ticks (rattle) at the given times (seconds): [(t, level)]."""
+    y = np.zeros(n)
+    for t0, a in at:
+        s = _n(t0)
+        if s >= n - 8:
+            continue
+        k = min(n - s, _n(0.012))
+        y[s:s + k] += a * amp * _band(rng.standard_normal(k), lo=lo, hi=hi) * _env(k, 0.0001, decay)
+    return y
+
+
+def _saw(f, t, ph, top):
+    """A band-limited sawtooth (harmonics 1/k up to `top` Hz)."""
+    y = np.zeros_like(t)
+    for k in range(1, max(1, int(top / f)) + 1):
+        y += np.sin(2 * np.pi * f * k * t + ph * k) / k
+    return y
+
+
 # ====================================================================== the recipes
 
 def click(rng, tone=2600, body=180, dark=False, release=0.035, level=1.0):
-    n = _n(0.09 + release)
+    """v2: a switch, not a blip: a sharp contact, the plastic and spring ringing (inharmonic modes,
+    the high ones dying first), a small body thock and a little rattle; the release is lighter and higher."""
+    n = _n(0.1 + release)
     y = np.zeros(n)
 
-    def tick(at, amp, f):
-        k = _n(0.012)
-        burst = _band(rng.standard_normal(k), lo=f * 0.5, hi=f * (1.0 if dark else 2.4)) * _env(k, 0.0003, 0.0022)
-        ring = _partials([f, f * 1.47], [0.006, 0.004], [0.5, 0.25], k, rng)
-        thock = _partials([body], [0.012], [0.6], k)
+    def layer(at, amp, f, bright):
+        k = _n(0.03)
+        burst = _band(rng.standard_normal(k), lo=f * 0.4, hi=f * (1.0 if dark else 2.6)) * _env(k, 0.0002, 0.0012 + 0.0009 * bright)
+        ratios = np.array([1.0, 1.52, 2.31, 2.97, 3.84]) * (1 + rng.uniform(-0.04, 0.04, 5))
+        modes = _partials(f * ratios, [0.007, 0.005, 0.0035, 0.0025, 0.0018], [0.5, 0.35, 0.22, 0.14, 0.08], k, rng)
+        thock = _partials([body, body * 2.03], [0.014, 0.006], [0.6, 0.15], k) * _env(k, 0.0006, 0.02)
+        s0 = burst + 0.4 * modes * _env(k, 0.0002, 0.01) + 0.55 * thock
+        s0 += _bursts(k, rng, [(rng.uniform(0.0012, 0.0022), 0.22), (rng.uniform(0.003, 0.0045), 0.1)], f, f * 3, 1.0)
         s = _n(at)
-        y[s:s + k] += amp * (burst + 0.35 * ring + 0.5 * thock)[: n - s]
+        y[s:s + k] += amp * s0[: n - s]
 
-    tick(0.004, 1.0, tone)
-    tick(0.004 + release, 0.45, tone * 1.12)
+    layer(0.004, 1.0, tone, 1.0)
+    layer(0.004 + release, 0.42, tone * rng.uniform(1.08, 1.18), 0.6)
     if dark:
         y = _band(y, hi=1500)
-    return _room(y * level, rng, rt=0.25, wet=0.08)
+    return _room(y * level, rng, rt=0.22, wet=0.07)
 
 
 def pop(rng, f0=950, f1=260, decay=0.05):
@@ -195,33 +234,53 @@ def pop(rng, f0=950, f1=260, decay=0.05):
     return _room(body + air, rng, rt=0.3, wet=0.1)
 
 
-def key(rng, typewriter=False, space=False):
-    """One keystroke: a typewriter type-bar strike, or a soft keyboard key."""
-    n = _n(0.16 if typewriter else 0.09)
-    t = _t(n)
+# v2: every key variant is its own key (weight, pitch, rattle), not only another random seed
+_KEYS = {1: (1.0, 1.0, 1.0), 2: (0.85, 1.07, 0.85), 3: (1.12, 0.94, 1.2), 4: (0.92, 1.13, 0.75), 5: (1.05, 0.9, 1.05), 6: (0.8, 1.03, 1.3)}
+
+
+def key(rng, typewriter=False, space=False, k=1):
+    """One keystroke: a typewriter type-bar strike, or a soft keyboard key (v2: the finger on the key,
+    the strike, the mechanism's rattle and, on a typewriter, the carriage stepping on)."""
+    vel, pitch, rattle = _KEYS.get(k, (1.0, 1.0, 1.0))
     if typewriter:
-        strike = _band(rng.standard_normal(n), lo=900, hi=5200) * _env(n, 0.0003, 0.006)
-        metal = _partials(rng.uniform([2100, 3150, 4400], [2500, 3600, 5000]), [0.03, 0.02, 0.012], [0.35, 0.22, 0.12], n, rng)
-        platen = _partials([rng.uniform(140, 175)], [0.03], [0.9], n) * (t > 0.0015)
-        y = strike + metal * _env(n, 0.0005, 0.03) + 0.7 * platen
+        n = _n(0.2)
+        pre = _n(rng.uniform(0.009, 0.014))  # the key top is touched a moment before the bar lands
+        y = np.zeros(n)
+        y += 0.16 * _band(rng.standard_normal(n), lo=500, hi=2500) * _env(n, 0.0003, 0.002)
+        m = n - pre
+        tm = _t(m)
+        strike = _band(rng.standard_normal(m), lo=700, hi=5500 * pitch) * _env(m, 0.0002, 0.004 + 0.002 * vel)
+        metal = _partials(rng.uniform([1900, 2900, 4100, 5200], [2300, 3400, 4700, 6000]) * pitch, [0.028, 0.02, 0.012, 0.008],
+                          [0.32, 0.22, 0.12, 0.07], m, rng) * _env(m, 0.0004, 0.03)
+        platen = (_partials([rng.uniform(135, 175) * pitch], [0.03], [0.9], m) * (tm > 0.0012)
+                  + 0.5 * _band(rng.standard_normal(m), lo=100, hi=600) * _env(m, 0.001, 0.015))
+        mech = _bursts(m, rng, [(rng.uniform(0.016, 0.022), 0.5), (rng.uniform(0.028, 0.036), 0.3)], 1800, 6500, 0.25 * rattle)
+        carriage = _bursts(m, rng, [(rng.uniform(0.05, 0.065), 1.0)], 1200, 4500, 0.12, decay=0.0015)
+        y[pre:] += vel * (strike + metal + 0.7 * platen) + mech + carriage
         if space:
             y = _band(y, hi=2200) * 1.1
     else:
-        down = _band(rng.standard_normal(n), lo=1400, hi=6500) * _env(n, 0.0003, 0.0035)
-        thock = _partials([rng.uniform(230, 300)], [0.014], [0.8], n)
-        y = down + 0.6 * thock
-        up = _n(rng.uniform(0.045, 0.06))
-        y[up:] += 0.35 * _band(rng.standard_normal(n - up), lo=2000, hi=7000) * _env(n - up, 0.0002, 0.0025)
+        n = _n(0.11)
+        down = _band(rng.standard_normal(n), lo=1300, hi=6200 * pitch) * _env(n, 0.0003, 0.0035)
+        plate = _partials(rng.uniform([1300, 2100, 3300], [1600, 2600, 3900]) * pitch, [0.006, 0.004, 0.003], [0.25, 0.15, 0.08], n, rng)
+        thock = _partials([rng.uniform(220, 290) / pitch], [0.014 * vel], [0.8], n)
+        y = vel * (down + 0.5 * plate * _env(n, 0.0003, 0.008) + 0.6 * thock)
+        up = _n(rng.uniform(0.045, 0.07))
+        y[up:] += 0.33 * _band(rng.standard_normal(n - up), lo=1900, hi=7000) * _env(n - up, 0.0002, 0.0025)
+        y += _bursts(n, rng, [(rng.uniform(0.006, 0.01), 0.4)], 2500, 7000, 0.12 * rattle)
         if space:
             y = _band(y, hi=2500) * 1.2
     return _room(y, rng, rt=0.3, wet=0.07)
 
 
 def whoosh(rng, length=0.7, f_lo=350, f_hi=2600, peak=0.55, direction=0.0, reverse=False, air=0.6):
+    """v2: moving air, not a whistle: a broad band that sweeps (v1's narrow band rang like a tone),
+    a quieter airy top an octave up and a little low body, all on the same envelope."""
     n = _n(length)
-    x = _noise(n, rng, "pink")
     centers = np.concatenate([np.geomspace(f_lo, f_hi, 16)[: int(16 * peak)], np.geomspace(f_hi, f_lo * 0.8, 16)[int(16 * peak):]])
-    y = _sweep(x, centers, width=0.45 + 0.4 * air)
+    y = _sweep(_noise(n, rng, "pink"), centers, width=0.85 + 0.45 * air)
+    y += (0.3 + 0.3 * air) * _sweep(_noise(n, rng, "white"), centers * 2.3, width=0.8)
+    y += 0.22 * _band(_noise(n, rng, "pink"), lo=45, hi=max(120, f_lo * 0.7))
     e = _shape(n, [(0, 0), (peak * 0.6, 0.25), (peak, 1.0), (min(0.98, peak + 0.25), 0.25), (1, 0)]) ** 1.4
     y *= e
     if reverse:
@@ -233,49 +292,84 @@ def whoosh(rng, length=0.7, f_lo=350, f_hi=2600, peak=0.55, direction=0.0, rever
 
 
 def thump(rng, f0=110, f1=48, decay=0.32, grit=0.15, tail=0.9):
-    n = _n(decay * 5)
+    """v2: every layer dies away on its own (v1 stopped the sub at -27 dB: an audible cut), with the
+    air of the hit (a low skin of noise), a soft beater and warm harmonics instead of a bare sine."""
+    n = _n(decay * 9)
+    t = _t(n)
     body = _glide(f0, f1, n, 0.25) * _env(n, 0.004, decay)
-    sub = np.sin(2 * np.pi * f1 * 0.98 * _t(n)) * _env(n, 0.03, decay * 1.6) * 0.5
+    sub = np.sin(2 * np.pi * f1 * 0.98 * t) * _env(n, 0.03, decay * 1.6) * 0.5
+    skin = _band(_noise(n, rng, "pink"), lo=60, hi=420) * _env(n, 0.002, decay * 0.3) * (0.22 + grit)
     hit = _band(rng.standard_normal(n), lo=60, hi=900) * _env(n, 0.001, 0.02) * grit * 3
-    y = _sat(body + sub + hit, 1.3)
+    beater = _band(rng.standard_normal(n), lo=1500, hi=5000) * _env(n, 0.0003, 0.003) * grit * 0.8
+    y = _warm(body + sub + skin + hit + beater, 1.5, 0.18) * _tail(n, decay * 3)
     return _room(y, rng, rt=tail, wet=0.15, bright=1800)
 
 
 def pulse(rng, f=55, length=0.6, double=False):
-    n = _n(length)
-    e = _shape(n, [(0, 0), (0.08, 1), (0.5, 0.35), (1, 0)])
-    y = np.sin(2 * np.pi * f * _t(n)) * e + 0.25 * np.sin(2 * np.pi * f * 2 * _t(n)) * e ** 2
+    """v2: a felt low thud (a soft pitch drop on the onset, warm harmonics and a breath of low noise)
+    instead of a sine test tone; the double one is a heartbeat-like lub-dub."""
+    n = _n(length + 0.35)
+
+    def beat(m, amp):
+        t = _t(m)
+        ph = 2 * np.pi * np.cumsum(f * (1 + 0.35 * np.exp(-t / 0.025))) / SR
+        e = _env(m, 0.06 * length, 0.32 * length)
+        tone = (np.sin(ph) + 0.3 * np.sin(2 * ph) + 0.12 * np.sin(3 * ph)) * e
+        breath = _band(_noise(m, rng, "pink"), lo=f * 0.8, hi=f * 6) * _env(m, 0.01, 0.2 * length) * 0.5
+        knock = _band(rng.standard_normal(m), lo=250, hi=900) * _env(m, 0.001, 0.012) * 0.25
+        return amp * (tone + breath + knock)
+
+    y = beat(n, 1.0)
     if double:
         k = _n(length * 0.42)
-        y2 = np.zeros(n)
-        y2[k:] = y[: n - k] * 0.6
-        y = y + y2
-    return _room(_sat(y, 1.2), rng, rt=0.8, wet=0.1, bright=900)
+        y[k:] += beat(n - k, 0.6)
+    y = _band(_warm(y, 1.4, 0.15), hi=750) * _tail(n, 0.2)
+    return _room(y, rng, rt=0.8, wet=0.12, bright=900)
 
 
 def chime(rng, base=880, ratios=(1.0, 1.5), spacing=0.11, decay=0.35, soft=True):
+    """v2: a glassy, friendly tone: an FM attack that settles into a pure note, a slow beating
+    partner (shimmer), a fast-dying upper partial and the soft tap of a mallet."""
     n = _n(spacing * len(ratios) + decay * 4)
     y = np.zeros(n)
     for k, r in enumerate(ratios):
         s = _n(spacing * k)
         m = n - s
-        tone = _partials([base * r, base * r * 2.01, base * r * 3.0], [decay, decay * 0.4, decay * 0.2], [1, 0.18, 0.06], m, rng)
-        y[s:] += tone * _env(m, 0.004, decay * 2)
+        t = _t(m)
+        f = base * r
+        index = 2.0 * np.exp(-t / (decay * 0.22))
+        env = _env(m, 0.002, decay * 1.6)
+        tone = np.sin(2 * np.pi * f * t + index * np.sin(2 * np.pi * f * 3.5 * t)) * env
+        tone += 0.22 * np.sin(2 * np.pi * f * 1.0035 * t + rng.uniform(0, 6.28)) * env
+        tone += 0.1 * np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t / (decay * 0.3))
+        tone += 0.25 * _band(rng.standard_normal(m), lo=f * 1.5, hi=f * 6) * _env(m, 0.0003, 0.003)
+        y[s:] += tone
     if soft:
         y = _band(y, hi=5000)
     return _room(y, rng, rt=1.1, wet=0.25)
 
 
 def scan(rng, length=1.1, f0=900, f1=3200, rate=34):
+    """v2: a train of soft grains (raised-cosine, each a little different in level and timing) over
+    a gliding FM tone, instead of v1's hard square gate (which clicked on every edge)."""
     n = _n(length)
-    t = _t(n)
-    tone = _glide(f0, f1, n, 1.0) * 0.4
-    grain = _band(rng.standard_normal(n), lo=2500, hi=9000) * 0.5
-    am = 0.5 + 0.5 * np.sign(np.sin(2 * np.pi * rate * t)) * 0.8
+    am = np.zeros(n)
+    period = 1.0 / rate
+    w = _n(period * 0.6)
+    at = 0.0
+    while at < length:
+        s = _n(max(0.0, at + rng.uniform(-0.08, 0.08) * period))
+        if s < n:
+            am[s:s + w] += rng.uniform(0.6, 1.0) * np.hanning(w)[: n - s]
+        at += period
+    f = f0 * (f1 / f0) ** np.linspace(0, 1, n)
+    ph = 2 * np.pi * np.cumsum(f) / SR
+    tone = np.sin(ph + 0.7 * np.sin(2.01 * ph)) * 0.35
+    grain = _band(rng.standard_normal(n), lo=2500, hi=9000) * 0.45
     e = _shape(n, [(0, 0), (0.12, 1), (0.85, 0.8), (1, 0)])
-    y = (tone + grain) * am * e
-    y = _band(y, lo=500, hi=8000)
-    return _pan(y, np.linspace(-0.4, 0.4, n))
+    y = _band((tone + grain) * (0.12 + 0.88 * np.minimum(am, 1.0)) * e, lo=500, hi=8000)
+    st = _pan(y, np.linspace(-0.4, 0.4, n))
+    return np.stack([_room(st[0], rng, rt=0.35, wet=0.08)[0], _room(st[1], rng, rt=0.35, wet=0.08)[1]])
 
 
 def paper(rng, length=0.55, slide=False, crisp=0.6):
@@ -304,16 +398,22 @@ def document(rng, length=0.7):
     return out
 
 
-def shutter(rng):
-    n = _n(0.18)
+def shutter(rng, soft=False):
+    """Two curtains and the mirror (v2: the soft one is a different, darker single-curtain shutter)."""
+    n = _n(0.2)
     y = np.zeros(n)
-    for at, amp, f in ((0.0, 1.0, 3000), (0.055, 0.7, 2400)):
+    hits = ((0.0, 1.0, 2200), (0.04, 0.35, 1700)) if soft else ((0.0, 1.0, 3000), (0.055, 0.7, 2400))
+    for at, amp, f in hits:
         k = _n(0.03)
         s = _n(at)
         y[s:s + k] += amp * (_band(rng.standard_normal(k), lo=f * 0.5, hi=f * 2) * _env(k, 0.0003, 0.004)
-                             + 0.4 * _partials([f * 0.6], [0.008], [1], k))
-    spring = _band(rng.standard_normal(n), lo=3000, hi=8000) * _env(n, 0.01, 0.03) * 0.15
-    return _room(y + spring, rng, rt=0.3, wet=0.08)
+                             + 0.4 * _partials([f * 0.6, f * 0.97], [0.008, 0.004], [1, 0.3], k, rng))
+    y += _bursts(n, rng, [(0.012, 0.4), (0.07 if not soft else 0.05, 0.25)], 2500, 7000, 0.3)
+    spring = _band(rng.standard_normal(n), lo=3000, hi=8000) * _env(n, 0.01, 0.03) * (0.06 if soft else 0.15)
+    y = y + spring
+    if soft:
+        y = _band(y, hi=3500)
+    return _room(y, rng, rt=0.3, wet=0.08)
 
 
 def tick(rng, f=3400, count=1, gap=1.0, tock=True):
@@ -338,44 +438,71 @@ def riser(rng, length=2.0, f0=180, f1=1400):
 
 
 def sweep_tone(rng, length=0.8, f0=300, f1=1100, up=True):
+    """v2: a soft, slightly breathy tone (odd harmonics, a gentle vibrato and a detuned partner)
+    that glides, instead of three pure sine glides."""
     n = _n(length)
+    t = _t(n)
     a, b = (f0, f1) if up else (f1, f0)
-    y = _glide(a, b, n, 1.0) + 0.6 * _glide(a * 1.004, b * 1.004, n, 1.0) + 0.25 * _glide(a * 2, b * 2, n, 1.0)
+    f = a * (b / a) ** np.linspace(0, 1, n) * (1 + 0.003 * np.sin(2 * np.pi * 5.5 * t))
+    ph = 2 * np.pi * np.cumsum(f) / SR
+
+    def tri(p):
+        return np.sin(p) - np.sin(3 * p) / 9 + np.sin(5 * p) / 25
+
+    y = tri(ph) + 0.6 * tri(ph * 1.004 + 1.3) + 0.25 * np.sin(2 * ph)
     y *= _shape(n, [(0, 0), (0.3, 1), (0.7, 0.8), (1, 0)])
-    air = _sweep(_noise(n, rng, "pink"), [a * 2, b * 2], 0.6) * 0.25 * _shape(n, [(0, 0), (0.5, 1), (1, 0)])
+    air = _sweep(_noise(n, rng, "pink"), [a * 2, b * 2], 0.8) * 0.3 * _shape(n, [(0, 0), (0.5, 1), (1, 0)])
     return _room(_band(y + air, hi=6000), rng, rt=0.9, wet=0.25)
 
 
 def swell(rng, length=3.5, root=110.0, minor=True, bright=1400):
+    """v2: a pad, not sines: each note a band-limited saw in three detuned voices, through a filter
+    that opens as the swell grows (it gets brighter as it gets louder), with low air underneath."""
     n = _n(length)
     t = _t(n)
     chord = [1, 1.189 if minor else 1.26, 1.498, 2.0]
     y = np.zeros(n)
     for r in chord:
-        for det in (-0.004, 0.0, 0.0045):
-            y += np.sin(2 * np.pi * root * r * (1 + det) * t + rng.uniform(0, 6.28))
-    y = _band(y, hi=bright) / 12
-    air = _band(_noise(n, rng, "pink"), lo=200, hi=bright * 1.5) * 0.08
+        for det in (-0.005, 0.0, 0.006):
+            f = root * r * (1 + det)
+            y += _saw(f, t, rng.uniform(0, 6.28), min(bright * 3, f * 14))
+    y /= 12
     e = _shape(n, [(0, 0), (0.55, 1), (0.75, 0.75), (1, 0)]) ** 1.3
+    y = _band(y, hi=bright * 0.35) * (1 - e) + _band(y, hi=bright) * e
+    air = _band(_noise(n, rng, "pink"), lo=120, hi=bright * 1.5) * 0.1
     return _room((y + air) * e, rng, rt=1.6, wet=0.3)
 
 
 def impact(rng, weight=1.0):
+    """v2: the body, a low-mid boom and the crack, each with its whole tail (v1 cut the crack's room
+    off after 0.25 s)."""
     body = thump(rng, f0=95 + 20 * weight, f1=42, decay=0.38 + 0.15 * weight, grit=0.25, tail=1.3)
-    crack = _band(rng.standard_normal(_n(0.25)), lo=700, hi=5000) * _env(_n(0.25), 0.0008, 0.03) * 0.25
-    out = body.copy()
-    out[:, : crack.shape[0]] += _room(crack, rng, rt=1.2, wet=0.4)[:, : crack.shape[0]]
+    m = _n(0.6)
+    crack = _band(rng.standard_normal(m), lo=700, hi=5000) * _env(m, 0.0008, 0.03) * 0.25
+    boom = _band(_noise(m, rng, "pink"), lo=120, hi=700) * _env(m, 0.002, 0.09) * 0.3 * (0.6 + 0.4 * weight)
+    layer = _room((crack + boom) * _tail(m, 0.2), rng, rt=1.2, wet=0.4)
+    out = np.zeros((2, max(body.shape[1], layer.shape[1])))
+    out[:, : body.shape[1]] += body
+    out[:, : layer.shape[1]] += layer
     return out
 
 
 def bell(rng, base=1320, decay=0.9, strikes=1):
+    """v2: struck metal: each partial a slowly beating pair (real bells are never perfectly round),
+    higher partials dying faster, and the tap of the striker."""
     n = _n(decay * 3 + 0.25 * strikes)
     y = np.zeros(n)
     ratios, amps = [0.5, 1.0, 1.183, 1.506, 2.0, 2.74], [0.25, 1.0, 0.5, 0.35, 0.3, 0.15]
+    decays = [decay * d for d in (1.4, 1, 0.7, 0.5, 0.4, 0.25)]
     for k in range(strikes):
         s = _n(0.18 * k)
         m = n - s
-        y[s:] += (0.75 ** k) * _partials([base * r for r in ratios], [decay * d for d in (1.4, 1, 0.7, 0.5, 0.4, 0.25)], amps, m, rng) * _env(m, 0.002, 10)
+        f = [base * r * (1 + rng.uniform(-0.002, 0.002)) for r in ratios]
+        beat = [x * (1 + 0.0012 * (i + 1)) for i, x in enumerate(f)]
+        # each pair starts in phase (the strike is the loudest moment) and drifts apart slowly
+        tone = _partials(f, decays, [a * 0.75 for a in amps], m) + _partials(beat, decays, [a * 0.3 for a in amps], m)
+        tap = 0.3 * _band(rng.standard_normal(m), lo=base * 0.8, hi=base * 6) * _env(m, 0.0002, 0.004)
+        y[s:] += (0.75 ** k) * (tone * _env(m, 0.002, 10) + tap)
     return _room(_band(y, hi=7000), rng, rt=1.0, wet=0.2)
 
 
@@ -389,13 +516,13 @@ CATALOG = [
     ("click-mech-3", "click", "Mechanical click, heavy", 3, lambda r: click(r, 2100, 150, release=0.04), -13),
     ("click-muted-1", "click-muted", "Muted button click", 1, lambda r: click(r, 1600, 170, dark=True, release=0.03), -16),
     ("click-muted-2", "click-muted", "Muted click, soft", 1, lambda r: click(r, 1200, 140, dark=True, release=0.04), -17),
-    ("click-muted-3", "click-muted", "Muted click, felt", 1, lambda r: click(r, 1900, 200, dark=True, release=0.025), -16),
-    *[(f"type-strike-{k}", "typewriter", f"Typewriter key {k}", 2, (lambda k: lambda r: key(r, typewriter=True))(k), -15) for k in range(1, 7)],
-    ("type-space-1", "typewriter", "Typewriter space bar", 2, lambda r: key(r, typewriter=True, space=True), -16),
-    *[(f"key-soft-{k}", "keyboard", f"Keyboard key {k}", 1, (lambda k: lambda r: key(r))(k), -18) for k in range(1, 7)],
+    ("click-muted-3", "click-muted", "Muted click, felt", 1, lambda r: click(r, 1900, 200, dark=True, release=0.025), -13),
+    *[(f"type-strike-{k}", "typewriter", f"Typewriter key {k}", 2, (lambda k: lambda r: key(r, typewriter=True, k=k))(k), -15) for k in range(1, 7)],
+    ("type-space-1", "typewriter", "Typewriter space bar", 2, lambda r: key(r, typewriter=True, space=True), -13.5),
+    *[(f"key-soft-{k}", "keyboard", f"Keyboard key {k}", 1, (lambda k: lambda r: key(r, k=k))(k), -18) for k in range(1, 7)],
     ("key-space-1", "keyboard", "Keyboard space bar", 1, lambda r: key(r, space=True), -18),
     ("whoosh-short-1", "whoosh", "Whoosh, short", 1, lambda r: whoosh(r, 0.45, 500, 3200, 0.5), -16),
-    ("whoosh-short-2", "whoosh", "Whoosh, short, airy", 1, lambda r: whoosh(r, 0.5, 700, 4200, 0.55, air=0.9), -17),
+    ("whoosh-short-2", "whoosh", "Whoosh, short, airy", 1, lambda r: whoosh(r, 0.5, 700, 4200, 0.55, air=0.9), -19.5),
     ("whoosh-mid-1", "whoosh", "Whoosh, medium", 2, lambda r: whoosh(r, 0.8, 300, 2400, 0.55), -14),
     ("whoosh-mid-2", "whoosh", "Whoosh, medium, dark", 2, lambda r: whoosh(r, 0.85, 220, 1600, 0.5), -13),
     ("whoosh-long-1", "whoosh", "Whoosh, long", 2, lambda r: whoosh(r, 1.3, 200, 2000, 0.6), -14),
@@ -407,19 +534,19 @@ CATALOG = [
     ("rwhoosh-3", "reverse-whoosh", "Reverse whoosh, short", 1, lambda r: whoosh(r, 0.6, 400, 3500, 0.3, reverse=True), -16),
     ("thump-deep-1", "thump", "Deep cinematic thump", 2, lambda r: thump(r, 110, 46, 0.32), -9),
     ("thump-deep-2", "thump", "Deep thump, short", 2, lambda r: thump(r, 130, 55, 0.2, tail=0.6), -10),
-    ("thump-deep-3", "thump", "Deep thump, round", 3, lambda r: thump(r, 95, 40, 0.45), -8),
-    ("bass-hit-1", "bass-impact", "Subtle bass impact", 2, lambda r: thump(r, 80, 38, 0.6, grit=0.05, tail=1.6), -10),
+    ("thump-deep-3", "thump", "Deep thump, round", 3, lambda r: thump(r, 95, 40, 0.45), -6),
+    ("bass-hit-1", "bass-impact", "Subtle bass impact", 2, lambda r: thump(r, 80, 38, 0.6, grit=0.05, tail=1.6), -8.5),
     ("bass-hit-2", "bass-impact", "Bass impact, soft", 1, lambda r: thump(r, 70, 36, 0.5, grit=0.02, tail=1.2), -12),
-    ("bass-hit-3", "bass-impact", "Bass impact, wide", 2, lambda r: thump(r, 90, 41, 0.75, grit=0.08, tail=2.0), -10),
-    ("pulse-low-1", "pulse", "Low-frequency pulse", 1, lambda r: pulse(r, 55, 0.6), -12),
-    ("pulse-low-2", "pulse", "Low pulse, double", 2, lambda r: pulse(r, 50, 0.9, double=True), -12),
-    ("pulse-low-3", "pulse", "Low pulse, short", 1, lambda r: pulse(r, 62, 0.4), -13),
-    ("notify-1", "notification", "Digital notification, two notes", 1, lambda r: chime(r, 880, (1.0, 1.5)), -18),
+    ("bass-hit-3", "bass-impact", "Bass impact, wide", 2, lambda r: thump(r, 90, 41, 0.75, grit=0.08, tail=2.0), -8.5),
+    ("pulse-low-1", "pulse", "Low-frequency pulse", 1, lambda r: pulse(r, 55, 0.6), -9.5),
+    ("pulse-low-2", "pulse", "Low pulse, double", 2, lambda r: pulse(r, 50, 0.9, double=True), -10),
+    ("pulse-low-3", "pulse", "Low pulse, short", 1, lambda r: pulse(r, 62, 0.4), -10),
+    ("notify-1", "notification", "Digital notification, two notes", 1, lambda r: chime(r, 880, (1.0, 1.5)), -20.5),
     ("notify-2", "notification", "Digital notification, single", 1, lambda r: chime(r, 1046, (1.0,), decay=0.25), -19),
     ("notify-3", "notification", "Digital notification, low", 1, lambda r: chime(r, 660, (1.0, 1.335), 0.09), -18),
-    ("scan-1", "scan", "Digital scan", 1, lambda r: scan(r, 1.1), -20),
-    ("scan-2", "scan", "Digital scan, short", 1, lambda r: scan(r, 0.6, 1200, 3600, 40), -20),
-    ("scan-3", "scan", "Digital scan, long, low", 1, lambda r: scan(r, 1.8, 600, 2200, 26), -21),
+    ("scan-1", "scan", "Digital scan", 1, lambda r: scan(r, 1.1), -17.5),
+    ("scan-2", "scan", "Digital scan, short", 1, lambda r: scan(r, 0.6, 1200, 3600, 40), -16.5),
+    ("scan-3", "scan", "Digital scan, long, low", 1, lambda r: scan(r, 1.8, 600, 2200, 26), -17.5),
     ("paper-1", "paper", "Paper movement", 1, lambda r: paper(r, 0.5), -18),
     ("paper-2", "paper", "Paper movement, crisp", 1, lambda r: paper(r, 0.4, crisp=0.9), -18),
     ("paper-3", "paper", "Paper slide", 1, lambda r: paper(r, 0.7, slide=True, crisp=0.3), -18),
@@ -427,7 +554,7 @@ CATALOG = [
     ("doc-2", "document", "Document reveal, quick", 1, lambda r: document(r, 0.5), -16),
     ("doc-3", "document", "Document reveal, slow", 2, lambda r: document(r, 1.0), -15),
     ("shutter-1", "shutter", "Camera shutter (manual use only)", 2, lambda r: shutter(r), -16),
-    ("shutter-2", "shutter", "Camera shutter, soft (manual use only)", 1, lambda r: shutter(r), -18),
+    ("shutter-2", "shutter", "Camera shutter, soft (manual use only)", 1, lambda r: shutter(r, soft=True), -16.5),
     ("tick-1", "tick", "Soft tick", 1, lambda r: tick(r, 3400), -20),
     ("tick-2", "tick", "Soft tick, low", 1, lambda r: tick(r, 2500), -20),
     ("tick-seq-1", "tick", "Ticking, four seconds", 1, lambda r: tick(r, 3000, 4, 1.0), -21),
@@ -438,16 +565,16 @@ CATALOG = [
     ("sweep-up-2", "tonal-sweep", "Tonal sweep, up, short", 1, lambda r: sweep_tone(r, 0.5, 420, 1500), -19),
     ("sweep-down-1", "tonal-sweep", "Tonal sweep, down", 1, lambda r: sweep_tone(r, 0.9, 280, 1000, up=False), -19),
     ("swell-1", "swell", "Atmospheric swell, minor", 2, lambda r: swell(r, 3.5, 110, True), -17),
-    ("swell-2", "swell", "Atmospheric swell, low", 1, lambda r: swell(r, 4.5, 82.4, True, 900), -17),
-    ("swell-3", "swell", "Atmospheric swell, open", 2, lambda r: swell(r, 3.0, 98, False, 1600), -17),
-    ("impact-tr-1", "transition-impact", "Transition impact", 2, lambda r: impact(r, 1.0), -9),
-    ("impact-tr-2", "transition-impact", "Transition impact, light", 1, lambda r: impact(r, 0.4), -11),
-    ("impact-tr-3", "transition-impact", "Transition impact, heavy", 3, lambda r: impact(r, 1.6), -8),
+    ("swell-2", "swell", "Atmospheric swell, low", 1, lambda r: swell(r, 4.5, 82.4, True, 900), -14),
+    ("swell-3", "swell", "Atmospheric swell, open", 2, lambda r: swell(r, 3.0, 98, False, 1600), -14),
+    ("impact-tr-1", "transition-impact", "Transition impact", 2, lambda r: impact(r, 1.0), -6.5),
+    ("impact-tr-2", "transition-impact", "Transition impact, light", 1, lambda r: impact(r, 0.4), -9.5),
+    ("impact-tr-3", "transition-impact", "Transition impact, heavy", 3, lambda r: impact(r, 1.6), -6),
     ("bell-1", "bell", "Notification bell", 1, lambda r: bell(r, 1320, 0.9), -17),
     ("bell-2", "bell", "Notification bell, double", 2, lambda r: bell(r, 1175, 0.8, 2), -17),
     ("bell-3", "bell", "Bell, small", 1, lambda r: bell(r, 1760, 0.6), -18),
     ("cta-click-1", "cta-click", "Subscribe button click", 2, lambda r: click(r, 2300, 200, release=0.06), -13),
-    ("cta-click-2", "cta-click", "Button click, soft", 1, lambda r: click(r, 1800, 180, dark=True, release=0.05), -15),
+    ("cta-click-2", "cta-click", "Button click, soft", 1, lambda r: click(r, 1800, 180, dark=True, release=0.05), -13),
     ("cta-click-3", "cta-click", "Button click, bright", 2, lambda r: click(r, 3000, 230, release=0.05), -14),
 ]
 BY_ID = {c[0]: c for c in CATALOG}
@@ -464,7 +591,7 @@ def folder(data):
 def synth(sound_id):
     """The sound as float32 [2, n] at its designed level, and its sync point in seconds."""
     sid, cat, _, _, recipe, peak_db = BY_ID[sound_id]
-    x = _fade(recipe(_rng(f"casefile-sfx-{LIB_VERSION}-{sid}")))
+    x = _fade(recipe(_rng(f"casefile-sfx-{SEED_VERSION}-{sid}")))
     # trim the silent tail (the room can leave a long near-silent end)
     mag = np.max(np.abs(x), axis=0)
     loud = np.nonzero(mag > mag.max() * 10 ** (-60 / 20))[0]

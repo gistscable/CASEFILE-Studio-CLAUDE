@@ -28,9 +28,11 @@ sidechaincompress, mixed with the music (A3) and limited (alimiter) at the end.
 """
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 import threading
@@ -149,7 +151,6 @@ _EVENTS_LOCK = threading.Lock()
 def _motion_events(project):
     """{item id: (item, [events])} for the graphics that are exported (approved, layer on)."""
     out = {}
-    tall = motion._is_tall(project)
     W, H = motion.preview_size(project)  # the editor lays them out at this size too (shared cache)
     for it in motion.exported(project):
         key = motion.item_hash(it, W, H)
@@ -175,7 +176,186 @@ def _sentences(project):
         return []
 
 
-SENSITIVE_PICTURE = r"\b(?:victim'?s?|family|families|memorial|tribute|funeral|vigil|grave|mourn\w*|loved\s+ones?|mother|father|sister|brother|daughter|son)\b"
+# ====================================================================== context (v0.4.57)
+# What is sensitive is decided from the passage, not from one word: a sentence's own evidence
+# (violence, death, grief and memory, the people in it), its neighbours, its chapter, the picture on
+# screen, who it is about (the victim's family or the suspect's) and what it does in the story (a
+# record, a discovery, a legal step). "The vehicle was registered to Jackson's mother" is evidence;
+# "That was a mother remembering her son" is grief. One word alone never decides either way.
+
+C_VIOLENT = re.compile(r"\b(?:kill(?:ed|ing|s)?|murder(?:ed|ing|s)?|shots?|shoot(?:ing|s)?|violen(?:ce|t)|stabb\w*|strangl\w*|suffocat\w*|bod(?:y|ies)|"
+                       r"blood\w*|wound\w*|injur\w*|beat(?:en|ing)|rap(?:e|ed)|assault\w*|abus\w*|tortur\w*|scream\w*|remains|autopsy|"
+                       r"bullet\s+(?:struck|hit|wound)|gunned\s+down|open(?:ed)?\s+fire)\b", re.I)
+C_DEATH = re.compile(r"\b(?:death|died|dies|dead|dying|lost\s+(?:her|his|their|\w+)\s+(?:\w+\s+)?(?:sons?|daughters?|child(?:ren)?|li(?:fe|ves))|never\s+came\s+home|"
+                     r"pronounced|passed\s+away)\b", re.I)
+C_GRIEF = re.compile(r"\b(?:funeral|vigil|tribute|memorial|grave(?:side|s)?|mourn\w*|grie(?:f|v\w*)|tears?|wept|sobb\w*|cried|cry(?:ing)?|"
+                     r"beloved|heartbr\w*|miss(?:es|ed)?\s+(?:him|her)|in\s+memory|memor(?:y|ies)|remember(?:ed|s|ing)?|recalled|"
+                     r"(?:described|remembered)\s+(?:him|her)\s+as|suffer\w*|pain)\b", re.I)
+C_PERSON = re.compile(r"\b(?:mother|father|mom|dad|grand(?:mother|father|ma|pa)|god(?:mother|father)|famil(?:y|ies)|loved\s+ones?|son|"
+                      r"daughter|sister|brother|wife|husband|child(?:ren)?|baby|toddler|teen(?:ager)?|boy|girl|victim'?s?|relatives?|"
+                      r"smil\w*|dream\w*|love[ds]?)\b", re.I)
+# the language of the case: records, evidence, procedure (it is about the investigation, not grief)
+C_CASE = re.compile(r"\b(?:registered|registration|records?|owned|licen[cs]e|plates?|vehicle|car|truck|phone|warrant|testif\w*|"
+                    r"told\s+(?:police|detectives|investigators|officers)|police|detectives?|investigators?|officers?|marshals?|"
+                    r"evidence|surveillance|footage|camera|address|according\s+to|court|filed|filing|docket|charged|arrest\w*|"
+                    r"matched|traced|identified|recovered|casings?|ballistic\w*|forensic\w*|dna|prosecutors?|defen[cs]e|"
+                    r"hearing|plea|indict\w*|submission|statement|sentenc\w*|guilty|convict\w*|access\s+to)\b", re.I)
+# a violent word used as the name of a charge is a legal term ("pleaded guilty to murder")
+C_CHARGE = re.compile(r"\b(?:charged\s+with|convicted\s+of|guilty\s+(?:to|of)|count(?:s)?\s+of|acquitted\s+of|plea\s+to|"
+                      r"aggravated|(?:first|second|third)[-\s]degree|attempted|felonious)\s+(?:\w+\s+){0,2}"
+                      r"(?:murder|manslaughter|assault|homicide|killing|felony)\b|"
+                      r"\b(?:murder|manslaughter|homicide|assault)\s+(?:conviction|charges?|counts?|case|trial|indictment|statute)\b", re.I)
+C_PICTURE = re.compile(r"\b(?:photo(?:graph)?s?|portraits?|pictures?|smiling|childhood|school\s+photo|selfie|wedding|graduation|"
+                       r"memorial|candles?|flowers|cross(?:es)?)\b", re.I)
+SENSITIVE_AT = 1.5  # the score at which a passage or picture is kept free of automatic sounds
+
+
+def _people(project):
+    """(victim name words, suspect name words) from the episode guide's project setup."""
+    import basefill
+
+    ep = project.get("episode")
+    guide = ep.get("guide") if isinstance(ep, dict) else None
+    setup = guide.get("setup") if isinstance(guide, dict) else None
+    if not isinstance(setup, dict):
+        return [], []
+    names = lambda v: basefill.name_parts([n for n in v if isinstance(n, str)] if isinstance(v, list) else [])
+    return names(setup.get("victims")), names(setup.get("suspects"))
+
+
+def _whose(text, victims, suspects):
+    """'victim' | 'suspect' | None: whose relative a family word is ("Maurco's mother", "Jackson's mother")."""
+    low = text.lower()
+    for kind, names in (("suspect", suspects), ("victim", victims)):
+        for n in names:
+            if re.search(rf"\b{re.escape(n)}(?:'s|’s|s')\s+(?:\w+\s+)?(?:mother|father|mom|dad|grand\w+|god\w+|famil\w+|sister|brother|"
+                         rf"wife|husband|son|daughter|relatives?|loved)", low):
+                return kind
+    return None
+
+
+def _evidence(text, victims, suspects):
+    """(score, [why]) of one piece of text on its own: positive = grief, death, violence, the victim
+    as a person; negative = the record, the evidence, the procedure. Cached: a re-plan after an edit
+    only scores the sentences whose words changed."""
+    score, why = _evidence_cached(text, tuple(victims), tuple(suspects))
+    return score, list(why)
+
+
+@functools.lru_cache(maxsize=16384)
+def _evidence_cached(text, victims, suspects):
+    why = []
+    score = 0.0
+    charge = C_CHARGE.search(text)
+    violent = [m for m in C_VIOLENT.finditer(text) if not (charge and charge.start() <= m.start() < charge.end())]
+    if violent:
+        score += 2.0
+        why.append(f"violence ({violent[0].group(0).lower()})")
+    elif charge:
+        score += 0.4
+        why.append(f"a charge ({charge.group(0).lower()})")
+    if C_DEATH.search(text):
+        score += 1.8
+        why.append("death")
+    g = C_GRIEF.search(text)
+    if g:
+        score += 1.4
+        why.append(f"grief or memory ({g.group(0).lower()})")
+    persons = {m.group(0).lower() for m in C_PERSON.finditer(text)}
+    whose = _whose(text, victims, suspects)
+    low = text.lower()
+    victim_named = any(re.search(rf"\b{re.escape(n)}\b", low) for n in victims)
+    suspect_named = any(re.search(rf"\b{re.escape(n)}\b", low) for n in suspects)
+    if persons:
+        w = 0.0 if whose == "suspect" else min(1.0, 0.6 + 0.2 * (len(persons) - 1))
+        if whose == "victim":
+            w += 0.8
+        score += w
+        if w:
+            why.append(f"family ({sorted(persons)[0]}{', the victim' + chr(39) + 's' if whose == 'victim' else ''})")
+    if victim_named and not suspect_named:
+        score += 0.5
+        why.append("about the victim")
+    case = {m.group(0).lower() for m in C_CASE.finditer(text)}
+    if case:
+        score -= min(1.4, 0.7 * len(case))
+        why.append(f"the case ({', '.join(sorted(case)[:2])})")
+    return score, tuple(why)
+
+
+def context(project, sents):
+    """{"sent": [score], "scene": [score], "why_sent": [..], "why_scene": [..]}: how sensitive each
+    narration sentence and each scene's picture is, from all the context there is."""
+    scenes = project.get("scenes") or []
+    victims, suspects = _people(project)
+    assets = {a.get("id"): a for a in project.get("assets") or []}
+    base = [_evidence(snt["text"], victims, suspects) for snt in sents]
+    out_s, why_s = [], []
+    import basefill
+
+    kinds = {}
+    chapter_kind = lambda c: kinds[c] if c in kinds else kinds.setdefault(c, motion.chapter_kind(c))
+
+    for i, snt in enumerate(sents):
+        sc, why = base[i][0], list(base[i][1])
+        # the passage: grief or violence next door colours a sentence (a neutral line between two
+        # grief lines is still that passage); only within the same chapter
+        ch = (scenes[snt["scene"]].get("chapter") if scenes else "") or ""
+        near = [base[j][0] for j in (i - 1, i + 1) if 0 <= j < len(sents) and
+                ((scenes[sents[j]["scene"]].get("chapter") if scenes else "") or "") == ch]
+        spill = 0.4 * max([0.0] + near)
+        if spill >= 0.4:
+            sc += spill
+            why.append("a sensitive passage around it")
+        if len(near) == 2 and min(near) >= SENSITIVE_AT and sc < SENSITIVE_AT:
+            sc = SENSITIVE_AT  # between two sensitive sentences: inside that passage
+            why.append("inside a sensitive passage")
+        ck = chapter_kind(ch)
+        if ck == "victim":
+            sc += 1.0
+            why.append("a chapter about the victim")
+        # what it does in the story: a legal step or an investigative finding is case progress
+        if base[i][0] < 2.0 and (motion._outcome(snt["text"]) or (re.search(DISCOVERY, snt["text"], re.I) and re.search(motion.FIND, snt["text"], re.I))):
+            sc -= 0.6
+            why.append("case progress")
+        out_s.append(round(sc, 2))
+        why_s.append(why)
+    out_c, why_c = [], []
+    for k, s in enumerate(scenes):
+        a = assets.get(s.get("asset_id")) or {}
+        sc, why = 0.0, []
+        b = basefill.parse_name(a.get("name"))
+        if b:
+            tags = set(b["tags"])
+            if b["bucket"] == "V":
+                sc += 1.5 + (0.5 if tags & {"memorial", "family", "portrait", "funeral", "vigil", "childhood"} else 0.0)
+                why.append("a picture of the victim")
+            elif tags & {"memorial", "funeral", "vigil", "family"}:
+                sc += 1.5
+                why.append("a memorial picture")
+            else:
+                sc -= 1.0
+                why.append("a suspect or scene picture" if b["bucket"] in ("S", "C") else "a case picture")
+        pic = f"{s.get('title', '')} {s.get('visual', '')} {s.get('visual_note', '')} {'' if b else a.get('name', '')}"
+        if re.search(r"\bbase\s+image\s*·\s*victim\b", pic, re.I) and not b:
+            sc += 1.5
+            why.append("a picture of the victim")
+        e, w = _evidence(pic, victims, suspects)
+        if re.search(r"\bvictim'?s?\b", pic, re.I) and not b:
+            e += 0.9  # "victim" in what the picture is: it shows the victim
+        if C_PICTURE.search(pic) and (e > 0 or sc > 0):
+            e += 0.9
+            w.append("a personal photograph")
+        sc += e
+        why += w
+        told = [out_s[i] for i, snt in enumerate(sents) if snt["scene"] == k]
+        if told:
+            sc += 0.5 * max(0.0, sum(told) / len(told))
+        if chapter_kind(s.get("chapter")) == "victim":
+            sc += 1.0
+        out_c.append(round(sc, 2))
+        why_c.append(why)
+    return {"sent": out_s, "scene": out_c, "why_sent": why_s, "why_scene": why_c}
 
 
 SOUNDBITE = "original source audio (a soundbite)"
@@ -184,12 +364,13 @@ PICTURE = "a picture of the victim or family"
 SENSITIVE_TEXT = "a sensitive passage (grief, death or violence)"
 
 
-def protected(project, sents=None):
+def protected(project, sents=None, ctx=None):
     """[(start, end, why)] where no automatic sound goes: original source audio, the victim and
-    family (chapters and pictures), grief and violence in the narration."""
+    family (chapters and pictures), grief and violence in the narration (by context: `context`)."""
     scenes = project.get("scenes") or []
     offsets, total = _offsets(scenes)
-    assets = {a.get("id"): a for a in project.get("assets") or []}
+    sents = _sentences(project) if sents is None else sents
+    ctx = context(project, sents) if ctx is None else ctx
     zones = []
     for i, s in enumerate(scenes):
         a, b = offsets[i], offsets[i] + _scene_len(s)
@@ -197,12 +378,10 @@ def protected(project, sents=None):
             zones.append((a - 0.6, b + 0.6, SOUNDBITE))
         elif motion.chapter_kind(s.get("chapter")) == "victim":
             zones.append((a, b, VICTIM))
-        else:
-            pic = f"{s.get('title', '')} {s.get('visual', '')} {s.get('visual_note', '')} {(assets.get(s.get('asset_id')) or {}).get('name', '')}"
-            if re.search(SENSITIVE_PICTURE, pic, re.I):
-                zones.append((a - 0.3, b, PICTURE))
-    for snt in (_sentences(project) if sents is None else sents):
-        if re.search(SENSITIVE, snt["text"], re.I):
+        elif ctx["scene"][i] >= SENSITIVE_AT:
+            zones.append((a - 0.3, b - 0.001, PICTURE))  # up to the cut (a sound on the cut belongs to the next picture)
+    for k, snt in enumerate(sents):
+        if ctx["sent"][k] >= SENSITIVE_AT:
             zones.append((snt["t"] - 0.8, snt["e"] + 0.8, SENSITIVE_TEXT))
     zones.sort()
     merged = []
@@ -218,7 +397,7 @@ def _quiet(t, zones):
     return next((z[2] for z in zones if z[0] <= t <= z[1]), None)
 
 
-def events(project, mg=None, sents=None):
+def events(project, mg=None, sents=None, ctx=None):
     """Every candidate moment for a sound: [{anchor, kind, t, prio, cats, group, reason, label,
     gain, typed}] in timeline seconds (where the sound's sync point goes)."""
     scenes = project.get("scenes") or []
@@ -342,11 +521,13 @@ def events(project, mg=None, sents=None):
                     "a photograph is shown", f"Photograph — {title}", gain=-8.0)
 
     # --- the narration: legal outcomes told, discoveries, contradictions, turning points
-    for snt in (_sentences(project) if sents is None else sents):
+    sents = _sentences(project) if sents is None else sents
+    ctx = context(project, sents) if ctx is None else ctx
+    for k_s, snt in enumerate(sents):
         text = snt["text"]
         sc = scenes[snt["scene"]] if scenes else {}
         ck = motion.chapter_kind(sc.get("chapter"))
-        if re.search(SENSITIVE, text, re.I) or ck in ("victim", "opening", "closing"):
+        if ctx["sent"][k_s] >= SENSITIVE_AT or ck in ("victim", "opening", "closing"):
             continue
         local = round(snt["t"] - offsets[snt["scene"]], 3)
         anchor = f"mo:{sc.get('id') or snt['scene']}:{local}"
@@ -420,20 +601,21 @@ def plan(project, settings=None, keep=(), held=()):
     [{t, label, why}], dropped: count}. `keep`: anchors already decided by you (not planned again)."""
     st = normalise(settings if settings is not None else project.get("sound"))
     sents = _sentences(project)
-    zones = protected(project, sents)
-    evs = [e for e in events(project, sents=sents) if st["kinds"].get(e["kind"], True) and e["anchor"] not in keep]
+    ctx = context(project, sents)
+    zones = protected(project, sents, ctx)
+    evs = [e for e in events(project, sents=sents, ctx=ctx) if st["kinds"].get(e["kind"], True) and e["anchor"] not in keep]
     lo, hi = SPEC["keep_above"]  # the priority a moment needs at density 0 and at density 1
     threshold = lo - (lo - hi) * st["density"]
     per_min = SPEC["per_minute"][0] + SPEC["per_minute"][1] * st["density"]
     silenced, chosen = [], []
     for e in evs:
         why = _quiet(e["t"], zones)
-        if why == SENSITIVE_TEXT and e["kind"] in ("motion", "diagrams", "typing") and e["prio"] >= 0.6 and \
+        if why in (SENSITIVE_TEXT, PICTURE) and e["kind"] in ("motion", "diagrams", "typing") and e["prio"] >= 0.6 and \
                 any(c in ("click", "click-muted", "tick", "pop", "typewriter") for c in e["cats"]):
-            # a graphic already on screen over a sensitive sentence: its reveals stay, softened
+            # a graphic already on screen over a sensitive sentence (or drawn over such a picture): its reveals stay, softened
             # (muted clicks, quieter keys), so the graphic sounds the same from line to line
             e = {**e, "cats": ["keyboard"] if e["typed"] else ["click-muted"], "gain": e["gain"] - 5.0,
-                 "reason": e["reason"] + "; softened: a sensitive passage"}
+                 "reason": e["reason"] + f"; softened: {why}"}
         elif why and e["kind"] != "cta":
             silenced.append({"t": e["t"], "label": e["label"], "why": f"Silence: {why}."})
             continue
@@ -811,6 +993,146 @@ def prune(data, keep=40):
         files = sorted(root.glob("*.flac"), key=lambda f: f.stat().st_mtime)
         for f in files[:-keep]:
             f.unlink(missing_ok=True)
+
+
+# ====================================================================== the preview's ducking
+
+DUCK_RATE = 200  # values per second sent to the editor (5 ms, the compressor's attack time)
+_DUCK_BUSY: dict = {}
+_DUCK_FAILED: set = set()  # keys whose job failed: answered "none" instead of retried on every poll
+_DUCK_LOCK = threading.Lock()
+_DUCK_LATEST: dict = {}  # project id -> the key of its newest curve: an older job still running is stopped
+_DUCK_PROC: dict = {}  # project id -> (key, the FFmpeg process making it)
+
+
+def _low_priority():  # pragma: no cover - runs in the child
+    try:
+        os.nice(10)  # background work: the editor and an export come first
+    except OSError:
+        pass
+
+
+def _duck_job(project):
+    """(command, key) that computes the effects' gain over time exactly as the export applies it:
+    FFmpeg's sidechaincompress with the export's settings, keyed by the export's own voice bus
+    (renderer.voice_graph), compressing a constant 1.0, so its output IS the gain. None when the
+    export would not duck (ducking off, no narration)."""
+    import renderer
+
+    st = normalise(project.get("sound"))
+    scenes = project.get("scenes") or []
+    assets = {a.get("id"): a for a in project.get("assets") or []}
+    narration = assets.get(project.get("narration_id"))
+    if not st["enabled"] or not st["duck"] or not scenes or not narration or not narration.get("has_audio", narration.get("kind") == "audio"):
+        return None, None
+    total = sum(round(float(sc["duration"]) * FPS) / FPS for sc in scenes)
+    paths = [renderer.asset_path(narration)]
+    inserts = {}
+    for i, sc in enumerate(scenes):
+        if sc.get("insert_audio"):
+            clip = assets.get(sc.get("asset_id"))
+            if not clip or not clip.get("has_audio"):
+                return None, None  # the export refuses this project anyway
+            inserts[i] = len(paths)
+            paths.append(renderer.asset_path(clip))
+    graph = renderer.voice_graph(project, scenes, total, 0, inserts)
+    d = SPEC["duck"]
+    graph += [
+        f"aevalsrc=1|1:s=48000:d={total}[one]",
+        f"[one][voice]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
+        f"release={d['release']}:makeup={d['makeup']},pan=mono|c0=c0,aresample=1000[g]",
+    ]
+    cmd = ["ffmpeg", "-v", "error", "-nostdin"]
+    for path in paths:
+        cmd += ["-i", str(path)]
+    cmd += ["-filter_complex", ";".join(graph), "-map", "[g]", "-f", "f32le", "-acodec", "pcm_f32le", "-"]
+    stamp = [(str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
+    key = hashlib.sha1(json.dumps([graph, stamp, DUCK_RATE], sort_keys=True).encode()).hexdigest()[:20]
+    return cmd, key
+
+
+def duck_curve(project, data, wait=False):
+    """{"status": "none"} (no ducking: the effects play at their level), {"status": "working"}, or
+    {"status": "ready", "rate": 200, "gain": [uint8 0..255 = gain 0..1, base64]}. Made in the background
+    and cached by the voice bus (narration file, timeline, soundbites, narration volume, settings)."""
+    import base64
+
+    try:
+        cmd, key = _duck_job(project)
+    except (ValueError, OSError, KeyError):
+        return {"status": "none"}
+    if not cmd:
+        return {"status": "none"}
+    folder = Path(data) / "cache" / "sfx" / "duck"
+    path = folder / f"{key}.u8"
+    if key in _DUCK_FAILED:
+        return {"status": "none"}
+    pid = str(project.get("id") or "")
+    if path.exists():
+        with _DUCK_LOCK:  # back to a timeline already made (undo): a job for another version is obsolete
+            _DUCK_LATEST[pid] = key
+            old = _DUCK_PROC.get(pid)
+            if old and old[0] != key:
+                old[1].kill()
+        return {"status": "ready", "rate": DUCK_RATE, "key": key, "gain": base64.b64encode(path.read_bytes()).decode()}
+
+    def run():
+        superseded = False
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    preexec_fn=_low_priority if os.name == "posix" else None)
+            with _DUCK_LOCK:  # one curve per project at a time: an edit makes the running one obsolete
+                if _DUCK_LATEST.get(pid, key) != key:
+                    superseded = True
+                    proc.kill()
+                else:
+                    old = _DUCK_PROC.get(pid)
+                    if old and old[0] != key:
+                        old[1].kill()
+                    _DUCK_PROC[pid] = (key, proc)
+            try:
+                raw, _ = proc.communicate(timeout=1800)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+                raise
+            with _DUCK_LOCK:
+                superseded = superseded or _DUCK_LATEST.get(pid, key) != key
+            if superseded:
+                return
+            if proc.returncode:
+                raise subprocess.CalledProcessError(proc.returncode, cmd)
+            g = np.frombuffer(raw, dtype="<f4")
+            step = 1000 // DUCK_RATE
+            g = g[: len(g) // step * step].reshape(-1, step).mean(axis=1) if len(g) >= step else g
+            folder.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_bytes(np.clip(np.round(g * 255), 0, 255).astype(np.uint8).tobytes())
+            tmp.replace(path)
+            olds = sorted(folder.glob("*.u8"), key=lambda q: q.stat().st_mtime)
+            for q in olds[:-20]:  # keep the latest 20
+                q.unlink(missing_ok=True)
+        except (subprocess.SubprocessError, OSError, ValueError):
+            with _DUCK_LOCK:
+                if not superseded:
+                    _DUCK_FAILED.add(key)
+        finally:
+            with _DUCK_LOCK:
+                _DUCK_BUSY.pop(key, None)
+                if _DUCK_PROC.get(pid, (None,))[0] == key:
+                    _DUCK_PROC.pop(pid, None)
+
+    with _DUCK_LOCK:
+        _DUCK_LATEST[pid] = key
+        thread = _DUCK_BUSY.get(key)
+        if thread is None:
+            thread = threading.Thread(target=run, daemon=True, name="sfx-duck")
+            _DUCK_BUSY[key] = thread
+            thread.start()
+    if wait:
+        thread.join()
+        return duck_curve(project, data) if path.exists() else {"status": "none"}
+    return {"status": "working", "key": key}
 
 
 def mix_filters(sfx_index, total, voice_label, duck):

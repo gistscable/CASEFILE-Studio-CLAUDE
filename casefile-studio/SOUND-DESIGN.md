@@ -1,4 +1,4 @@
-# Intelligent sound design (v0.4.56)
+# Intelligent sound design (v0.4.56, corrected in v0.4.57)
 
 Optional, **off by default**. When switched on (inspector → **Sound** → "Add sound design to the export"),
 Casefile plans restrained editorial sound effects from the timeline you already have and mixes them
@@ -22,8 +22,8 @@ from the SRT cue start:
 Then it **decides** — silence is a valid result, and every decision is shown with its reason:
 
 * **Protected passages, no automatic sound at all:** any soundbite / audio break (±0.6 s), victim chapters,
-  pictures whose title, note or file name names the victim, family, a memorial, tribute, funeral or vigil,
-  and narration sentences about grief, death, violence, injury or abuse (±0.8 s). A graphic already on screen
+  pictures and narration sentences whose **context score** reaches 1.5 (v0.4.57, `sound.context`; a
+  sentence's zone is ±0.8 s). No single word decides: see "Context, not keywords" below. A graphic already on screen
   over such a sentence keeps its reveals but **softened** (muted clicks, −5 dB) across the whole graphic.
 * **Never:** gunshots, screams, sirens, voices, reconstructions. There are no such sounds in the library.
   A camera shutter exists only for manual use (it can suggest a real police/press photograph) and is never
@@ -39,11 +39,35 @@ Then it **decides** — silence is a valid result, and every decision is shown w
 * **Intensity** picks quieter/fuller variations and shifts every level by `(intensity − 0.4) × 8 dB`.
   Sounds are **not** normalised to one loudness: a tick sits about 12 dB under a low impact.
 
-**Honest limits of the understanding.** There is no language model in this: tone is read from the
-chapter kind, the structure of the timeline and conservative word patterns (`sound.py` regexes). It does
-not understand irony, implication or a sensitive passage phrased without any of the listed words; it can
-also be over-cautious (on your gg project a picture of "the vehicle registered to … mother" is protected
-because of "mother"). Silence is chosen whenever a rule is unsure. Review the plan; every sound is editable.
+### Context, not keywords (v0.4.57)
+
+Each narration sentence and each scene's picture gets a score from everything around it, and only a
+score ≥ 1.5 silences automatic sounds there. The reasons are listed with every decision in the plan.
+
+| Signal | Effect on the score |
+|---|---|
+| the sentence itself: violence (not as the name of a charge: "convicted of murder" is legal, +0.4), death, grief or memory | +2.0 / +1.8 / +1.4 |
+| family words, **by whose family**: the victim's ("Maurco's mother") / unspecified / the suspect's ("Jackson's mother") | +1.4–1.8 / +0.6–1.0 / 0 |
+| the victim named (and the suspect not) | +0.5 |
+| the case record in the same sentence (registered, records, testified, warrant, hearing, verdict…) | −0.7 each, up to −1.4 |
+| the passage: the sensitive score of the sentence before/after, in the same chapter | +0.4 × the stronger neighbour; between two sensitive sentences = inside the passage |
+| the chapter: about the victim / family | +1.0 |
+| the story role: a legal outcome or a finding ("matched", "traced") | −0.6 |
+| the picture (scenes): a victim/memorial picture by file name (base-image buckets) or by its title/note; a personal photograph of someone sensitive; what is said over it | +1.5–2.0; +0.9; + half the sentences' average |
+| a suspect, scene or case picture | −1.0 |
+
+Victims and suspects are read from the episode guide's setup (no guide: the family rule falls back to
+"unspecified"). On your gg project (`HEAD` → v0.4.57): "the vehicle registered to Duane Jackson's mother"
+−1.40 and "Jackson's mother testified" −0.60 are **no longer silenced** (the suspect's family, the record);
+"a mother remembering her son" 2.20, "lost three sons to gun violence" 3.80, "still Maurco's mother" 2.82 and
+"the first shot was fired" 2.00 still are. Pictures protected 21 → 59 (photographs of the victim and
+family, recognised by what they show), sentences 98 → 40; 37 sounds instead of 36 (gained: a low hit on
+"acquitted … aggravated-murder count"). Markers over a victim photograph keep their reveal, softened.
+
+**Honest limits.** There is still no language model: it is a weighted reading of patterns, names,
+neighbours, chapters and pictures (`sound.py`, ~150 lines). It does not understand irony or a sensitive
+passage phrased without any listed word. When it is unsure it errs towards silence. Review the plan;
+every sound is editable.
 
 ## The mix (FFmpeg)
 
@@ -85,8 +109,16 @@ Soundbites are part of the voice bus and are never processed by the effects path
    (ducking), repetition prevention, and a switch per kind: motion graphics, diagrams, typing, transitions,
    investigative revelations, photographs and documents, subscribe animation.
 6. **Mute / Solo** affect the preview only. The preview plays every sound with WebAudio on the editor's
-   clock (no stem is rendered for it); it does not apply the ducking.
-7. **Library:** browse by category and audition; add any sound at the playhead (it is tied to that scene);
+   clock (no stem is rendered for it) and **ducks them exactly as the export does** (v0.4.57, see below).
+7. **Select several (v0.4.57):** with a graphic's sound selected, "Apply changes to" offers *this sound
+   only*, *every line in this graphic* (or every marker, every step…) and *the whole graphic* (entrance,
+   divider, lines, exit…). A sound you choose goes to all of them, volume and move shift each by the same
+   amount, fades are set on all, remove/restore applies to all — one undo step ("Edit 3 sound effects").
+   The selected sounds are highlighted on the Sound FX lane.
+8. **Narration level (v0.4.57):** Audio tab and Sound → Mix, 0–200 %. It is the export's level too
+   (applied after loudness normalisation, before the music ducking and the limiter), and the preview's
+   effects ducking follows it.
+9. **Library:** browse by category and audition; add any sound at the playhead (it is tied to that scene);
    **Import a sound** (WAV/MP3/M4A/OGG/FLAC up to 30 s) — it is added to the media only, never rebuilds the
    timeline, never becomes narration or music.
 
@@ -97,16 +129,16 @@ what it followed is no longer on the timeline").
 
 | File | What |
 |---|---|
-| `sfxlib.py` | the procedural library (NumPy), cached as WAV under `cache/sfx/lib-1/` |
-| `sound.py` | settings, events, protected passages, the planner, resolving times, custom sounds, the stem, the mix filters, the editor overview |
+| `sfxlib.py` | the procedural library (NumPy), cached as WAV under `cache/sfx/lib-2/` |
+| `sound.py` | settings, context scores, events, protected passages, the planner, the preview's duck curve, resolving times, custom sounds, the stem, the mix filters, the editor overview |
 | `motion.py` | `El.role`, the typewriter entrance (`type_chars`, drawn char by char with a cursor), `sound_events(layout)` |
-| `renderer.py` | the stem as an input and the effects mix; `sound_effects` in the render report |
-| `app.py` | `PATCH sound`, `GET /api/sound/catalog`, `GET /api/sound/lib/{id}.wav`, `GET /api/projects/{id}/sound/plan`, `POST …/sound/generate`, `GET …/sound/custom/{asset}.wav`, upload role `sfx` |
+| `renderer.py` | the stem as an input and the effects mix; `voice_graph` (the voice bus, shared with the duck curve); `narration_volume`; `sound_effects` in the render report |
+| `app.py` | `PATCH sound`, `GET /api/sound/catalog`, `GET /api/sound/lib/{id}.wav`, `GET /api/projects/{id}/sound/plan`, `POST …/sound/generate`, `GET …/sound/custom/{asset}.wav`, `GET …/sound/duck`, upload role `sfx` |
 | `history.py` | `sound` is undoable, with named steps ("Move sound effect", "Sound density"…) |
 | `web/src/sound.js`, `SoundPanel.jsx`, `main.jsx`, `styles.css` | settings, presets, WebAudio preview, the Sound tab, the Sound FX lane |
 | `web/src/effectsSpec.json` | `sound` (defaults, presets, limits, spacing, ducking) and the motion `type` entrance |
-| `tests/test_sound.py`, `tests/js/sound.test.mjs` | 17 + 4 tests |
-| `qa/sound-design/` | `make_demos.py`, `benchmark.py`, the demos and `demo-report.json` |
+| `tests/test_sound.py`, `tests/js/sound.test.mjs` | 24 + 10 tests |
+| `qa/sound-design/` | `index.html` (open it: every demo and every sound, playable), `demo-reel.mp4`, `make_demos.py`, `make_page.py`, `library_audit.py`, `benchmark.py`, the demos, `demo-report.json`, `library-audit.json`, `library/v1|v2/*.mp3` |
 
 ## Dependencies
 
@@ -117,156 +149,181 @@ NumPy; decoding, ducking, limiting and encoding are FFmpeg.
 ## Library inventory and licences
 
 All 78 sounds are **generated on your computer by `sfxlib.py`** from fixed recipes and seeds (noise
-shaping, filtered sweeps, damped resonators, inharmonic partials for the bells), so the same file comes out every
+shaping, filtered sweeps, damped resonators, modal partials, FM, detuned pads, small rooms), so the same file comes out every
 time, offline. **No sound was downloaded**; there is nothing from Pixabay, Mixkit or Freesound and no
 third-party licence applies. The generated sounds are part of Casefile and can be used in your videos
 without attribution. Sounds you import are yours: use only sounds you have the right to use.
 
-LIB_VERSION 1 · 48 kHz stereo float · peak level as designed (headroom ≥ 6 dB) · first build of all
-78: 3.6–4.1 s CPU on the sandbox's 2 cores, then cached.
+LIB_VERSION 2 (v0.4.57: 66 sounds improved, 12 unchanged; see "v0.4.57 corrections") · 48 kHz stereo float ·
+peak level as designed (headroom ≥ 6 dB) · only the sounds a timeline uses are made, once, then read from
+disk; all 78 at once: ≈7 s CPU on the sandbox's 2 cores (v1: 3.5 s; the tails are longer and fuller).
 
 | id | category | description | intensity | peak dBFS | length s | sync | automatic |
 |---|---|---|---|---|---|---|---|
 | `pop-soft-1` | pop | Soft pop, round | 1 | -16 | 0.31 | onset | yes |
 | `pop-soft-2` | pop | Soft pop, low | 1 | -15 | 0.34 | onset | yes |
 | `pop-soft-3` | pop | Soft pop, bright | 2 | -16 | 0.30 | onset | yes |
-| `click-mech-1` | click | Mechanical click | 2 | -14 | 0.19 | onset | yes |
-| `click-mech-2` | click | Mechanical click, tight | 2 | -15 | 0.18 | onset | yes |
-| `click-mech-3` | click | Mechanical click, heavy | 3 | -13 | 0.19 | onset | yes |
-| `click-muted-1` | click-muted | Muted button click | 1 | -16 | 0.20 | onset | yes |
-| `click-muted-2` | click-muted | Muted click, soft | 1 | -17 | 0.20 | onset | yes |
-| `click-muted-3` | click-muted | Muted click, felt | 1 | -16 | 0.20 | onset | yes |
-| `type-strike-1` | typewriter | Typewriter key 1 | 2 | -15 | 0.24 | onset | yes |
-| `type-strike-2` | typewriter | Typewriter key 2 | 2 | -15 | 0.23 | onset | yes |
-| `type-strike-3` | typewriter | Typewriter key 3 | 2 | -15 | 0.23 | onset | yes |
-| `type-strike-4` | typewriter | Typewriter key 4 | 2 | -15 | 0.25 | onset | yes |
-| `type-strike-5` | typewriter | Typewriter key 5 | 2 | -15 | 0.24 | onset | yes |
+| `click-mech-1` | click | Mechanical click | 2 | -14 | 0.16 | onset | yes |
+| `click-mech-2` | click | Mechanical click, tight | 2 | -15 | 0.14 | onset | yes |
+| `click-mech-3` | click | Mechanical click, heavy | 3 | -13 | 0.17 | onset | yes |
+| `click-muted-1` | click-muted | Muted button click | 1 | -16 | 0.18 | onset | yes |
+| `click-muted-2` | click-muted | Muted click, soft | 1 | -17 | 0.17 | onset | yes |
+| `click-muted-3` | click-muted | Muted click, felt | 1 | -13 | 0.18 | onset | yes |
+| `type-strike-1` | typewriter | Typewriter key 1 | 2 | -15 | 0.23 | onset | yes |
+| `type-strike-2` | typewriter | Typewriter key 2 | 2 | -15 | 0.24 | onset | yes |
+| `type-strike-3` | typewriter | Typewriter key 3 | 2 | -15 | 0.24 | onset | yes |
+| `type-strike-4` | typewriter | Typewriter key 4 | 2 | -15 | 0.24 | onset | yes |
+| `type-strike-5` | typewriter | Typewriter key 5 | 2 | -15 | 0.23 | onset | yes |
 | `type-strike-6` | typewriter | Typewriter key 6 | 2 | -15 | 0.23 | onset | yes |
-| `type-space-1` | typewriter | Typewriter space bar | 2 | -16 | 0.24 | onset | yes |
-| `key-soft-1` | keyboard | Keyboard key 1 | 1 | -18 | 0.23 | onset | yes |
-| `key-soft-2` | keyboard | Keyboard key 2 | 1 | -18 | 0.21 | onset | yes |
-| `key-soft-3` | keyboard | Keyboard key 3 | 1 | -18 | 0.21 | onset | yes |
-| `key-soft-4` | keyboard | Keyboard key 4 | 1 | -18 | 0.22 | onset | yes |
-| `key-soft-5` | keyboard | Keyboard key 5 | 1 | -18 | 0.21 | onset | yes |
-| `key-soft-6` | keyboard | Keyboard key 6 | 1 | -18 | 0.23 | onset | yes |
-| `key-space-1` | keyboard | Keyboard space bar | 1 | -18 | 0.23 | onset | yes |
-| `whoosh-short-1` | whoosh | Whoosh, short | 1 | -16 | 0.90 | peak | yes |
-| `whoosh-short-2` | whoosh | Whoosh, short, airy | 1 | -17 | 0.90 | peak | yes |
-| `whoosh-mid-1` | whoosh | Whoosh, medium | 2 | -14 | 1.17 | peak | yes |
-| `whoosh-mid-2` | whoosh | Whoosh, medium, dark | 2 | -13 | 1.15 | peak | yes |
-| `whoosh-long-1` | whoosh | Whoosh, long | 2 | -14 | 1.62 | peak | yes |
-| `whoosh-dir-r` | whoosh | Whoosh, left to right | 2 | -14 | 1.09 | peak | yes |
-| `whoosh-dir-l` | whoosh | Whoosh, right to left | 2 | -14 | 1.11 | peak | yes |
-| `whoosh-dir-up` | whoosh | Whoosh, rising | 2 | -14 | 1.13 | peak | yes |
-| `rwhoosh-1` | reverse-whoosh | Reverse whoosh | 2 | -14 | 1.40 | end | yes |
-| `rwhoosh-2` | reverse-whoosh | Reverse whoosh, long | 2 | -14 | 1.85 | end | yes |
-| `rwhoosh-3` | reverse-whoosh | Reverse whoosh, short | 1 | -16 | 1.06 | end | yes |
-| `thump-deep-1` | thump | Deep cinematic thump | 2 | -9 | 1.74 | onset | yes |
-| `thump-deep-2` | thump | Deep thump, short | 2 | -10 | 1.18 | onset | yes |
-| `thump-deep-3` | thump | Deep thump, round | 3 | -8 | 2.49 | onset | yes |
-| `bass-hit-1` | bass-impact | Subtle bass impact | 2 | -10 | 3.24 | onset | yes |
-| `bass-hit-2` | bass-impact | Bass impact, soft | 1 | -12 | 2.75 | onset | yes |
-| `bass-hit-3` | bass-impact | Bass impact, wide | 2 | -10 | 4.16 | onset | yes |
-| `pulse-low-1` | pulse | Low-frequency pulse | 1 | -12 | 0.95 | onset | yes |
-| `pulse-low-2` | pulse | Low pulse, double | 2 | -12 | 1.40 | onset | yes |
-| `pulse-low-3` | pulse | Low pulse, short | 1 | -13 | 0.81 | onset | yes |
-| `notify-1` | notification | Digital notification, two notes | 1 | -18 | 1.77 | onset | yes |
-| `notify-2` | notification | Digital notification, single | 1 | -19 | 1.24 | onset | yes |
-| `notify-3` | notification | Digital notification, low | 1 | -18 | 1.66 | onset | yes |
-| `scan-1` | scan | Digital scan | 1 | -20 | 1.10 | onset | yes |
-| `scan-2` | scan | Digital scan, short | 1 | -20 | 0.60 | onset | yes |
-| `scan-3` | scan | Digital scan, long, low | 1 | -21 | 1.80 | onset | yes |
+| `type-space-1` | typewriter | Typewriter space bar | 2 | -13.5 | 0.26 | onset | yes |
+| `key-soft-1` | keyboard | Keyboard key 1 | 1 | -18 | 0.21 | onset | yes |
+| `key-soft-2` | keyboard | Keyboard key 2 | 1 | -18 | 0.22 | onset | yes |
+| `key-soft-3` | keyboard | Keyboard key 3 | 1 | -18 | 0.22 | onset | yes |
+| `key-soft-4` | keyboard | Keyboard key 4 | 1 | -18 | 0.21 | onset | yes |
+| `key-soft-5` | keyboard | Keyboard key 5 | 1 | -18 | 0.22 | onset | yes |
+| `key-soft-6` | keyboard | Keyboard key 6 | 1 | -18 | 0.22 | onset | yes |
+| `key-space-1` | keyboard | Keyboard space bar | 1 | -18 | 0.25 | onset | yes |
+| `whoosh-short-1` | whoosh | Whoosh, short | 1 | -16 | 0.89 | crest | yes |
+| `whoosh-short-2` | whoosh | Whoosh, short, airy | 1 | -19.5 | 0.95 | crest | yes |
+| `whoosh-mid-1` | whoosh | Whoosh, medium | 2 | -14 | 1.16 | crest | yes |
+| `whoosh-mid-2` | whoosh | Whoosh, medium, dark | 2 | -13 | 1.14 | crest | yes |
+| `whoosh-long-1` | whoosh | Whoosh, long | 2 | -14 | 1.58 | crest | yes |
+| `whoosh-dir-r` | whoosh | Whoosh, left to right | 2 | -14 | 1.10 | crest | yes |
+| `whoosh-dir-l` | whoosh | Whoosh, right to left | 2 | -14 | 1.09 | crest | yes |
+| `whoosh-dir-up` | whoosh | Whoosh, rising | 2 | -14 | 1.12 | crest | yes |
+| `rwhoosh-1` | reverse-whoosh | Reverse whoosh | 2 | -14 | 1.39 | end | yes |
+| `rwhoosh-2` | reverse-whoosh | Reverse whoosh, long | 2 | -14 | 1.90 | end | yes |
+| `rwhoosh-3` | reverse-whoosh | Reverse whoosh, short | 1 | -16 | 1.03 | end | yes |
+| `thump-deep-1` | thump | Deep cinematic thump | 2 | -9 | 2.60 | onset | yes |
+| `thump-deep-2` | thump | Deep thump, short | 2 | -10 | 1.60 | onset | yes |
+| `thump-deep-3` | thump | Deep thump, round | 3 | -6 | 3.61 | onset | yes |
+| `bass-hit-1` | bass-impact | Subtle bass impact | 2 | -8.5 | 4.82 | onset | yes |
+| `bass-hit-2` | bass-impact | Bass impact, soft | 1 | -12 | 4.06 | onset | yes |
+| `bass-hit-3` | bass-impact | Bass impact, wide | 2 | -8.5 | 5.98 | onset | yes |
+| `pulse-low-1` | pulse | Low-frequency pulse | 1 | -9.5 | 1.09 | onset | yes |
+| `pulse-low-2` | pulse | Low pulse, double | 2 | -10 | 1.49 | onset | yes |
+| `pulse-low-3` | pulse | Low pulse, short | 1 | -10 | 0.92 | onset | yes |
+| `notify-1` | notification | Digital notification, two notes | 1 | -20.5 | 2.25 | onset | yes |
+| `notify-2` | notification | Digital notification, single | 1 | -19 | 1.69 | onset | yes |
+| `notify-3` | notification | Digital notification, low | 1 | -18 | 2.18 | onset | yes |
+| `scan-1` | scan | Digital scan | 1 | -17.5 | 1.26 | onset | yes |
+| `scan-2` | scan | Digital scan, short | 1 | -16.5 | 0.77 | onset | yes |
+| `scan-3` | scan | Digital scan, long, low | 1 | -17.5 | 1.92 | onset | yes |
 | `paper-1` | paper | Paper movement | 1 | -18 | 0.64 | onset | yes |
 | `paper-2` | paper | Paper movement, crisp | 1 | -18 | 0.55 | onset | yes |
 | `paper-3` | paper | Paper slide | 1 | -18 | 0.81 | onset | yes |
-| `doc-1` | document | Document reveal | 2 | -15 | 0.78 | onset | yes |
-| `doc-2` | document | Document reveal, quick | 1 | -16 | 0.67 | onset | yes |
-| `doc-3` | document | Document reveal, slow | 2 | -15 | 0.97 | onset | yes |
+| `doc-1` | document | Document reveal | 2 | -15 | 0.82 | onset | yes |
+| `doc-2` | document | Document reveal, quick | 1 | -16 | 0.71 | onset | yes |
+| `doc-3` | document | Document reveal, slow | 2 | -15 | 1.00 | onset | yes |
 | `shutter-1` | shutter | Camera shutter (manual use only) | 2 | -16 | 0.26 | onset | never (manual only) |
-| `shutter-2` | shutter | Camera shutter, soft (manual use only) | 1 | -18 | 0.26 | onset | never (manual only) |
+| `shutter-2` | shutter | Camera shutter, soft (manual use only) | 1 | -16.5 | 0.25 | onset | never (manual only) |
 | `tick-1` | tick | Soft tick | 1 | -20 | 0.18 | onset | yes |
 | `tick-2` | tick | Soft tick, low | 1 | -20 | 0.18 | onset | yes |
-| `tick-seq-1` | tick | Ticking, four seconds | 1 | -21 | 3.17 | onset | no (manual) |
+| `tick-seq-1` | tick | Ticking, four seconds | 1 | -21 | 3.17 | onset | yes |
 | `riser-1` | riser | Cinematic riser, two seconds | 2 | -15 | 2.83 | end | yes |
 | `riser-2` | riser | Cinematic riser, three seconds | 2 | -15 | 3.80 | end | yes |
 | `riser-3` | riser | Riser, short | 1 | -16 | 2.03 | end | yes |
-| `sweep-up-1` | tonal-sweep | Tonal sweep, up | 1 | -19 | 1.45 | peak | yes |
-| `sweep-up-2` | tonal-sweep | Tonal sweep, up, short | 1 | -19 | 1.25 | peak | yes |
-| `sweep-down-1` | tonal-sweep | Tonal sweep, down | 1 | -19 | 1.53 | peak | yes |
-| `swell-1` | swell | Atmospheric swell, minor | 2 | -17 | 4.42 | peak | yes |
-| `swell-2` | swell | Atmospheric swell, low | 1 | -17 | 5.11 | peak | yes |
-| `swell-3` | swell | Atmospheric swell, open | 2 | -17 | 3.89 | peak | yes |
-| `impact-tr-1` | transition-impact | Transition impact | 2 | -9 | 2.84 | onset | yes |
-| `impact-tr-2` | transition-impact | Transition impact, light | 1 | -11 | 2.49 | onset | yes |
-| `impact-tr-3` | transition-impact | Transition impact, heavy | 3 | -8 | 3.32 | onset | yes |
-| `bell-1` | bell | Notification bell | 1 | -17 | 3.27 | onset | yes |
-| `bell-2` | bell | Notification bell, double | 2 | -17 | 3.24 | onset | yes |
+| `sweep-up-1` | tonal-sweep | Tonal sweep, up | 1 | -19 | 1.47 | crest | yes |
+| `sweep-up-2` | tonal-sweep | Tonal sweep, up, short | 1 | -19 | 1.17 | crest | yes |
+| `sweep-down-1` | tonal-sweep | Tonal sweep, down | 1 | -19 | 1.54 | crest | yes |
+| `swell-1` | swell | Atmospheric swell, minor | 2 | -17 | 4.33 | crest | yes |
+| `swell-2` | swell | Atmospheric swell, low | 1 | -14 | 5.11 | crest | yes |
+| `swell-3` | swell | Atmospheric swell, open | 2 | -14 | 3.93 | crest | yes |
+| `impact-tr-1` | transition-impact | Transition impact | 2 | -6.5 | 4.23 | onset | yes |
+| `impact-tr-2` | transition-impact | Transition impact, light | 1 | -9.5 | 3.54 | onset | yes |
+| `impact-tr-3` | transition-impact | Transition impact, heavy | 3 | -6 | 5.01 | onset | yes |
+| `bell-1` | bell | Notification bell | 1 | -17 | 3.32 | onset | yes |
+| `bell-2` | bell | Notification bell, double | 2 | -17 | 3.25 | onset | yes |
 | `bell-3` | bell | Bell, small | 1 | -18 | 2.44 | onset | yes |
-| `cta-click-1` | cta-click | Subscribe button click | 2 | -13 | 0.20 | onset | yes |
-| `cta-click-2` | cta-click | Button click, soft | 1 | -15 | 0.22 | onset | yes |
-| `cta-click-3` | cta-click | Button click, bright | 2 | -14 | 0.18 | onset | yes |
+| `cta-click-1` | cta-click | Subscribe button click | 2 | -13 | 0.17 | onset | yes |
+| `cta-click-2` | cta-click | Button click, soft | 1 | -13 | 0.20 | onset | yes |
+| `cta-click-3` | cta-click | Button click, bright | 2 | -14 | 0.16 | onset | yes |
 
 
 ## Demonstrations (`qa/sound-design/`)
 
+**Open `qa/sound-design/index.html`** (or `demo-reel.mp4`: all seven, before then after, 4 min). The page
+plays each demo before | after side by side with what to listen for, every sound placed and every moment
+left silent, and the measurements; below them, every library sound playable, v0.4.56 next to v0.4.57.
+
 Each demo is rendered **twice by the real exporter** at 720p — `demo-N-…-before.mp4` (sound design off)
-and `…-after.mp4` (on, Cinematic preset). The narration voices are AI-generated for the demos; pictures
-are neutral placeholder plates (no case imagery is made up). `make_demos.py` remakes them and writes
-`demo-report.json`; because the narration is identical in both renders, after − before is exactly what
-the sound design added, and each sound is measured in the delivered AAC audio.
+and `…-after.mp4` (on, Cinematic preset), with the effects, animations, transitions, narration and the
+subscribe animation together. The narration voices are AI-generated for the demos; pictures are neutral
+placeholder plates (no case imagery is made up). `make_demos.py` remakes them and writes `demo-report.json`.
+Because the narration is identical in both renders, after − before is what the sound design added.
 
-| Demo | Sounds placed | Sync error (isolated transients) | Loudest effect vs speech | Peak (after) |
-|---|---|---|---|---|
-| 1 Bullet reveals (findings) | entrance whoosh, divider sweep, 3 line clicks (one sound for the graphic) | max 1.9 ms | −9.1 dB | −3.1 dBFS |
-| 2 Typing (typewriter entrance) | 84 keys over heading + 2 lines; no click/whoosh doubling the keys | keys: median 0.3 ms, p95 6.7 ms, max 18.9 ms ¹ | −13.8 dB | −4.7 dBFS |
-| 3 Diagram (timeline) | directional entrance, divider sweep, 3 marker ticks | max 0.7 ms | −8.7 dB | −4.3 dBFS |
-| 4 Transitions | slide-left → leftward whoosh; circle → tonal sweep; dip-to-black new chapter → swell; hard cut → nothing | (slow shapes: placed by crest) | −10.0 dB | −4.2 dBFS |
-| 5 Narrative development | one restrained low thump on "matched" ("The DNA on the receipt matched him.") | 2.5 ms | −7.3 dB | −4.4 dBFS |
-| 6 Subscribe animation | entrance whoosh, click on SUBSCRIBE, bell, exit (existing CTA settings unchanged) | 1.2 ms | −16.5 dB | −4.6 dBFS |
-| 7 Family interview suppression | **nothing**: both slide transitions around the sister's soundbite and the picture after it are silenced ("original source audio") | — | after = before, sample for sample | −1.1 dBFS (both) |
+v0.4.57 (library v2):
 
-In every demo the export's effects line up with the stem that was mixed at **0.0 ms** lag; integrated
-loudness changes by ≤ 0.1 LU (the effects are restrained); **no sample reaches full scale**. Render time
-is unchanged within noise (e.g. 6.6 → 7.0 s for demo 4; the stem takes milliseconds for short demos).
+| Demo | Sounds placed | Exact placement ¹ | Onset in the AAC ² | Loudest effect vs speech | Peak (after) |
+|---|---|---|---|---|---|
+| 1 Bullet reveals (findings) | entrance whoosh, divider sweep, 3 line clicks (one sound for the graphic) | 0.0 ms (5) | max 2.4 ms | −10.7 dB | −3.1 dBFS |
+| 2 Typing (typewriter entrance) | 84 keys over heading + 2 lines; no click/whoosh doubling the keys | 0.0 ms (84 keys) | median 0.3, p95 14.1 ms | −14.4 dB | −4.8 dBFS |
+| 3 Diagram (timeline) | directional entrance, divider sweep, 3 marker ticks | 0.0 ms (5) | max 0.7 ms | −10.3 dB | −4.1 dBFS |
+| 4 Transitions | slide-left → leftward whoosh; circle → tonal sweep; dip-to-black new chapter → swell; hard cut → nothing | 0.0 ms (3) | (slow shapes) | −10.9 dB | −4.1 dBFS |
+| 5 Narrative development | one restrained low thump on "matched" | 0.0 ms (1) | 2.2 ms | −7.5 dB | −4.4 dBFS |
+| 6 Subscribe animation | entrance whoosh, click on SUBSCRIBE, bell, exit (existing CTA settings unchanged) | 0.0 ms (4) | max 1.6 ms | −18.6 dB | −4.6 dBFS |
+| 7 Family interview suppression | **nothing**: both slide transitions around the sister's soundbite and the picture after it are silenced ("original source audio") | — | — | after = before | −1.1 dBFS (both) |
 
-¹ keys are ~59 ms apart (17 characters/s); the larger values are the detector catching the tail of the
-previous key in its ±20 ms window. The placement itself is sample-exact (`test_stem_is_sample_accurate…`)
-and the key times equal the drawn characters' frames (`test_typing_keys_match_the_typed_characters`).
+v0.4.56 for comparison: effects vs speech −9.1 / −13.8 / −8.7 / −10.0 / −7.3 / −16.5 dB; peaks equal within
+0.2 dB. The fuller v2 sounds sit 1–2 dB further under the voice at the same level settings.
+
+In every demo the export lines up with the stem at **0.0 ms** lag, integrated loudness changes by
+≤ 0.1 LU and **no sample reaches full scale**.
+
+¹ Each sound's own waveform found in the mixed stem by cross-correlation (±20 ms): the true placement,
+to the sample. ² The first onset detected in the delivered AAC after − before; AAC's pre-echo smears
+transients by a few ms, and for typing (keys ~59 ms apart) the detector sometimes catches the tail of the
+previous key — the large p95 is that, not a placement error (the placement is 0.0 ms for all 84).
 
 ## Benchmarks (your gg project, 231 scenes, 18.4 min, 5 approved graphics; sandbox: 2 cores)
 
-| Step | Wall | CPU | Notes |
-|---|---|---|---|
-| Library, all 78 sounds, first time ever | 3.73 s | 3.73 s | then cached on disk |
-| Events, first time (graphics timings) | 3.30 s | 3.30 s | motion layout (Pillow text measuring), cached per graphic in memory |
-| Events, cached | 0.08 s | 0.08 s | |
-| Plan | 0.09 s | 0.09 s | 256 events → 36 sounds, 119 left silent |
-| Resolve (times, files) | 0.17 s | 0.17 s | |
-| Stem, whole 18.4 min | 2.96 s | 0.73 s | 10 s blocks, FLAC 3.7 MB; added to the export |
-| Stem, unchanged plan | 0.18 s | 0.18 s | cached by content |
-| One sound edited: plan | 0.30 s | 0.30 s | 35/35 other sounds unchanged |
-| One sound edited: stem | 3.06 s | 0.93 s | only at export |
-| Every sound moved 5 frames and 3 dB quieter: plan | 0.25 s | 0.25 s | the same 36 moments, nothing added or dropped |
+v0.4.56 and v0.4.57 run back to back in the same sandbox (`benchmark.py`):
 
-Peak memory 88 MB for the whole benchmark (process RSS). The plan endpoint runs in a worker thread, the
-preview never renders audio, and the stem is only written at export.
+| Step | v0.4.56 | v0.4.57 | Notes |
+|---|---|---|---|
+| Library, all 78 sounds at once | 3.50 s | 7.10 s | never in the editor: a timeline makes only the sounds it uses, once, then reads them from disk |
+| Events, first time (graphics timings) | 3.28 s | 3.28 s | motion layout, cached per graphic |
+| Events, cached | 0.080 s | 0.089 s | |
+| Plan | 0.089 s | 0.095 s | 257 events → 37 sounds, 99 silent; the context scores are cached per sentence |
+| Resolve (times, files) | 0.166 s | 0.183 s | |
+| Stem, whole 18.4 min | 2.76 s | 2.83 s | FLAC 3.7 → 4.7 MB (the tails are no longer cut) |
+| Stem, unchanged plan | 0.176 s | 0.186 s | cached by content |
+| One sound edited: plan / stem | 0.250 / 3.00 s | 0.272 / 3.07 s | 36/36 other sounds unchanged |
+| Every sound moved and quieter: plan | 0.236 s | 0.266 s | the same 37 moments |
+
+Peak memory with the library already made (everyday work: events, plan, stem): 84 → 90 MB. Making all 78
+sounds at once peaks at 124 MB (v1: 90 MB).
+
+**Preview ducking curve** (new): computed in the background by FFmpeg with the export's own voice bus.
+Requests never wait (4 ms; cached curve 5 ms, 280 KB for 18 min). The curve is ready ≈ 65 s after an edit
+that changes the voice on an 18-minute timeline (the export's `loudnorm` is most of it: 50 s), within a
+second or two on short ones. One job per project at a time, at low CPU priority; an edit while it runs
+stops the obsolete job (measured: three quick edits → one FFmpeg process at a time, nice 10). Until the new
+curve arrives the preview keeps the previous one. Edits that do not touch the voice (graphics, sounds,
+effects) reuse the cached curve.
 
 ## Tests
 
-`tests/test_sound.py` (17): library (determinism, levels, headroom, all categories, cache), shutter never
+`tests/test_sound.py` (24): library (determinism, levels, headroom, all categories, cache), shutter never
 automatic, settings in range, transition mapping, protected passages (soundbite, victim chapter, sensitive
 narration), legal outcome on the word, density and spacing, shared sounds per graphic, sync to the drawn
 frame, typing keys = drawn characters, moving/deleting a graphic moves/removes its sounds, editing one
-sound leaves the rest, a decided sound holds its moment (edit, new variation, removal, move either way, and a
-sound of your own next to a planned one), the stem (sample accuracy, cache, no clipping with four loud sounds at master 1.5),
-the export (off: the effects code is never reached; on: whoosh present, narration unchanged, no clipping,
-warnings for lost sounds), undo names, the API, importing a sound never touches the timeline.
-`tests/js/sound.test.mjs` (4). Full suite: **619 passed, 1 skipped**; JS **39 pass**.
+sound leaves the rest, a decided sound holds its moment, the stem (sample accuracy, cache, no clipping),
+the export, undo names, the API, importing a sound never touches the timeline. **v0.4.57 adds:** the
+preview's duck curve = the export's gain (median 0.02 dB, p95 1.0 dB, at narration 100 % and 40 %);
+narration level in the export; one duck job per project (obsolete jobs stopped, not failed); context: no
+single word decides (the suspect's mother vs the victim's mother, a charge vs violence, a neutral line
+inside a grief passage, pictures); **sync through edits** — a scene shortened, a transition made longer,
+replaced (slide → wipe up → cut), scenes reordered, a line edited, an entrance changed to typing, a
+graphic moved with a user-edited sound on it — every sound follows its element to the frame and, in the
+rendered stem, each sound's waveform is found exactly where planned; bulk edits are one named undo step.
+`tests/js/sound.test.mjs` (10, adds scope selection, bulk edits, duck decoding and scheduling).
+Full suite: **626 passed, 1 skipped**; JS **42 pass**.
 
 ## Limitations
 
 * The understanding is rule-based (see above). It cannot judge tone the way an editor does.
-* The preview does not duck the effects under the voice; the export does.
+* On long timelines the preview's ducking catches up ≈ 1 min after an edit that changes the voice (see Benchmarks).
 * The preview places scene-anchored sounds on the editor's scene offsets; the export on frame-rounded
   ones (they differ by less than a frame per scene where a scene's length is not a whole number of frames).
 * The Sound FX lane is the last lane of the timeline: on a short timeline panel, scroll the lanes (or make
@@ -275,5 +332,40 @@ warnings for lost sounds), undo names, the API, importing a sound never touches 
 * The first plan after the server starts reads every approved graphic's layout (≈0.65 s per graphic).
 * Typing sounds exist only for the new **Typewriter** entrance (Motion → Entrance); other entrances get a
   reveal click per line.
-* The library is synthesised: clean and consistent, but not as rich as recorded foley. Imported sounds
-  can replace any of them.
+* The library is synthesised. v2 is far richer than v1 (measured below) but it is still not recorded
+  foley: listen on the page before deciding. Imported sounds can replace any of them.
+* Two keystroke variations (`type-strike-6`, `key-soft-6`) are 2.1–2.4 dB lighter than in v1 on purpose
+  (a lighter finger in the cycle); every other changed sound is within 1.5 dB of its v1 loudness.
+
+## v0.4.57 corrections
+
+Targeted fixes after the v0.4.56 review; the engine, the plan format and the existing behaviour are unchanged.
+
+1. **Preview = export ducking.** `GET /api/projects/{id}/sound/duck` runs FFmpeg's `sidechaincompress` with
+   the export's settings, keyed by the export's own voice bus (`renderer.voice_graph`: narration, soundbites,
+   loudnorm, the narration level), on a constant 1.0, so its output *is* the gain the export applies. The
+   editor gets it at 200 values/s and schedules it on a WebAudio gain node. Measured against the export:
+   median 0.02 dB, p95 1.0 dB, max 2.3 dB (without it the preview was 2.7 dB off on median).
+2. **Context, not keywords** — above.
+3. **Library v2.** Every sound was audited (`library_audit.py`: spectral peaks, flatness, abrupt tail cuts,
+   high-frequency content, stereo width, similarity between variations). 66 sounds were rebuilt, 12
+   (pop, paper, tick, riser) left as they were, none added. Same ids, categories, sync points; loudness
+   compensated so the mix does not shift.
+
+   | Problem found in v1 | v1 | v2 |
+   |---|---|---|
+   | layers stopped abruptly (high-passed tail cut) — thump / bass hit / impact / pulse | 89–111 dB | 3–7 dB |
+   | whooshes were a narrow whistling band (flatness) | −38 to −113 dB | −11 to −53 dB |
+   | the low pulse was a bare sine | −137 dB | −39 to −95 dB |
+   | the two camera shutters were the same sound (similarity) | 0.97 | 0.74 |
+   | key variations very similar (only slightly less so in v2: typing variety comes mostly from the 6-key cycle and its strengths) | 0.94–0.97 | 0.93–0.96 |
+
+   What changed per category is listed on `index.html`, with v1 and v2 playable side by side.
+4. **Demos** made playable in one place (`index.html`, `demo-reel.mp4`) and re-rendered with v2; the
+   report adds the exact placement metric.
+5. **Sync through edits** verified by test (above) and in the browser.
+6. **Select several:** "Apply changes to" this sound / every line / the whole graphic. **Narration level**
+   0–200 %, in the export and the preview.
+7. **Performance:** no dependency added (NumPy, FFmpeg). Context scores cached per sentence; the duck curve
+   cached and computed one job per project at low priority.
+

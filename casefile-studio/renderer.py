@@ -663,6 +663,121 @@ def asset_path(asset):
     return p
 
 
+def narration_volume(project):
+    """v0.4.57 The narration level (1 = as recorded / as normalised; 0..2)."""
+    try:
+        v = float(project.get("narration_volume", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+    return 1.0 if v != v else round(min(2.0, max(0.0, v)), 3)
+
+
+def voice_graph(project, scenes, total, voice_index, insert_inputs):
+    """v0.4.57 The FFmpeg filters that make the voice bus [voice] (narration, and Mode O soundbites),
+    exactly as the export mixes it. The editor preview's effects ducking is computed from this same
+    graph (sound.duck_curve), so what you hear while editing is what the export does.
+    The narration volume is applied to the narration only (soundbites keep their level); in the
+    scene-sliced path it comes after the loudness normalisation, which would otherwise undo it."""
+    af = []
+    if voice_index is None:
+        return af
+    v = narration_volume(project)
+    nv = f"volume={v}," if v != 1.0 else ""
+    nv_after = f",volume={v}" if v != 1.0 else ""
+    # v0.4.19: narration timestamps are rebuilt from the sample count
+    # (asetpts=N/SR/TB) instead of trusting the file's own timestamps. The
+    # recording then plays back-to-back exactly as it sounds in any player,
+    # even if the file has timestamp jumps (some MP3/CapCut/phone exports
+    # do), which previously could shorten or cut the narration.
+    if (
+        voice_index is not None
+        and insert_inputs
+        and (project.get("episode") or {}).get("guide")
+    ):
+        # Narration pauses for each audio break and resumes at the same word.
+        fmt = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+        segments, span, ncur = [], None, 0.0
+        for i, scene in enumerate(scenes):
+            length = round(float(scene["duration"]) * FPS) / FPS
+            if scene.get("insert_audio"):
+                if span:
+                    segments.append(("n", span[0], span[1]))
+                    span = None
+                segments.append(("i", i, length))
+            else:
+                if span is None:
+                    span = [ncur, 0.0]
+                span[1] += length
+                ncur += length
+        if span:
+            segments.append(("n", span[0], span[1]))
+        n_count = sum(1 for g in segments if g[0] == "n")
+        if n_count == 1:
+            af.append(
+                f"[{voice_index}:a]asetpts=N/SR/TB,{nv}{fmt},apad[nv0]"
+            )
+        else:
+            labels = "".join(f"[nv{k}]" for k in range(n_count))
+            af.append(
+                f"[{voice_index}:a]asetpts=N/SR/TB,{nv}{fmt},apad,asplit={n_count}{labels}"
+            )
+        order, k = [], 0
+        for g in segments:
+            if g[0] == "n":
+                start, length = g[1], g[2]
+                af.append(
+                    f"[nv{k}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={length}[vn{k}]"
+                )
+                order.append(f"[vn{k}]")
+                k += 1
+            else:
+                _, i, length = g
+                scene = scenes[i]
+                a = float(scene.get("trim_start", 0))
+                b = a + length
+                fade = min(0.08, length / 4)
+                af.append(
+                    f"[{insert_inputs[i]}:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
+                    f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},afade=t=in:d={fade},"
+                    f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}[vi{i}]"
+                )
+                order.append(f"[vi{i}]")
+        af.append(
+            f"{''.join(order)}concat=n={len(order)}:v=0:a=1,{fmt},atrim=duration={total}[voice]"
+        )
+    elif voice_index is not None and (project.get("episode") or {}).get("guide"):
+        # Guide projects retain the continuous uploaded recording, not a sequence
+        # of regenerated or rearranged snippets. Only the last frame is padded.
+        af.append(
+            f"[{voice_index}:a]asetpts=N/SR/TB,{nv}aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={total}[voice]"
+        )
+    elif voice_index is not None:
+        # Slice the master voice by scene before concatenating, so scene reorder
+        # and trimming affect the narration as well as the picture.
+        labels = "".join(f"[vs{i}]" for i in range(len(scenes)))
+        af.append(f"[{voice_index}:a]asetpts=N/SR/TB,asplit={len(scenes)}{labels}")
+        cursor = 0.0
+        for i, scene in enumerate(scenes):
+            start = max(0, float(scene.get("audio_start", cursor)))
+            length = max(
+                0.04,
+                min(
+                    float(scene.get("audio_duration", scene["duration"])),
+                    float(scene["duration"]),
+                ),
+            )
+            duration = round(float(scene["duration"]) * FPS) / FPS
+            af.append(
+                f"[vs{i}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={duration}[va{i}]"
+            )
+            cursor += float(scene["duration"])
+        joined = "".join(f"[va{i}]" for i in range(len(scenes)))
+        af.append(
+            f"{joined}concat=n={len(scenes)}:v=0:a=1,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11{nv_after}[voice]"
+        )
+    return af
+
+
 def render(
     project: dict, options: dict, out: Path, progress: Callable, cancelled: Callable
 ):
@@ -1215,97 +1330,7 @@ def render(
                 sfx_index, sfx_placed = None, []
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
-        # v0.4.19: narration timestamps are rebuilt from the sample count
-        # (asetpts=N/SR/TB) instead of trusting the file's own timestamps. The
-        # recording then plays back-to-back exactly as it sounds in any player,
-        # even if the file has timestamp jumps (some MP3/CapCut/phone exports
-        # do), which previously could shorten or cut the narration.
-        if (
-            voice_index is not None
-            and insert_inputs
-            and (project.get("episode") or {}).get("guide")
-        ):
-            # Narration pauses for each audio break and resumes at the same word.
-            fmt = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
-            segments, span, ncur = [], None, 0.0
-            for i, scene in enumerate(scenes):
-                length = round(float(scene["duration"]) * FPS) / FPS
-                if scene.get("insert_audio"):
-                    if span:
-                        segments.append(("n", span[0], span[1]))
-                        span = None
-                    segments.append(("i", i, length))
-                else:
-                    if span is None:
-                        span = [ncur, 0.0]
-                    span[1] += length
-                    ncur += length
-            if span:
-                segments.append(("n", span[0], span[1]))
-            n_count = sum(1 for g in segments if g[0] == "n")
-            if n_count == 1:
-                af.append(
-                    f"[{voice_index}:a]asetpts=N/SR/TB,{fmt},apad[nv0]"
-                )
-            else:
-                labels = "".join(f"[nv{k}]" for k in range(n_count))
-                af.append(
-                    f"[{voice_index}:a]asetpts=N/SR/TB,{fmt},apad,asplit={n_count}{labels}"
-                )
-            order, k = [], 0
-            for g in segments:
-                if g[0] == "n":
-                    start, length = g[1], g[2]
-                    af.append(
-                        f"[nv{k}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={length}[vn{k}]"
-                    )
-                    order.append(f"[vn{k}]")
-                    k += 1
-                else:
-                    _, i, length = g
-                    scene = scenes[i]
-                    a = float(scene.get("trim_start", 0))
-                    b = a + length
-                    fade = min(0.08, length / 4)
-                    af.append(
-                        f"[{insert_inputs[i]}:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
-                        f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},afade=t=in:d={fade},"
-                        f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}[vi{i}]"
-                    )
-                    order.append(f"[vi{i}]")
-            af.append(
-                f"{''.join(order)}concat=n={len(order)}:v=0:a=1,{fmt},atrim=duration={total}[voice]"
-            )
-        elif voice_index is not None and (project.get("episode") or {}).get("guide"):
-            # Guide projects retain the continuous uploaded recording, not a sequence
-            # of regenerated or rearranged snippets. Only the last frame is padded.
-            af.append(
-                f"[{voice_index}:a]asetpts=N/SR/TB,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad,atrim=duration={total}[voice]"
-            )
-        elif voice_index is not None:
-            # Slice the master voice by scene before concatenating, so scene reorder
-            # and trimming affect the narration as well as the picture.
-            labels = "".join(f"[vs{i}]" for i in range(len(scenes)))
-            af.append(f"[{voice_index}:a]asetpts=N/SR/TB,asplit={len(scenes)}{labels}")
-            cursor = 0.0
-            for i, scene in enumerate(scenes):
-                start = max(0, float(scene.get("audio_start", cursor)))
-                length = max(
-                    0.04,
-                    min(
-                        float(scene.get("audio_duration", scene["duration"])),
-                        float(scene["duration"]),
-                    ),
-                )
-                duration = round(float(scene["duration"]) * FPS) / FPS
-                af.append(
-                    f"[vs{i}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={duration}[va{i}]"
-                )
-                cursor += float(scene["duration"])
-            joined = "".join(f"[va{i}]" for i in range(len(scenes)))
-            af.append(
-                f"{joined}concat=n={len(scenes)}:v=0:a=1,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11[voice]"
-            )
+        af += voice_graph(project, scenes, total, voice_index, insert_inputs)
         if music_index is not None:
             af.append(
                 f"[{music_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=duration={total},asetpts=PTS-STARTPTS,volume={volume},afade=t=in:d=1.5,afade=t=out:st={max(0, total - 2)}:d=2[bed]"
