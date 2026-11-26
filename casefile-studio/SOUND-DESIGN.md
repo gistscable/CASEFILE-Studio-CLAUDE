@@ -556,9 +556,12 @@ bus is now rendered in its own pass (`work/voice.wav`, 32-bit float, exactly the
 mixed from there. `tail_check.py`: all five cases 40.0 s (v0.4.58: 37.12 s for three); narration-only and
 guide exports sample-identical to v0.4.58; with effects or music the difference is −76.6 / −67.4 dB RMS.
 
+### Tests
+
+Full suite 648 passed, 1 skipped (v0.4.58: 638); JS 53 (v0.4.58: 49); build OK.
+
 ### Remaining limitations
 
-* Tests: full suite 648 passed, 1 skipped (v0.4.58: 638); JS 53 (v0.4.58: 49); build OK.
 * A scene edit still re-runs the full voice-bus analysis in the background (97 s on a 25-min sliced
   timeline, 21–30 s for guides); the preview uses the previous curve until it is ready.
 * Preview loop timing depends on the browser's media clock: measured ≤ 18 ms in headless Chromium; a
