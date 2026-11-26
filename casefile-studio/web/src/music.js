@@ -191,6 +191,49 @@ function curveEvents(curve, t, now, horizon = 4) {
 
 // ------------------------------------------------------------------ the preview player
 
+/** v0.4.59 The envelope of preview element `slot` (0 / 1: the alternate passes) at timeline time t:
+ *  the gain of the pass of that parity under t (crossfades and the run's fades), 0 between them.
+ *  Two passes of one parity never overlap (a crossfade is at most half a pass). Pure. */
+export function slotGain(lay, slot, t) {
+  let i = 0;
+  for (const run of lay?.runs || []) {
+    for (let k = 0; k < run.iters.length; k++, i++) {
+      if (i % 2 !== slot) continue;
+      const it = run.iters[k];
+      if (t >= it.at && t < it.at + it.len) return passGain(lay, run, k, t);
+    }
+  }
+  return 0;
+}
+
+/** v0.4.59 Gain automation for element `slot`: [[audioTime, value]] from timeline time t (= audio
+ *  time `now`) for `horizon` seconds — every `step` seconds plus every point where the envelope
+ *  bends (pass and crossfade edges, fade ends), so linear ramps between them trace the export's
+ *  equal-power crossfades and fades. The preview's gains are then scheduled on the audio clock,
+ *  exactly where the export has them, instead of chased once per frame. Pure. */
+export function envEvents(lay, slot, t, now, horizon = 3, step = 0.02) {
+  const pts = new Set();
+  for (let u = 0; u <= horizon + 1e-9; u += step) pts.add(+(t + u).toFixed(6));
+  const x = lay?.crossfade || 0, eps = 1e-4;
+  const edge = (v) => { if (v > t && v < t + horizon) { pts.add(+v.toFixed(6)); pts.add(+(v - eps).toFixed(6)); } };
+  for (const run of lay?.runs || []) {
+    edge(run.at); edge(run.end); edge(run.at + run.fade_in); edge(run.end - run.fade_out);
+    for (const it of run.iters) { edge(it.at); edge(it.at + it.len); edge(it.at + x); edge(it.at + it.len - x); }
+  }
+  return [...pts].sort((a, b) => a - b).map((tt) => [now + (tt - t), slotGain(lay, slot, tt)]);
+}
+
+/** v0.4.59 How to bring a playing element back in step: {seek: position} | {rate} (1 = in step).
+ *  `drift` = element position - where it should be (s); `gain` = how loud it is now. A seek is
+ *  heard as a jump, so small errors are trimmed with the playback rate (±3 %, pitch kept) and a
+ *  seek is only made where the music is (nearly) silent or the error is large. Pure. */
+export function syncStep(drift, gain, target) {
+  const a = Math.abs(drift);
+  if (a > 0.25 || (gain < 0.15 && a > 0.03)) return { seek: target };
+  if (a <= 0.008) return { rate: 1 };
+  return { rate: Math.min(1.03, Math.max(0.97, 1 - drift * 0.6)) };
+}
+
 export class MusicPreview {
   /** `host`: the SfxPreview (one AudioContext for the whole preview). */
   constructor(host) {
@@ -204,7 +247,10 @@ export class MusicPreview {
     this.duck = null;
     this.duckUntil = 0;
     this.nodes = null;
-    this.anchor = null;
+    this.anchor = null; // timeline time t is audio time `at` (the audio clock drives everything)
+    this.envUntil = [0, 0]; // per element: its gain automation is scheduled up to this audio time
+    this.lat = 0.03; // measured delay between play() and the element really playing (s)
+    this.starting = [null, null]; // per element: {req, pos} while play() is starting
   }
   _graph() {
     if (this.nodes) return this.nodes;
@@ -237,6 +283,7 @@ export class MusicPreview {
     while (this.els.length < 2) {
       const el = new Audio();
       el.preload = "auto";
+      el.preservesPitch = true; // a rate trim keeps the pitch
       this.els.push(el);
       if (this.nodes) this._attach(el, this.els.length - 1);
     }
@@ -245,6 +292,7 @@ export class MusicPreview {
   setLayout(lay) {
     this.lay = lay;
     this.passes = musicPasses(lay);
+    this.envUntil = [0, 0]; // the new layout's envelope is scheduled from now on
   }
   /** Real time: a gain ramp, nothing else. */
   setVolume(v) {
@@ -272,53 +320,94 @@ export class MusicPreview {
     for (const [at, v] of ev.slice(1)) p.linearRampToValueAtTime(v, at);
     this.duckUntil = ev.length > 1 ? ev[ev.length - 1][0] : now + 4;
   }
+  /** v0.4.59 Element `slot`'s envelope as automation on the audio clock (from the anchor). */
+  _scheduleEnv(slot, now, reset) {
+    const g = this.nodes?.pass[slot];
+    if (!g || !this.lay || !this.anchor) return;
+    const p = g.gain;
+    const from = reset ? now : Math.max(now, this.envUntil[slot]);
+    const t = this.anchor.t + (from - this.anchor.at);
+    const ev = envEvents(this.lay, slot, t, from, 3);
+    if (reset) { p.cancelScheduledValues(0); p.setValueAtTime(ev[0][1], now); }
+    for (const [at, v] of ev.slice(1)) p.linearRampToValueAtTime(v, at);
+    this.envUntil[slot] = ev[ev.length - 1][0];
+  }
   stop() {
-    this.els.forEach((el) => el.pause());
+    this.els.forEach((el) => { el.pause(); el.playbackRate = 1; });
+    if (this.nodes) this.nodes.pass.forEach((g) => { if (g) { g.gain.cancelScheduledValues(0); g.gain.setValueAtTime(0, this.nodes.ctx.currentTime); } });
     this.anchor = null;
+    this.envUntil = [0, 0];
+    this.starting = [null, null];
   }
   /** Called on every preview clock tick. */
   tick(t, playing, muted) {
     if (muted !== this.muted) { this.muted = muted; this._applyBus(); }
-    if (!this.url || !this.passes.length || !playing) { this.stop(); return; }
+    if (!this.url || !this.passes.length || !playing) { if (this.anchor || this.els.some((el) => !el.paused)) this.stop(); return; }
     const n = this._graph();
     const now = n ? n.ctx.currentTime : performance.now() / 1000;
     const expect = this.anchor ? this.anchor.t + (now - this.anchor.at) : null;
+    // the audio clock keeps the time between frames; the preview clock (picture, narration) only
+    // re-anchors it when it really moved (a seek, a jump) or drifted, not on every frame's jitter
     const jumped = expect === null || Math.abs(expect - t) > 0.25;
-    this.anchor = { t, at: now };
-    if (n && (jumped || this.duckUntil - now < 1.5)) this._scheduleDuck(t, now, jumped);
+    const moved = jumped || Math.abs(expect - t) > 0.05;
+    if (moved) this.anchor = { t, at: now };
+    const te = this.anchor.t + (now - this.anchor.at); // timeline time on the audio clock
+    if (n && (jumped || this.duckUntil - now < 1.5)) this._scheduleDuck(te, now, jumped);
     for (let slot = 0; slot < 2; slot++) {
+      if (n && n.pass[slot] && (moved || this.envUntil[slot] - now < 1.0)) this._scheduleEnv(slot, now, moved || this.envUntil[slot] < now);
       const el = this.els[slot];
       if (!el) continue;
-      // this element's pass: the one under the playhead, or the next within 0.6 s (made ready)
+      // this element's pass: the one under the playhead, or the next within 1 s (made ready)
       let p = null;
       for (const x of this.passes) {
         if (x.i % 2 !== slot) continue;
-        if (t >= x.at && t < x.at + x.len) { p = x; break; }
-        if (x.at > t && x.at - t < 0.6) { p = x; break; }
+        if (te >= x.at && te < x.at + x.len) { p = x; break; }
+        if (x.at > te && x.at - te < 1.0) { p = x; break; }
       }
-      const g = n?.pass[slot];
       if (!p) {
         if (!el.paused) el.pause();
-        if (g) g.gain.setTargetAtTime(0, now, 0.02);
+        this.starting[slot] = null;
         continue;
       }
-      if (t < p.at) {
-        if (!el.paused) el.pause();
-        if (!el.seeking && Math.abs(el.currentTime - p.src) > 0.04) el.currentTime = p.src;
-        if (g) g.gain.setTargetAtTime(0, now, 0.01);
+      const target = p.src + (te - p.at); // where the element should be now (before the pass: a pre-roll)
+      this._measure(slot, el, now);
+      if (te < p.at && target < 0) {
+        // the pass starts at the very top of the part: nothing to pre-roll — wait at its start and
+        // call play() early by the measured start-up delay, so it really starts on its time
+        if (!el.seeking && Math.abs(el.currentTime - p.src) > 0.02) el.currentTime = p.src;
+        if (p.at - te <= this.lat + 0.005) this._play(slot, el, now);
+        else if (!el.paused) el.pause();
         continue;
       }
-      const pos = p.src + (t - p.at);
-      const drift = Math.abs(el.currentTime - pos);
-      if (!el.seeking && (el.paused ? drift > 0.05 : drift > (jumped ? 0.05 : 0.2))) el.currentTime = pos;
-      if (el.paused) el.play().catch(() => {});
-      const env = passGain(this.lay, p.run, p.k, t);
-      if (g) g.gain.setTargetAtTime(env, now, 0.02);
-      else {
+      if (el.paused) {
+        if (!el.seeking && Math.abs(el.currentTime - target) > 0.02) el.currentTime = target + this.lat;
+        this._play(slot, el, now);
+      } else if (!el.seeking && !this.starting[slot]) {
+        const step = syncStep(el.currentTime - target, n && n.pass[slot] ? slotGain(this.lay, slot, te) : 1, target);
+        if (step.seek !== undefined) { el.currentTime = step.seek; el.playbackRate = 1; }
+        else if (el.playbackRate !== step.rate) el.playbackRate = step.rate;
+      }
+      if (!n || !n.pass[slot]) {
         let duck = 1;
-        if (this.duck?.gain?.length) duck = this.duck.gain[Math.min(this.duck.gain.length - 1, Math.max(0, Math.floor(t * this.duck.rate)))];
-        el.volume = Math.max(0, Math.min(1, env * (this.muted ? 0 : this.volume) * duck));
+        if (this.duck?.gain?.length) duck = this.duck.gain[Math.min(this.duck.gain.length - 1, Math.max(0, Math.floor(te * this.duck.rate)))];
+        el.volume = Math.max(0, Math.min(1, slotGain(this.lay, slot, te) * (this.muted ? 0 : this.volume) * duck));
       }
     }
+  }
+  _play(slot, el, now) {
+    if (!el.paused) return;
+    this.starting[slot] = { req: now, pos: el.currentTime };
+    el.play().catch(() => { this.starting[slot] = null; });
+  }
+  /** The start-up delay of play(), learnt from the elements themselves (a running average). */
+  _measure(slot, el, now) {
+    const s = this.starting[slot];
+    if (!s || el.paused) return;
+    const ran = el.currentTime - s.pos;
+    if (ran > 0.001) {
+      const lat = Math.max(0, Math.min(0.3, now - s.req - ran));
+      this.lat = this.lat * 0.7 + lat * 0.3;
+      this.starting[slot] = null;
+    } else if (now - s.req > 1) this.starting[slot] = null;
   }
 }

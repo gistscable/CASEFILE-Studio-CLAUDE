@@ -1379,7 +1379,27 @@ def render(
                 sfx_index, sfx_placed = None, []
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
-        af += voice_graph(project, scenes, total, voice_index, insert_inputs)
+        vgraph = voice_graph(project, scenes, total, voice_index, insert_inputs)
+        if voice_index is not None and (music_index is not None or sfx_index is not None) and any("loudnorm" in g for g in vgraph):
+            # v0.4.59 The voice bus is made first, in its own pass. loudnorm hands over its last 3 s
+            # only when its input ends; mixed in the same graph as the music or the effects, the
+            # compressors and amix ended with the other inputs, and the export's whole audio
+            # (narration included) stopped ~2.9 s before the picture. Read back from a file it
+            # arrives in step with the rest. 32-bit float: the voice samples are exactly the same.
+            progress(94, "Preparing the narration")
+            nin = {i: 1 + k for k, i in enumerate(sorted(insert_inputs))}
+            pre = ["ffmpeg", "-v", "error", "-y", "-nostdin", "-i", str(asset_path(narration))]
+            for i in sorted(insert_inputs):
+                pre += ["-i", str(asset_path(assets.get(scenes[i].get("asset_id"))))]
+            bus = work / "voice.wav"
+            pre += ["-filter_complex", ";".join(voice_graph(project, scenes, total, 0, nin)) + ";[voice]aresample=48000,"
+                    "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=stereo,apad,"
+                    f"atrim=end_sample={round(total * 48000)}[vbus]", "-map", "[vbus]", "-c:a", "pcm_f32le", str(bus)]
+            run(pre, cancelled)
+            command += ["-i", str(bus)]
+            vgraph = [f"[{inputs}:a]anull[voice]"]
+            inputs += 1
+        af += vgraph
         music_duck = music_settings["duck"]
         if music_index is not None:
             af += music_filters

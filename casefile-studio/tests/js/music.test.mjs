@@ -37,7 +37,7 @@ globalThis.Audio = FakeAudio;
 globalThis.fetch = () => Promise.resolve({ ok: true, arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) });
 
 const { SfxPreview, soundUrl } = await import("../../web/src/sound.js");
-const { musicLayout, musicGainAt, musicPasses, MusicPreview, approxDuck, normaliseMusic, timelineTotal } = await import("../../web/src/music.js");
+const { musicLayout, musicGainAt, musicPasses, MusicPreview, approxDuck, normaliseMusic, timelineTotal, slotGain, envEvents, syncStep } = await import("../../web/src/music.js");
 
 function withBuffers(p, sids) {
   p.ensure();
@@ -166,4 +166,54 @@ test("an immediate ducking estimate when the narration level moves", () => {
   const down = approxDuck(curve, 0.25, 8);
   assert.ok(down.gain[1] > 0.5);
   assert.ok(approxDuck(curve, 0, 8).gain.every((v) => v === 1)); // silent voice: no dip
+});
+
+// ---- v0.4.59 loop timing: the preview's envelope on the audio clock, trimmed rather than jumped
+test("v0.4.59 the preview's pass envelopes, scheduled as ramps, trace the export's crossfades and fades", () => {
+  for (const [m, track, total] of [[{ crossfade: 2, fade_in: 1.5, fade_out: 3 }, 20, 75], [{ crossfade: 0.5, start: 2 }, 8, 40], [{ crossfade: 10 }, 21, 90]]) {
+    const lay = musicLayout(m, track, total);
+    // the two elements together are the export's envelope everywhere (two passes of one parity never overlap)
+    for (let t = 0; t < total; t += 0.013) assert.ok(Math.abs(Math.hypot(slotGain(lay, 0, t), slotGain(lay, 1, t)) - musicGainAt(lay, t)) < 1e-9, `${t}`); // equal power
+    // linear ramps between the scheduled points: within 1.5 % of the exact curve (≈ 0.13 dB)
+    for (const slot of [0, 1]) for (let t0 = 0; t0 < total - 3; t0 += 2.9) {
+      const ev = envEvents(lay, slot, t0, 100, 3);
+      for (let i = 1; i < ev.length; i++) {
+        const [a, va] = ev[i - 1], [b, vb] = ev[i];
+        for (const f of [0.25, 0.5, 0.75]) {
+          const at = a + (b - a) * f, want = slotGain(lay, slot, t0 + at - 100);
+          assert.ok(Math.abs(va + (vb - va) * f - want) < 0.015, `${slot} ${t0} ${at}`);
+        }
+      }
+    }
+  }
+});
+
+test("v0.4.59 drift is trimmed with the playback rate; a seek only where it is silent or far off", () => {
+  assert.deepEqual(syncStep(0.004, 1, 5), { rate: 1 });
+  const late = syncStep(-0.05, 1, 5), early = syncStep(0.05, 1, 5);
+  assert.ok(late.rate > 1 && late.rate <= 1.03 && early.rate < 1 && early.rate >= 0.97);
+  assert.deepEqual(syncStep(0.05, 0.05, 5), { seek: 5 }); // quiet: an inaudible re-seek
+  assert.deepEqual(syncStep(0.4, 1, 5), { seek: 5 }); // far off (a jump): seek even when loud
+  // the v0.4.58 preview let an audible pass run up to 0.2 s off before it re-seeked
+  assert.ok(syncStep(0.19, 1, 5).rate < 1);
+});
+
+test("v0.4.59 a pass from the top of the part starts on time: play() is called early by the measured delay", () => {
+  const host = new SfxPreview();
+  const mp = new MusicPreview(host);
+  mp.setSource("/media/p/m.mp3");
+  mp.setLayout(musicLayout({ crossfade: 2, fade_in: 0 }, 20, 60));
+  mp.lat = 0.04;
+  host.ensure();
+  host.ctx.currentTime = 1;
+  mp.tick(17.9, true, false); // pass 1 starts at 18 s from the part's top: 0.1 s away, waiting
+  const b = mp.els[1];
+  assert.ok(b.paused && b.currentTime === 0);
+  host.ctx.currentTime = 1.065;
+  mp.tick(17.965, true, false); // 35 ms before the seam, delay 40 ms: started now
+  assert.ok(!b.paused);
+  // the volume and the envelope are separate: a level change never re-schedules the envelope
+  const calls = mp.nodes.pass[1].gain.calls.length;
+  mp.setVolume(0.4);
+  assert.equal(mp.nodes.pass[1].gain.calls.length, calls);
 });

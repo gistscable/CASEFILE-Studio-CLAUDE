@@ -1167,7 +1167,8 @@ def _duck_job(project):
     key_in = f"[0:a]pan=mono|c0={level:.6f}*c0+c1" if two else f"[0:a]volume={level:.6f}"
     curve = [
         f"{key_in},{fmt},asplit=2[k1][k2]",
-        f"aevalsrc=1:s=48000:d={total},asplit=2[one][one2]",
+        # a constant 1.0 (the compressors' output is then their gain): one 0.1 s block, looped
+        f"aevalsrc=1:s=48000:d=0.1,aloop=loop=-1:size=4800,atrim=end_sample={round(total * 48000)},asplit=2[one][one2]",
         f"[one][k1]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
         f"release={d['release']}:makeup={d['makeup']},aresample=1000,{fmt.replace('48000', '1000')}[gf]",
         f"[one2][k2]{renderer.MUSIC_DUCK},aresample=1000,{fmt.replace('48000', '1000')}[gm]",

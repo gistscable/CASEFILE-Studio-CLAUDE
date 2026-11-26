@@ -4,11 +4,13 @@ import json
 import math
 import shutil
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
+import effects
 import history
 import motion
 import renderer
@@ -761,3 +763,126 @@ def test_each_motion_graphics_template_has_its_own_coordinated_sound_palette(dat
     for a in lines_of:
         for b in lines_of:
             assert a == b or not (lines_of[a] & lines_of[b]), (a, b)
+
+
+# ------------------------------------------------------------------ v0.4.59
+
+def test_every_template_layout_and_animation_has_its_coordinated_sound_set(data):
+    """Every motion-graphics template in the editor (findings, chronological timeline, contradictory
+    statements, legal outcome), in every layout (the diagrams: timeline, legal steps; the sequential
+    panels: cards, one at a time), wide and tall, with every entrance (Typewriter included) and exit:
+    its own family of sounds, never silence."""
+    S = effects.SPEC["motion"]
+    lines = {
+        "contrast": [{"text": "I was home all night", "kind": "statement", "at": 2.0},
+                     {"text": "His phone pinged two miles away", "kind": "finding", "at": 4.0},
+                     {"text": "His car was on camera at 11:52", "kind": "finding", "at": 5.5}],
+        "legal": [{"text": "Charged with murder", "label": "CHARGED", "at": 2.0}, {"text": "Jury trial", "label": "TRIAL", "at": 3.5},
+                  {"text": "Guilty on all counts", "label": "CONVICTED", "at": 5.0}],
+        "timeline": [{"text": "Last seen at the bar", "label": "MARCH 3", "at": 2.0}, {"text": "Car found", "label": "MARCH 5", "at": 3.5},
+                     {"text": "Arrest", "label": "APRIL 1", "at": 5.0}],
+        "findings": [{"text": "Phone records placed him near the scene", "at": 2.0}, {"text": "Video showed the car", "at": 3.5},
+                     {"text": "A receipt eleven minutes later", "at": 5.0}],
+    }
+    own = {"findings": {"click", "pop"}, "timeline": {"tick"}, "contrast": {"click-muted", "pulse"}, "legal": {"click", "thump", "document"}}
+    assert set(S["layouts"]) == set(own)  # a new template needs its own sound set here
+    n = verdicts = 0
+    for aspect in ("16:9", "9:16"):
+        for tpl, lays in S["layouts"].items():
+            for lay, _ in lays:
+                for enter, _ in S["enters"]:
+                    for exit_, _ in S["exits"]:
+                        it = gitem(template=tpl, layout=lay, enter=enter, exit=exit_, lines=lines[tpl])
+                        items, _ = sound.plan(proj(items=[it], aspect=aspect, scenes=[{"id": "s1", "title": "", "duration": 12.0,
+                                                                                       "chapter": "CHAPTER 3 — THE EVIDENCE", "narration": ""}]))
+                        cats = {sfxlib.BY_ID[i["sound"]][1] for i in items}
+                        kinds = {i["kind"] for i in items}
+                        where = (aspect, tpl, lay, enter, exit_)
+                        assert items, where
+                        if enter == "type":
+                            assert "typing" in kinds, where  # the typewriter animation is heard key by key
+                        else:
+                            assert cats & own[tpl], where  # the template's own family on its lines / steps
+                        if tpl == "contrast":
+                            assert "pulse" in cats, where  # the record contradicting the statement, typed or not
+                        if tpl == "legal" and motion.resolve_layout(it, aspect == "9:16") == "verdict":
+                            assert "thump" in cats, where  # the outcome in large type lands, typed or not
+                            verdicts += 1
+                        n += 1
+    assert n == 2 * sum(len(v) for v in S["layouts"].values()) * len(S["enters"]) * len(S["exits"])
+    assert verdicts >= 2 * 2 * len(S["enters"]) * len(S["exits"])  # "auto" and "verdict", wide and tall
+
+
+def test_ducking_analysis_reuses_the_timeline_for_volume_changes_and_matches_one_pass(tmp_path, monkeypatch):
+    """v0.4.59 The expensive part (the export's voice bus: loudnorm, scene cuts, soundbites) is made once
+    per timeline and kept; a narration-volume change, the ducking switches or an undo only run the two
+    compressors on it. The curves are the single-pass ones (v0.4.58) to the last step."""
+    import base64
+
+    media = tmp_path / "m"
+    media.mkdir()
+    voice = media / "voice.wav"
+    gate = "0.3*sin(2*PI*220*t)*max(0\\,sin(2*PI*0.4*t))"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc={gate}:s=44100:d=30", str(voice)], check=True)
+    bite = media / "bite.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc='0.2*sin(2*PI*330*t)':s=48000:d=10",
+                    "-ac", "2", str(bite)], check=True)
+    monkeypatch.setattr(renderer, "resolve_asset", lambda p: Path(p))
+    data = tmp_path / "data"
+    assets = [{"id": "nar", "kind": "audio", "path": str(voice), "has_audio": True},
+              {"id": "bite", "kind": "audio", "path": str(bite), "has_audio": True},
+              {"id": "mus", "kind": "audio", "path": str(bite), "has_audio": True}]
+    sc = [{"id": f"s{k}", "duration": 5.0, "audio_start": 5.0 * k, "audio_duration": 5.0} for k in range(6)]
+    runs = []
+    real = sound._run
+    monkeypatch.setattr(sound, "_run", lambda cmd, pid, key: (runs.append("bus" if "{BUS}" not in cmd and cmd[-1].endswith(".tmp") else "curve"),
+                                                            real(cmd, pid, key))[1])
+
+    def single_pass(p):  # v0.4.58: one FFmpeg run, the voice bus and both compressors together
+        job, _ = sound._duck_job(p)
+        total = sum(round(float(s["duration"]) * 24) / 24 for s in p["scenes"])
+        ins = {i: 1 for i, s in enumerate(p["scenes"]) if s.get("insert_audio")}
+        g = renderer.voice_graph(p, p["scenes"], total, 0, ins)
+        d = sound.SPEC["duck"]
+        g += ["[voice]asplit=2[vk1][vk2]", f"aevalsrc=1|1:s=48000:d={total}[one]", f"aevalsrc=1|1:s=48000:d={total}[one2]",
+              f"[one][vk1]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:release={d['release']}:"
+              f"makeup={d['makeup']},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gf]",
+              f"[one2][vk2]{renderer.MUSIC_DUCK},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gm]",
+              "[gf][gm]amerge=inputs=2[g]"]
+        cmd = ["ffmpeg", "-v", "error", "-i", str(voice)] + (["-i", str(bite)] if ins else []) + [
+            "-filter_complex", ";".join(g), "-map", "[g]", "-f", "f32le", "-"]
+        raw = np.frombuffer(subprocess.run(cmd, capture_output=True, check=True).stdout, "<f4").reshape(-1, 2)
+        g = raw[: len(raw) // 5 * 5].reshape(-1, 5, 2).mean(axis=1)
+        return [np.clip(np.round(g[:, c] * 255), 0, 255).astype(int) for c in (0, 1)]
+
+    for kind in ("sliced", "inserts"):
+        scenes = [dict(s) for s in sc]
+        if kind == "inserts":
+            scenes[3] = {"id": "s3", "duration": 4.0, "insert_audio": True, "asset_id": "bite", "trim_start": 2.0}
+        p = {"id": "5d000000000000d" + ("1" if kind == "sliced" else "2"), "scenes": scenes, "assets": assets, "narration_id": "nar",
+             "music_id": "mus", "sound": {"enabled": True}, "music": {}}
+        if kind == "inserts":
+            p["episode"] = {"guide": True}
+        runs.clear()
+        for level in (1.0, 0.6, 1.7):
+            q = dict(p, narration_volume=level)
+            c = sound.duck_curve(q, data, wait=True)
+            assert c["status"] == "ready", (kind, level)
+            ref = single_pass(q)
+            for col, r in (("gain", ref[0]), ("music", ref[1])):
+                got = np.frombuffer(base64.b64decode(c[col]), np.uint8).astype(int)
+                n = min(len(got), len(r))
+                assert len(got) == round(sum(round(s["duration"] * 24) / 24 for s in scenes) * sound.DUCK_RATE), kind
+                assert n >= len(got) - 3 * sound.DUCK_RATE  # (v0.4.58 lost the last ~3 s of a loudnorm bus)
+                assert np.abs(got[:n] - r[:n]).max() <= 1, (kind, level, col)
+                assert got.min() < 200  # it really dips
+        assert runs == ["bus", "curve", "curve", "curve"], (kind, runs)  # the timeline was analysed once
+        # the ducking switched off for the effects only: the cached curve (music still ducks)
+        runs.clear()
+        assert sound.duck_curve(dict(p, sound={"enabled": True, "duck": False}), data, wait=True)["status"] == "ready" and runs == []
+        # the timeline edited: a new bus; back to the first (undo): nothing to make
+        edited = dict(p, scenes=[dict(scenes[0], duration=6.0)] + scenes[1:])
+        assert sound.duck_curve(edited, data, wait=True)["status"] == "ready" and runs == ["bus", "curve"]
+        runs.clear()
+        assert sound.duck_curve(p, data, wait=True)["status"] == "ready" and runs == []
+    assert len(list((data / "cache" / "sfx" / "duck").glob("bus-*.flac"))) <= sound.BUS_KEEP
