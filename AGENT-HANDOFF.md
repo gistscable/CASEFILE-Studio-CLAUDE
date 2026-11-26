@@ -1097,3 +1097,46 @@ authoritative; efficient FFmpeg rendering (references, no copies); tests and mea
 
 **Limits:** preview seam timing within ~0.2 s (export exact); exact duck on 25 min / 150 scenes ≈ 3.4 min
 in the background (mostly the existing per-scene voice bus); "scenes" music follows scene ids.
+
+## Pre-approval corrections (v0.4.59)
+
+**Request:** after conditional approval of v0.4.58 for practical testing: (1) faster ducking analysis
+without changing the audio, never a full analysis for a volume change; (2) preview/export loop timing;
+(3) chosen-scene music must survive reorders/edits/replacements; (4) a sound set for every
+motion-graphics template; (5) audition and live sliders verified in real playback; (6) music never
+changes the timeline's length; and "audio manual overlay missing?" (= the manual SFX). Targeted fixes
+only, no new dependencies. **Not finally approved.** Write-up with all numbers: `SOUND-DESIGN.md`
+("v0.4.59").
+
+**What changed**
+* `sound.py`: `_duck_job` returns `{bus, bus_key, curve}`; `_bus` makes / reuses the voice-bus level
+  (FLAC in `data/cache/sfx/duck/`, `BUS_KEEP`=4, one maker per bus via `_BUS_BUSY`), the curve step runs
+  the two compressors with the narration level as an exact scaling; constant 1.0 source via `aloop`.
+  Typed contradiction lines keep their pulse.
+* `renderer.py`: `voice_graph(..., stems=True)` (narration and soundbites as separate outputs for the
+  analysis); export: with music or effects and a loudnorm'd voice, the voice bus is rendered first to
+  `work/voice.wav` (pcm_f32le, `apad,atrim=end_sample`) and mixed from there — the single graph lost the
+  last ~2.9 s of narration on non-guide timelines (loudnorm's tail vs the finite inputs).
+* `music.py` `follow_scenes`; `storage.save_project(follow=True)` applies it (undo/redo pass
+  `follow=False`) and puts `music_follow` `{followed, lost}` in that response only.
+* Frontend: `music.js` (`slotGain`, `envEvents`, `syncStep`; envelopes as audio-clock automation, rate
+  trimming, early `play()`); `main.jsx` (`music_follow` notice from `api()`; `PLAN_FIELDS` + `planSaved`:
+  the sound plan is fetched after the save that stores the edit, never before — stale levels in the
+  preview otherwise; scrub ignores a zero-width timeline); `MusicPanel.jsx` (missing scenes/chapters +
+  "Forget them"); `editLayout.js` (timeline 296 px, migrates the old 262 default; `lanes: 5`);
+  `styles.css` (lanes scroll vertically; `.toast.warning`, `.link-btn`).
+
+**Verified**
+* Duck bench 25 min / 150 scenes: narration-level change 103.4 → 11.2 s (sliced), 18.6 → 12.3 (guide),
+  24.0 → 12.1 (inserts); volume/ducking/undo 0 s; curves within 1/255 of v0.4.58.
+* Loop timing, heard (AudioWorklet): median 2–4 ms, max 8–18 ms (v0.4.58: 7.5–9.9 / 12–20 ms).
+* Browser (`qa/sound-design/browser_sound_qa.mjs` + `qa_app_project.py`): 79/79 sounds heard in audition,
+  manual sound saved and on the Sound FX lane, sliders 4–9 ms to gain, heard changes within ~2 dB of the
+  slider (music ducking moves under it), 0 requests while dragging, 1 save, playback never interrupted.
+* Export tail (`tail_check.py`): 40.0 s in all 5 cases (v0.4.58: 37.12 s in 3).
+* Tests: full suite 648 passed, 1 skipped (was 638); JS 53 (was 49); build OK.
+
+**Limits:** a scene edit still re-runs the whole voice-bus analysis (97 s sliced / 21–30 s guides, in
+the background); preview timing depends on the browser's media clock; lost chosen-scene ids are kept until
+"Forget them".
+

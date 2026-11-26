@@ -1,19 +1,19 @@
 {
  "base": "http://127.0.0.1:8000",
- "project": "3f033b582ae54228",
+ "project": "f51c28a0d0d04d72",
  "audition": {
   "again_click_to_sound_ms": {
    "sounds": 20,
-   "median": 26.1,
-   "max": 34.8
+   "median": 31.9,
+   "max": 49.3
   },
   "sounds": 79,
   "heard": 79,
   "silent": [],
   "first_time_click_to_sound_ms": {
-   "median": 29,
-   "p95": 92.9,
-   "max": 159.6
+   "median": 31.9,
+   "p95": 110.3,
+   "max": 206.1
   },
   "project_changed_while_listening": 0
  },
@@ -31,23 +31,23 @@
   "this sound's volume (Sound tab)": {
    "from": 0,
    "to": -20,
-   "gain_changes": 105,
+   "gain_changes": 107,
    "move_to_gain_ms": {
-    "median": 8.5,
-    "max": 8.9
+    "median": 8.1,
+    "max": 8.1
    },
    "requests_while_dragging": 0,
    "media_seeks_while_dragging": 0,
    "saves_after_release": 1,
    "saved_body": "{\"sound\":{\"enabled\":true,\"mode\":\"auto\",\"preset\":\"cinematic\",\"master\":0.8,\"intensity\":0.4,\"density\":0.4,\"lead\":0,\"duck\":true,\"variation\":true,\"kinds\":{\"motion\":t",
    "heard_db": {
-    "before": -41.2,
-    "after": -56.1,
-    "change": -14.9,
+    "before": -41,
+    "after": -57,
+    "change": -16,
     "same_moment_untouched": 5.7,
-    "slider_effect": -20.6,
+    "slider_effect": -21.7,
     "slider_set": -20,
-    "drag_s": 0.43
+    "drag_s": 0.44
    },
    "effects_state_before_after": [
     {
@@ -95,12 +95,12 @@
      [
       "voice.wav",
       false,
-      12.26
+      12.28
      ],
      [
       "music.mp3",
       false,
-      2.31
+      2.33
      ],
      [
       "music.mp3",
@@ -112,12 +112,12 @@
      [
       "voice.wav",
       false,
-      15.17
+      15.22
      ],
      [
       "music.mp3",
       false,
-      5.17
+      5.21
      ],
      [
       "music.mp3",
@@ -130,10 +130,10 @@
   "effects volume (Sound tab)": {
    "from": 0.8,
    "to": 0.2,
-   "gain_changes": 107,
+   "gain_changes": 108,
    "move_to_gain_ms": {
-    "median": 8.6,
-    "max": 8.9
+    "median": 7.4,
+    "max": 7.9
    },
    "requests_while_dragging": 0,
    "media_seeks_while_dragging": 0,
@@ -141,12 +141,12 @@
    "saved_body": "{\"sound\":{\"enabled\":true,\"mode\":\"auto\",\"preset\":\"cinematic\",\"master\":0.2,\"intensity\":0.4,\"density\":0.4,\"lead\":0,\"duck\":true,\"variation\":true,\"kinds\":{\"motion\":t",
    "heard_db": {
     "before": -61.2,
-    "after": -68.2,
-    "change": -7,
-    "same_moment_untouched": 5.7,
-    "slider_effect": -12.7,
+    "after": -68.6,
+    "change": -7.4,
+    "same_moment_untouched": 5.6,
+    "slider_effect": -13,
     "slider_set": -12.1,
-    "drag_s": 0.42
+    "drag_s": 0.44
    },
    "effects_state_before_after": [
     {
@@ -169,7 +169,7 @@
      ],
      "override": [],
      "master": 1,
-     "out": 0.9981368780136108
+     "out": 0.9986060857772827
     }
    ],
    "preview_matches_saved_plan": {
@@ -194,12 +194,12 @@
      [
       "voice.wav",
       false,
-      12.26
+      12.27
      ],
      [
       "music.mp3",
       false,
-      2.31
+      2.3
      ],
      [
       "music.mp3",
@@ -211,12 +211,12 @@
      [
       "voice.wav",
       false,
-      15.16
+      15.2
      ],
      [
       "music.mp3",
       false,
-      5.16
+      5.2
      ],
      [
       "music.mp3",
@@ -229,10 +229,10 @@
   "narration level (Sound tab)": {
    "from": 1,
    "to": 0.35,
-   "gain_changes": 106,
+   "gain_changes": 107,
    "move_to_gain_ms": {
-    "median": 6.4,
-    "max": 11.3
+    "median": 4.6,
+    "max": 6.5
    },
    "requests_while_dragging": 0,
    "media_seeks_while_dragging": 0,
@@ -284,12 +284,12 @@
      [
       "voice.wav",
       false,
-      12.26
+      12.28
      ],
      [
       "music.mp3",
       false,
-      2.29
+      2.33
      ],
      [
       "music.mp3",
@@ -301,7 +301,7 @@
      [
       "voice.wav",
       false,
-      15.22
+      15.24
      ],
      [
       "music.mp3",
@@ -321,8 +321,8 @@
    "to": 0.04,
    "gain_changes": 106,
    "move_to_gain_ms": {
-    "median": 8.5,
-    "max": 9.2
+    "median": 7.8,
+    "max": 8.8
    },
    "requests_while_dragging": 0,
    "media_seeks_while_dragging": 0,
@@ -330,12 +330,12 @@
    "saved_body": "{\"music_volume\":0.04}",
    "heard_db": {
     "before": -46.6,
-    "after": -53,
-    "change": -6.4,
-    "same_moment_untouched": 8.7,
-    "slider_effect": -15.1,
+    "after": -52.2,
+    "change": -5.6,
+    "same_moment_untouched": 8.5,
+    "slider_effect": -14.1,
     "slider_set": -16,
-    "drag_s": 0.42
+    "drag_s": 0.44
    },
    "effects_state_before_after": [
     {
@@ -383,12 +383,12 @@
      [
       "voice.wav",
       false,
-      12.26
+      12.27
      ],
      [
       "music.mp3",
       false,
-      2.29
+      2.31
      ],
      [
       "music.mp3",
@@ -400,12 +400,12 @@
      [
       "voice.wav",
       false,
-      15.17
+      15.24
      ],
      [
       "music.mp3",
       false,
-      5.16
+      5.23
      ],
      [
       "music.mp3",
@@ -418,10 +418,10 @@
   "narration level (Audio tab)": {
    "from": 0.35,
    "to": 1.2,
-   "gain_changes": 122,
+   "gain_changes": 125,
    "move_to_gain_ms": {
-    "median": 6.2,
-    "max": 7.7
+    "median": 4.4,
+    "max": 7.5
    },
    "requests_while_dragging": 0,
    "media_seeks_while_dragging": 0,
@@ -490,12 +490,12 @@
      [
       "voice.wav",
       false,
-      15.25
+      15.33
      ],
      [
       "music.mp3",
       false,
-      5.2
+      5.31
      ],
      [
       "music.mp3",
