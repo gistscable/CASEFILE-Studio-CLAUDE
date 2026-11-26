@@ -953,3 +953,64 @@ no warnings. **Tests** (`tests/test_motion.py`, +24): photo background from fram
 photo shapes; a failing graphic leaves the others (prepare and full render, warning text checked);
 report lists warnings. All 22 photo tests fail with the old crop. Full suite 602 passed, 1 skipped;
 JS 35 pass.
+
+## v0.4.56 — intelligent cinematic sound design (optional, off by default)
+
+**Request:** a friend's "Intelligent Cinematic Sound Design Engine" spec, "make it work with Casefile specs":
+a local library, context-aware placement from the real timeline, frame-accurate sync, a mix that keeps
+speech first, strict authenticity rules, an editor UI, presets, tests, demos and benchmarks; no
+Remotion/Node/cloud; never change narration, soundbites or the timeline. Full write-up:
+`casefile-studio/SOUND-DESIGN.md` (inventory, licences, demos, benchmarks, limitations, usage).
+
+**What was built**
+* `sfxlib.py`: 78 procedural sounds (NumPy, fixed seeds, 48 kHz stereo) in 27 categories, cached as
+  WAV in `cache/sfx/lib-1/`. No downloads, no third-party licence. Shutter is manual-only; no gunshot,
+  scream, siren or voice exists.
+* `sound.py`: settings (`normalise`), events from approved motion graphics (`motion.sound_events`, the
+  frame each element is first drawn; typed characters), transitions, chapter starts, narration
+  outcomes/discoveries/contradictions on the word, CTA keyframes, documents; protected zones (soundbites
+  ±0.6 s, victim chapters, sensitive pictures, sensitive sentences ±0.8 s); the planner (priority vs
+  density, spacing per category, per-minute cap, shared sound per graphic, least-recently-used variation
+  seeded by project id); `effective` (auto = fresh plan + your decisions; manual = stored only);
+  `resolve` (anchors → times; `gone` with reasons); the stem (sample-accurate, soft-limited FLAC,
+  content-hashed cache); `mix_filters` (sidechain duck under the voice; `alimiter level=disabled
+  latency=1` — the default alimiter adds 0.45 dB and a 239-sample delay).
+* Anchors: `mg:<gid>:<role>:<k>`, `tr:<scene>`, `ch:<scene>`, `doc:<scene>`, `mo:<scene>:<sec>`,
+  `cta:<key>:enter|click|bell|exit`, `sc:<scene>:<sec>` (added at the playhead), `t:<sec>`. Custom sound
+  ids `a:<assetId>` (upload role `sfx`, ≤ 30 s, returns before any timeline rebuild).
+* A decided sound (edited, moved, removed) is not planned again but **holds its original moment and
+  category** in the planner (`_held`), so editing one sound never adds, drops or moves another. Found in
+  the browser: before this, a new variation of a marker tick brought back a second tick on the same frame,
+  and moving it left a new one where it was. A manual sound makes a planned one at the same moment step aside.
+* `motion.py`: `El.role`, the **Typewriter** entrance (`type_chars`, 17 cps with a repeatable uneven rhythm,
+  a cursor), `sound_events`. Other entrances draw exactly as before (ENGINE stays 3; the cache key includes
+  the item).
+* `renderer.py`: stem at progress 93, effects mix branch, `sound_effects` in the report, warnings for
+  sounds left out. `app.py`: PATCH `sound`, catalog, library WAV, plan, generate, custom WAV, upload `sfx`.
+  `history.py`: undoable with named steps.
+* UI: inspector **Sound** tab (`SoundPanel.jsx`, `sound.js`): enable, preset, auto/manual, plan again,
+  mute/solo (preview only), mix sliders, per-kind switches, plan list with reasons, silenced list, per-sound
+  editor (audition, in context, another, remove/restore, reset, replace, volume, move, fades), library
+  browser, import. **Sound FX** lane (A3) with draggable marks and hatched protected zones. WebAudio preview
+  on the editor clock (no ducking in preview). Inspector tabs auto-scroll; the timeline lanes scroll so
+  the extra lane is reachable.
+
+**Verified**
+* 7 before/after demos rendered by the real exporter (`qa/sound-design/`, `demo-report.json`): sync of
+  isolated transients ≤ 2.5 ms, typing keys median 0.3 ms / p95 6.7 ms, export vs stem 0.0 ms, loudness
+  change ≤ 0.1 LU, no sample at full scale, interview demo after = before.
+* Narration sample-identical with effects on (0 lag, RMS within 0.001 dB).
+* gg benchmark (231 scenes, 18.4 min): plan 0.09 s, one edit 0.30 s, full stem 2.96 s (0.73 s CPU),
+  peak 88 MB.
+* Browser (headless Chromium): Sound tab, plan list, per-sound editor, audition requests, Another (only
+  that sound changes), drag (+10 frames, nothing else changes), Ctrl+Z, library add at playhead; no page
+  errors.
+* Tests: `tests/test_sound.py` 17, `tests/js/sound.test.mjs` 4. Full suite 619 passed, 1 skipped; JS 39 pass.
+* `tests/conftest.py`: the `isolated` teardown now waits for the motion preview warm thread before removing
+  its folder (pre-existing race in `test_api_motion_flow`: "Directory not empty" in `cache/motion`, a
+  `qa/test-*` folder left behind). 3/3 reruns clean.
+
+**Not done / limits:** rule-based understanding (regexes + structure), no ducking in the preview,
+`SENSITIVE_PICTURE` is broad (protects e.g. "vehicle registered to … mother"), the first plan after a
+server start lays out every approved graphic (~0.65 s each). Tuning ideas: narrower picture rule, fewer
+document/photo sounds by default.

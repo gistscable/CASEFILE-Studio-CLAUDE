@@ -3,6 +3,8 @@
 > **Base-image fill:** a pool of `BASE-V/S/C--tag--n` images fills gaps and clip tails with relevant, varied, labelled visuals instead of gap cards or loops. See [BASE-FILL.md](BASE-FILL.md) and `examples/base-fill/`.
 
 > **Audio breaks (Mode O):** the narration can pause while a producer-cleared clip plays with its own sound, then resume at the same word. See [AUDIO-BREAKS.md](AUDIO-BREAKS.md).
+
+> **Sound design (optional, off by default):** restrained editorial sound effects planned from the motion graphics, transitions, chapters and subscribe animation, silent over soundbites and sensitive passages, ducked under the voice. Inspector → Sound. See [SOUND-DESIGN.md](SOUND-DESIGN.md).
 ## A source-led documentary production workspace
 
 A working **single-workspace prototype** for a browser-based, AI-assisted true-crime YouTube workflow, with **20–40 minute episode targets**. This is not yet a fully autonomous professional production service.

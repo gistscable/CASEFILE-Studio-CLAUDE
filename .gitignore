@@ -26,3 +26,6 @@ casefile-studio/data/recovery-backups/
 casefile-studio/data/fetch-work/
 casefile-studio/data/cache/
 casefile-studio/data/history/
+
+# v0.4.56 sound design demos: intermediate files (remade by qa/sound-design/make_demos.py)
+casefile-studio/qa/sound-design/work/
