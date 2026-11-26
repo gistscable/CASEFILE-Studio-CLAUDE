@@ -235,6 +235,8 @@ async function api(path, method = "GET", body, onUploadProgress) {
     e.status = response.status;
     throw e;
   }
+  // v0.4.59 a save that moved chosen-scene music to rebuilt / split scenes (or found them gone) says so
+  if (data && typeof data === "object" && data.music_follow) window.dispatchEvent(new CustomEvent("casefile-music-follow", { detail: data.music_follow }));
   return data;
 }
 function Button({ icon: Icon, children, kind = "", className = "", ...props }) {
@@ -602,6 +604,15 @@ function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 6500);
   };
+  useEffect(() => {
+    const f = (e) => {
+      const { followed = [], lost = [] } = e.detail || {};
+      if (lost.length) notify(`Background music: ${lost.length === 1 ? "a chosen scene was" : `${lost.length} chosen scenes were`} removed (${lost.slice(0, 3).join(", ")}${lost.length > 3 ? "…" : ""}) — its music no longer plays. See the Music panel.`, "warning");
+      else if (followed.length) notify(`Background music follows the edited scenes (${followed.length} new scene${followed.length > 1 ? "s" : ""} kept on music).`);
+    };
+    window.addEventListener("casefile-music-follow", f);
+    return () => window.removeEventListener("casefile-music-follow", f);
+  }, []);
   const report = (e) => {
     if (e.status === 412) setModal("settings");
     notify(e.message || String(e), "error");

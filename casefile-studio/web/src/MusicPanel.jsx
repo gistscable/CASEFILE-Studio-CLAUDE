@@ -51,6 +51,11 @@ export default function MusicPanel({ project, music, scenes, time, selected, dis
   const passes = lay.runs.reduce((a, r) => a + r.iters.length, 0);
   const seams = lay.runs.flatMap((r) => r.iters.slice(1).map((it) => it.at));
   const [a, b] = lay.part;
+  // v0.4.59 chosen scenes / chapters no longer in the timeline (removed, or rebuilt with nothing to
+  // follow): kept so an undo brings their music back, but shown, never silently dropped
+  const ids = new Set((scenes || []).map((s) => String(s.id)));
+  const goneScenes = saved.scenes.filter((x) => !ids.has(x));
+  const goneChapters = saved.chapters.filter((c) => !chapters.includes(c));
   const inScene = (sc) => !!sc && (saved.scenes.includes(String(sc.id)) || (sc.chapter && saved.chapters.includes(sc.chapter)));
 
   if (!music) return null;
@@ -89,7 +94,17 @@ export default function MusicPanel({ project, music, scenes, time, selected, dis
               {c}
             </label>
           ))}
-          {!lay.runs.length && <p className="micro-note mg-warn">No scene or chapter chosen yet: no music plays.</p>}
+          {(goneScenes.length > 0 || goneChapters.length > 0) && (
+            <p className="micro-note mg-warn" role="status">
+              {goneScenes.length > 0 && `${goneScenes.length} chosen scene${goneScenes.length > 1 ? "s are" : " is"} no longer in the timeline`}
+              {goneScenes.length > 0 && goneChapters.length > 0 && " and "}
+              {goneChapters.length > 0 && `chapter${goneChapters.length > 1 ? "s" : ""} ${goneChapters.map((c) => `“${c}”`).join(", ")} no longer exist${goneChapters.length > 1 ? "" : "s"}`}
+              {" — no music plays there. Undo brings it back. "}
+              <button type="button" className="link-btn" disabled={disabled}
+                onClick={() => commit({ scenes: saved.scenes.filter((x) => ids.has(x)), chapters: saved.chapters.filter((c) => chapters.includes(c)) })}>Forget them</button>
+            </p>
+          )}
+          {!lay.runs.length && !saved.scenes.length && !saved.chapters.length && <p className="micro-note mg-warn">No scene or chapter chosen yet: no music plays.</p>}
           {selected && saved.scenes.length > 0 && !inScene(selected) && <p className="micro-note">{saved.scenes.length} scene{saved.scenes.length > 1 ? "s" : ""} chosen individually.</p>}
         </div>
       )}
