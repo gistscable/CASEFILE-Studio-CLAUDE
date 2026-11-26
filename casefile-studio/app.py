@@ -32,7 +32,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.52", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.53", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1050,13 +1050,8 @@ def sticker_frame(kind: str, frame: int):
 # ------------------------------------------------------------------ v0.4.52 motion graphics
 
 def _motion_photo(p, item):
-    if item.get("background") != "photo" or not item.get("photo_id"):
-        return None
-    a = next((x for x in p.get("assets", []) if x["id"] == item["photo_id"] and x.get("kind") == "image"), None)
-    try:
-        return str(renderer.asset_path(a)) if a else None
-    except (OSError, ValueError, KeyError):
-        return None
+    """The picture behind a graphic: your photo or a still from your footage (v0.4.53)."""
+    return motiongfx.background_path(p, item, DATA, renderer.asset_path)
 
 
 @app.get("/api/projects/{id}/motion/narration")
@@ -1083,6 +1078,9 @@ async def motion_draft(id: str, request: Request):
     item = motiongfx.draft(p, body["template"], start, end, item_id=body.get("id") or None)
     if not item:
         raise HTTPException(422, "There is no narration in this passage.")
+    if not body.get("id"):  # v0.4.53: a new graphic of a template you already use gets another layout
+        others = motiongfx.normalise(p.get("motion"))["items"]
+        item = motiongfx.vary_layout(item, others, motiongfx._is_tall(p))
     return {"item": item}
 
 

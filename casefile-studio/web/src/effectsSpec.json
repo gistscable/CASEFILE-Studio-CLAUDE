@@ -183,7 +183,7 @@
   },
   "formats": {
     "16:9": {
-      "label": "16:9 · YouTube",
+      "label": "16:9 \u00b7 YouTube",
       "sizes": {
         "480p": [
           854,
@@ -204,7 +204,7 @@
       "label_top": 0.76
     },
     "9:16": {
-      "label": "9:16 · Shorts, TikTok, Reels",
+      "label": "9:16 \u00b7 Shorts, TikTok, Reels",
       "sizes": {
         "480p": [
           480,
@@ -431,7 +431,7 @@
       },
       {
         "id": "like-subscribe-bell",
-        "label": "Like · Subscribe · Bell",
+        "label": "Like \u00b7 Subscribe \u00b7 Bell",
         "tab": "subscribe",
         "animated": true,
         "aspect": 4.8,
@@ -497,7 +497,7 @@
       },
       {
         "id": "arrow-ne",
-        "label": "Arrow ↗",
+        "label": "Arrow \u2197",
         "tab": "shapes",
         "animated": false,
         "aspect": 1.35,
@@ -508,7 +508,7 @@
       },
       {
         "id": "arrow-nw",
-        "label": "Arrow ↖",
+        "label": "Arrow \u2196",
         "tab": "shapes",
         "animated": false,
         "aspect": 1.35,
@@ -553,7 +553,7 @@
     ]
   },
   "motion": {
-    "version": 1,
+    "version": 2,
     "fps": 24,
     "preview_width": 1280,
     "templates": [
@@ -603,6 +603,14 @@
         [
           "center",
           "Centred"
+        ],
+        [
+          "cards",
+          "Numbered cards"
+        ],
+        [
+          "focus",
+          "One at a time"
         ]
       ],
       "timeline": [
@@ -617,6 +625,10 @@
         [
           "vertical",
           "Down"
+        ],
+        [
+          "focus",
+          "One date at a time"
         ]
       ],
       "contrast": [
@@ -631,6 +643,10 @@
         [
           "rows",
           "Rows"
+        ],
+        [
+          "quote",
+          "Quote, then the record"
         ]
       ],
       "legal": [
@@ -641,6 +657,14 @@
         [
           "list",
           "List"
+        ],
+        [
+          "steps",
+          "Steps across"
+        ],
+        [
+          "verdict",
+          "Outcome in large type"
         ]
       ]
     },
@@ -673,6 +697,10 @@
       [
         "footage",
         "The footage, darkened"
+      ],
+      [
+        "still",
+        "A still from your footage"
       ],
       [
         "photo",
@@ -817,7 +845,14 @@
       "window": [
         8.0,
         45.0
-      ]
+      ],
+      "recap_gap": 180.0
+    },
+    "layouts_tall": {
+      "split": "stack",
+      "horizontal": "vertical",
+      "columns": "rows",
+      "steps": "list"
     }
   }
 }

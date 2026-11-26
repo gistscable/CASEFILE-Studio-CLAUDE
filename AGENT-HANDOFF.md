@@ -796,3 +796,83 @@ narration verbatim, neutral background — made with the real export).
 Next stages (not done): more layouts per template, suggestions tuned per chapter type, a background
 render worker for long graphics, 2K/4K (Casefile exports ≤1080p).
 Tests: tests/test_motion.py (27). Suite 523 passed, 1 skipped; JS 35 pass.
+
+## v0.4.53 — Motion graphics, stage 2
+
+Still optional and off by default; scenes, narration, soundbites, source timestamps, footage ids and
+clip ranges are never touched. No new dependencies.
+
+**More layouts** (`effectsSpec.json` motion `layouts`, version 2): findings stack / split / centre /
+**cards** (numbered, two columns when wide) / **focus** (one finding at a time, large, counter +
+progress strip); timeline across / down / **focus** (one date at a time in large type, a strip with
+every date below); contrast columns / rows / **quote** (what was said as a quotation, then "THE
+RECORD"); legal list / **steps** (tags on a line across) / **verdict** (earlier steps small, the
+outcome in large type). `layouts_tall` maps wide-only layouts to their upright counterpart in 9:16.
+`motion.resolve_layout(item, tall)` resolves "auto" (legal with a final outcome → verdict);
+`layout_options` lists the layouts that look different for an item; `vary_layout` gives a second
+graphic of the same template another layout (suggestions and new drafts in `POST …/motion/draft`).
+One-at-a-time layouts use `El.early` (an element leaves before the next line comes in).
+Fix: the exit stagger now fits in a fixed time (with many wrapped lines the last pieces were still on
+screen at the end of the graphic — also in v0.4.52).
+
+**Smarter suggestions.** `chapter_kind(title)` → opening | victim | closing | legal | statements |
+investigation | chronology | general. Chapters about the victim/family ("…AND THE PEOPLE AROUND
+HIM", "A FAMILY'S APPEAL", "REMEMBERING…") get no graphics; chapter type adds to the score
+(chronology → timeline, investigation → findings, statements → contrast, legal → legal; findings in
+legal chapters −2). **Legal outcome** (`_outcome_candidates`): a sentence that tells an outcome
+(`OUTCOME`: pleaded guilty, found guilty/not guilty, sentenced … to, charges dismissed; never with
+`HYPOTHETICAL` words — faced, asked, sought, could, would, argued, a question) anchors a legal graphic
+that may sit in the protected closing (not in a soundbite, the CTA, an emotional sentence or a victim
+chapter). `draft("legal")` on a passage with an outcome recaps the steps already told
+(`_milestones`: the first charge — or arrest when no charge —, earlier outcomes; outside the cold open;
+verbatim; never cut) — they come in one after another (`RECAP_STEP` 0.7 s) and the outcome appears on
+its spoken word. One recap for the final outcome (another only ≥ `recap_gap` 180 s earlier). It
+returns to the footage before the next emotional sentence (≥1.2 s after the outcome is said).
+Fix: CHARGED pattern `counts? of` matched "accounts of" → `\bcounts? of`.
+Bismilah now: timeline APRIL 17 (191 s), findings WHAT SURVEILLANCE SHOWED (355 s, split), findings
+ESCAPE, SEARCH AND RECAPTURE (516 s, stack — varied), **legal SENTENCING 843.6–851.3 s: CHARGED
+("…announced a first-degree murder charge"), CONVICTED (744.8 s sentence), SENTENCED at 847.1 s
+("Goudie sentenced Moore to fifty-five years…")**.
+
+**Footage stills as backgrounds.** Background `still` + `still_at` (timeline seconds, default the
+graphic's start). `footage_at(project, t)` maps the timeline to the source exactly like the export
+(scene asset, trim_start, source_crop_end, looped crop; a picture is itself; gaps/cards → None).
+`background_path(project, item, data, asset_path)` returns the photo, or a JPEG still taken once with
+FFmpeg into `data/cache/motion/stills/` (keyed by file, size, mtime, time); None → charcoal (nothing
+made up). The picture path is part of `item_hash`. Used by app (`_motion_photo`) and renderer.
+
+**Faster export.** `motion.encode()` draws each unique frame once and pipes raw RGBA to FFmpeg →
+one lossless transparent QuickTime Animation video per graphic (`qtrle`, argb, GOP 24) cached as
+`data/cache/motion/<hash>/export.mov` (no PNG files). `overlay_filters` reads it with `-ss` half a
+frame early (exact to the frame — tested by pixel equality) and `-t`. Drawing threads: 1 on ≤4 CPUs,
+2 above; read-ahead workers+1 (measured: a second thread on 2 vCPUs added ~180 MB and no speed).
+`ENGINE = 3`.
+Measured (same 2-vCPU sandbox, same run, 60 s 1080p, 10 photo scenes, 30 s timeline + 16 s legal,
+captions off; v0.4.52 code from main vs this):
+| run | v0.4.52 | v0.4.53 |
+|---|---|---|
+| no graphics | 22.3 s | 22.0 s |
+| first export | 62.8 s (drawing 33.8 s, python CPU 34.2 s, RSS 233 MB) | 39.3 s (drawing 11.6 s, CPU 9.4 s, RSS 237 MB) |
+| again (cached) | 29.6 s | 25.4 s |
+| one graphic edited | 43.1 s (13.1 s drawing) | 28.5 s (3.8 s) |
+| cache | 161 MB | 94 MB |
+(The v0.4.52 numbers in its section were another sandbox and captions on.) PNG encoding was the cost:
+57 ms per 1080p frame vs 19 ms to draw.
+
+**Editor.** "Another layout" (cycles `plan.layouts`; the plan now returns `layout`, `layouts`,
+`background`); Regenerate takes another layout when the words come out the same; the Layout menu shows
+what "Automatic" resolves to; a colour picker next to the accent/text presets (commits 350 ms after you
+stop); background "A still from your footage" with "Still from" + "set to playhead" and a note when no
+footage plays there. `planFor` is exported from `MotionLayer.jsx` (one request shared with the preview).
+Fixed during QA: the Motion tab crashed with no graphic selected (`undefined === undefined`).
+
+Demo: `casefile-studio/qa/motion-graphics-layouts-v0.4.53.mp4` (720p, 54 s, the six new layouts;
+Bismilah narration, the contrast sample is the fictional test text — labelled SAMPLE).
+Tests: tests/test_motion.py now 66 (+39: chapter kinds, outcome strictness, the recap on a synthetic
+case and on Bismilah, victim chapters, every layout × 16:9/9:16, one-at-a-time, layout variety, footage
+stills with a generated video, frame-exact export video). Suite 562 passed, 1 skipped; JS 35 pass.
+Browser (Chromium 131, GPU off): suggest → 4 incl. the legal outcome; Automatic shows "(outcome in
+large type)"; Another layout → list; colour picker → #1f8a8a saved; still background → the no-footage
+note (the sandbox has no media); undo; no page errors.
+Not done: footage stills were verified with generated test video only (no real footage in the
+sandbox); 2K/4K.

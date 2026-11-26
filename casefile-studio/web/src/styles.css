@@ -6818,6 +6818,36 @@ body.resizing-row * {
 .mg-swatches button.on {
   border-color: #fff;
 }
+/* v0.4.53: any colour */
+.mg-picker {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #2a2f37;
+  background: conic-gradient(#e33, #ec3, #3c6, #3ae, #93e, #e33);
+  overflow: hidden;
+  cursor: pointer;
+}
+.mg-picker.on {
+  border-color: #fff;
+}
+.mg-picker input {
+  position: absolute;
+  inset: -6px;
+  width: 32px;
+  height: 32px;
+  opacity: 0;
+  cursor: pointer;
+}
+.mg-still {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 6px;
+}
+.mg-still .text-link {
+  justify-self: start;
+}
 .mg-error {
   color: #ff8b8b;
 }

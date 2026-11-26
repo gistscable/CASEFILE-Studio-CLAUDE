@@ -7,7 +7,7 @@ const PLANS = new Map(); // item JSON -> Promise<plan>
 const IMAGES = new Map(); // hash/k -> HTMLImageElement (loaded or loading)
 const MAX_IMAGES = 1500;
 
-function planFor(projectId, item) {
+export function planFor(projectId, item) {
   const key = projectId + JSON.stringify(item);
   if (!PLANS.has(key)) {
     const p = fetch(`/api/projects/${projectId}/motion/plan`, {

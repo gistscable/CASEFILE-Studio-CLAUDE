@@ -5,14 +5,18 @@
     {id, template: findings|timeline|contrast|legal, status: suggested|draft|approved,
      start, end (seconds on the timeline), heading, title, layout,
      lines: [{text, label, kind, emphasis, at (seconds on the timeline)}],
-     background: charcoal|footage|photo, photo_id, dim, font, size, accent, text_color,
+     background: charcoal|footage|still|photo, photo_id, still_at, dim, font, size, accent, text_color,
      align, x, y, speed, enter, exit, hide_captions, source: auto|manual, reason}
 
 * A separate layer over the picture: scenes, clips, narration and soundbites are never changed;
   removing a graphic (or switching motion graphics off) shows the original picture again.
-* Every frame is drawn here with Pillow (bundled Oswald font), at 24 fps: the export overlays
-  them as PNG frames like the stickers; the editor shows the same frames, smaller, as WebP.
-  Frames that are identical (nothing moving) are drawn once; everything is cached by content.
+* Every frame is drawn here with Pillow (bundled Oswald font), at 24 fps. The export overlays each
+  graphic as one transparent video (QuickTime Animation, lossless; v0.4.53, before: PNG frames);
+  the editor shows the same frames, smaller, as WebP. Frames that are identical (nothing moving)
+  are drawn once; everything is cached by content.
+* v0.4.53: more layouts per template (and a second graphic of a template gets another one), the
+  case's legal outcome near the end (recapping the steps already told), chapter titles weigh in,
+  a still from your own footage as the background.
 * The text only comes from the narration (or what you type): nothing is invented. Each line
   appears when the narrator says the word it starts with (episode word timings, else captions).
 * Only approved graphics are exported, and only while motion graphics are switched on.
@@ -44,7 +48,7 @@ TEMPLATES = {t["id"]: t for t in SPEC["templates"]}
 LIM = SPEC["limits"]
 DEF = SPEC["defaults"]
 TIM = SPEC["timing"]
-ENGINE = 2  # bump when the drawing changes: cached frames are made again
+ENGINE = 3  # bump when the drawing changes: cached frames are made again
 FONT_DIR = Path(__file__).resolve().parent / "web" / "assets" / "fonts"
 FONTS = {
     "oswald": ("Oswald-Bold.ttf", "Oswald-Medium.ttf", "Oswald-Regular.ttf"),
@@ -52,6 +56,7 @@ FONTS = {
     "dejavu": ("DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"),
 }
 MUTED = 0.72  # body text that is not emphasised
+RECAP_STEP = 0.7  # seconds between the legal steps a graphic recaps
 
 
 # ====================================================================== the data
@@ -114,6 +119,7 @@ def normalise_item(it, n=0, image_assets=None):
         "lines": lines,
         "background": bg,
         "photo_id": photo if bg == "photo" else "",
+        "still_at": round(_num(it.get("still_at"), 0.0, 86400.0, start), 3),  # v0.4.53: the footage moment
         "dim": round(_num(it.get("dim"), *LIM["dim"], DEF["dim"]), 2),
         "font": _choice(it.get("font"), SPEC["fonts"], DEF["font"]),
         "size": round(_num(it.get("size"), *LIM["size"], DEF["size"]), 2),
@@ -261,7 +267,7 @@ LEGAL = [  # (label, pattern), most specific first
     ("CONVICTED", r"convict|found\s+(?:him|her|them|\w+)?\s*guilty|guilty\s+verdict|jury\s+(?:found|returned)"),
     ("SENTENCED", r"sentenc|life\s+in\s+prison|years\s+in\s+(?:state\s+)?prison|probation"),
     ("DISMISSED", r"dismiss|charges?\s+(?:were\s+)?dropped|dropped\s+(?:the\s+)?charges?"),
-    ("CHARGED", r"charged|indict|faces?\s+(?:a\s+)?charges?|counts?\s+of|booked\s+on"),
+    ("CHARGED", r"charged|indict|faces?\s+(?:a\s+)?charges?|\bcounts?\s+of|booked\s+on"),
     ("ARRESTED", r"\barrest"),
     ("ALLEGED", r"alleg|accus|suspected\s+of"),
 ]
@@ -272,6 +278,80 @@ COURT = r"\b(?:argu\w*|prosecut\w*|defen[cs]e|jur(?:y|ors?)|testif\w*|testimony|
 FIND = r"\b(?:evidence|records?|video|footage|surveillance|phone|cell|data|dna|autopsy|report|detectives?|investigators?|found|discovered|revealed|showed|warrant|search(?:ed)?|forensic\w*|fingerprints?|ballistics?|camera|messages?|location|witness(?:es)?|tip)\b"
 EMOTION = r"\b(?:mother|father|mom|dad|grandmother|grandfather|family|families|loved|love|remember\w*|funeral|vigil|tribute|heart\w*|tears?|grief|griev\w*|mourn\w*|smile|dream\w*|miss(?:es|ed)?\s+(?:him|her)|beloved|memorial|sobb\w*|wept|cried|cry)\b"
 LEAD = re.compile(r"^(?:and|but|so|then|now|still|yet|also)\s+", re.I)
+
+# v0.4.53: what a chapter is about, from its title (the order matters: the first match wins)
+CHAPTER_KINDS = [
+    ("opening", r"hook|cold\s+open|opening|setting\s+the\s+scene|teaser|prologue"),
+    ("victim", r"remember|who\s+was|in\s+memory|tribute|legacy|life\s+of|people\s+around|famil(?:y|ies)|mother|father|childhood|growing\s+up"),
+    ("closing", r"closing|epilogue|final\s+thoughts|conclusion|outro"),
+    ("legal", r"trial|sentenc|verdict|court|plea|prosecut|charges?\b|hearing|detention|convict|appeal|justice"),
+    ("statements", r"interrogat|interview|statement|alibi|accounts?\b|stor(?:y|ies)\b|confess|\blies\b|lying|version"),
+    ("investigation", r"evidence|surveillance|digital|investigat|search|forensic|clue|records?\b|discover|autopsy|\bdna\b|phone|camera|video|footage|tips?\b|leads?\b|manhunt"),
+    ("chronology", r"night|\bday\b|timeline|hours|last\s+seen|disappear|vanish|morning|evening|weekend|minutes|countdown"),
+]
+STAGES = ["ALLEGED", "ARRESTED", "CHARGED", "PLEA", "VERDICT", "CONVICTED", "ACQUITTED", "DISMISSED", "SENTENCED"]
+# an outcome actually told (not asked for, faced or argued): these can anchor a legal graphic
+OUTCOME = [
+    ("PLEA", r"\bple(?:aded|d)\s+guilty|\bpleaded\s+no\s+contest|\baccepted\s+a\s+plea"),
+    ("ACQUITTED", r"\bacquitted\b|\bfound\s+(?:\w+\s+){0,2}not\s+guilty"),
+    ("CONVICTED", r"\bwas\s+convicted|\bwere\s+convicted|\bconvicted\s+(?!felon)\w+\s+of\b|\bfound\s+(?:\w+\s+){0,2}guilty|\bguilty\s+verdict"),
+    ("SENTENCED", r"\bsentenced\s+(?:\w+[-\w]*\s+){0,3}to\b|\bwas\s+sentenced\b|\bwere\s+sentenced\b"),
+    ("DISMISSED", r"\bcharges?\s+(?:were|was)\s+(?:dismissed|dropped)|\bdismissed\s+the\s+(?:case|charges?)|\bdropped\s+the\s+charges?"),
+]
+# the earlier steps a legal outcome recaps (strict: an arrest made, a charge brought)
+MILESTONE = [
+    ("CHARGED", r"\bcharged\s+(?:\w+\s+){0,3}(?:with|as\s+an\s+adult)\b|\bindicted\b|\bannounced\s+(?:a\s+|the\s+)?[\w\s-]{0,40}\bcharges?\b"),
+    ("ARRESTED", r"\b(?:police|officers|deputies|detectives|marshals|authorities|agents|department)\b[^;]{0,140}?\barrested\s+\w|\b(?:was|were)\s+arrested\b"),
+]
+HYPOTHETICAL = r"\b(?:faced?|faces|facing|could|would|might|asked|sought|seek\w*|request\w*|recommend\w*|argu\w*|urged|hoped|expected|possible|possibility)\b|\?"
+
+
+def chapter_kind(chapter):
+    """opening | victim | closing | legal | statements | investigation | chronology | general."""
+    c = str(chapter or "")
+    c = re.sub(r"(?i)^\s*(?:chapter|part|act)\s+\w+\s*[—–:-]\s*", "", c)
+    for kind, pat in CHAPTER_KINDS:
+        if re.search(pat, c, re.I):
+            return kind
+    return "chronology" if DATE.search(c) else "general"
+
+
+def _outcome(text):
+    """(label, character index) of a legal outcome told in this sentence, else None."""
+    if re.search(HYPOTHETICAL, text, re.I):
+        return None
+    for lab, pat in OUTCOME:
+        m = re.search(pat, text, re.I)
+        if m:
+            return lab, m.start()
+    return None
+
+
+def _milestones(project, before, have):
+    """Legal steps told earlier in the narration (outside the cold open): the latest earlier
+    outcome of each kind, the first charge (or the first arrest when no charge was told)."""
+    scenes = project.get("scenes") or []
+    got = {}
+    for s in sentences(timeline_words(project)):
+        if s["e"] > before + 1e-6:
+            break
+        if scenes and chapter_kind(scenes[s["scene"]].get("chapter")) in ("opening", "victim"):
+            continue
+        if len(s["text"]) > LIM["text"] or re.search(EMOTION, s["text"], re.I):
+            continue  # it would have to be cut; or it is about the family
+        hit = _outcome(s["text"])
+        if hit:
+            got[hit[0]] = s  # the latest
+            continue
+        if re.search(HYPOTHETICAL, s["text"], re.I):
+            continue
+        for lab, pat in MILESTONE:
+            if re.search(pat, s["text"], re.I):
+                got.setdefault(lab, s)  # the first
+                break
+    if "CHARGED" in got or "CHARGED" in have:
+        got.pop("ARRESTED", None)
+    return {k: v for k, v in got.items() if k not in have}
 
 
 def _clean_line(text, n=LIM["text"]):
@@ -340,12 +420,30 @@ def draft(project, template, start, end, item_id=None, source="manual", reason="
         if len(lines) < 2:
             lines = [{"label": "", "text": _clean_line(s["text"]), "at": s["t"]} for s in sents]
     elif template == "legal":
-        for s in sents:
-            for lab, pat in LEGAL:
-                m = re.search(pat, s["text"], re.I)
-                if m:
-                    lines.append({"label": lab, "text": _clean_line(s["text"]), "at": _word_time(s, m.start())})
-                    break
+        told = [(_outcome(s["text"]), s) for s in sents]
+        if any(h for h, _ in told):
+            # v0.4.53: a legal outcome: it is shown when it is said, after the steps that led to it
+            # (already told earlier in the narration, so nothing is given away), each with its tag
+            for h, s in told:
+                if h:
+                    lines.append({"label": h[0], "text": _clean_line(s["text"]), "at": _word_time(s, h[1])})
+                    continue
+                for lab, pat in MILESTONE:
+                    m = re.search(pat, s["text"], re.I)
+                    if m and not re.search(HYPOTHETICAL, s["text"], re.I):
+                        lines.append({"label": lab, "text": _clean_line(s["text"]), "at": _word_time(s, m.start())})
+                        break
+            earlier = _milestones(project, sents[0]["t"], {x["label"] for x in lines})
+            recap = [{"label": lab, "text": _clean_line(s["text"]), "at": None} for lab, s in earlier.items()]
+            lines = sorted(recap, key=lambda x: STAGES.index(x["label"])) + lines
+            lines = lines[-tpl["max_lines"]:]  # the outcome stays
+        else:
+            for s in sents:
+                for lab, pat in LEGAL:
+                    m = re.search(pat, s["text"], re.I)
+                    if m:
+                        lines.append({"label": lab, "text": _clean_line(s["text"]), "at": _word_time(s, m.start())})
+                        break
         if not lines:
             lines = [{"label": "", "text": _clean_line(s["text"]), "at": s["t"]} for s in sents]
     elif template == "contrast":
@@ -357,9 +455,12 @@ def draft(project, template, start, end, item_id=None, source="manual", reason="
     else:
         lines = [{"text": _clean_line(s["text"]), "at": s["t"]} for s in sents]
     lines = lines[: tpl["max_lines"]]
-    first = min(x["at"] for x in lines)
+    recap = [x for x in lines if x["at"] is None]
+    first = min(x["at"] for x in lines if x["at"] is not None)
     intro = TIM["intro_end"]
-    begin = max(0.0, min(start, first - intro))
+    begin = max(0.0, min(start, first - intro - RECAP_STEP * len(recap) - (0.6 if recap else 0)))
+    for k, x in enumerate(recap):  # the steps already told come in one after another, then the outcome
+        x["at"] = round(begin + intro + RECAP_STEP * k, 3)
     last_end = max(s["e"] for s in sents)
     item = {
         "id": item_id or "mg" + hashlib.sha1(f"{template}{start}{end}{time.time()}".encode()).hexdigest()[:10],
@@ -389,8 +490,13 @@ def _flags(project):
         a, b = offsets[i], offsets[i] + max(1, round(float(s.get("duration") or 0) * FPS)) / FPS
         if s.get("insert_audio") or s.get("audio_break"):
             blocked.append((a - 1.0, b + 1.0, "a soundbite"))
-        if re.search(r"(?i)hook|cold open|opening", str(s.get("chapter") or "")):
+        kind = chapter_kind(s.get("chapter"))
+        if kind == "opening":
             blocked.append((a, b, "the cold open"))
+        elif kind == "victim":  # v0.4.53: who the victim was, the family, remembrance
+            blocked.append((a, b, "a chapter about the victim and family"))
+        elif kind == "closing":
+            blocked.append((a, b, "the closing"))
     try:
         for ev in cta.events(project):
             blocked.append((ev[0] - 2.0, ev[1] + 2.0, "the subscribe animation"))
@@ -405,14 +511,16 @@ def _flags(project):
 def suggest(project, existing=()):
     """Read the whole narration chapter by chapter and propose graphics where they help the story:
     chronology (several dated events), the investigation (several findings), contradictions (what
-    was said against what was found) and legal outcomes. Never in the cold open, soundbites,
-    emotional passages, CTA places or the closing. Returns [item]; can be empty."""
+    was said against what was found) and legal outcomes. What a chapter is about (its title) weighs
+    in. Never in the cold open, soundbites, emotional passages, chapters about the victim and family,
+    or CTA places; the closing only for the case's legal outcome. Returns [item]; can be empty."""
     words = timeline_words(project)
     if not words:
         return []
     sents = sentences(words)
     scenes = project.get("scenes") or []
     blocked, total = _flags(project)
+    hard = [x for x in blocked if x[2] != "the closing"]  # the legal outcome may go near the end
     taken = [(x["start"], x["end"]) for x in existing]
     sp = SPEC["suggest"]
     lo, hi = sp["window"]
@@ -420,8 +528,8 @@ def suggest(project, existing=()):
     def chapter(s):
         return str(scenes[s["scene"]].get("chapter") or "") if scenes else ""
 
-    def free(a, b):
-        return not any(a < y and b > x for x, y, _ in blocked)
+    def free(a, b, rules=blocked):
+        return not any(a < y and b > x for x, y, _ in rules)
 
     # consecutive narration with no soundbite between (a soundbite splits the narration)
     runs, cur = [], []
@@ -432,7 +540,7 @@ def suggest(project, existing=()):
         cur.append(s)
     if cur:
         runs.append(cur)
-    cands = []
+    cands = []  # (score, template, start, end, chapter, why, ready item or None)
     for run in runs:
         for i in range(len(run)):
             for j in range(i + 2, min(len(run), i + 7) + 1):
@@ -446,6 +554,7 @@ def suggest(project, existing=()):
                 if re.search(EMOTION, text, re.I) or text.rstrip().endswith(":"):
                     continue  # family, victims, tributes; or introducing someone who speaks next
                 ch = chapter(win[0])
+                kind = chapter_kind(ch)
                 pos = a / max(1.0, total)
                 dated = [s for s in win if DATE.search(s["text"])]
                 legal = {lab for s in win for lab, pat in LEGAL if re.search(pat, s["text"], re.I)}
@@ -455,38 +564,156 @@ def suggest(project, existing=()):
                 finds = [s for s in win if len(re.findall(FIND, s["text"], re.I)) >= 1]
                 opts = []
                 if len(dated) >= 3:
-                    opts.append(("timeline", 2.2 * len(dated) + (1.5 if 0.2 <= pos <= 0.6 else 0),
+                    opts.append(("timeline", 2.2 * len(dated) + (1.5 if 0.2 <= pos <= 0.6 else 0) + (2.5 if kind == "chronology" else 0),
                                  f"{len(dated)} dated events in {b - a:.0f} s"))
-                if len(legal - {"ARRESTED", "ALLEGED"}) >= 2 or (len(legal) >= 2 and re.search(r"(?i)trial|court|sentenc|verdict|charge", ch)):
-                    opts.append(("legal", 2.5 * len(legal) + (2 if pos >= 0.6 else 0) + (2 if re.search(r"(?i)trial|court|sentenc|verdict|plea", ch) else 0),
+                if len(legal - {"ARRESTED", "ALLEGED"}) >= 2 or (len(legal) >= 2 and kind == "legal"):
+                    opts.append(("legal", 2.5 * len(legal) + (2 if pos >= 0.6 else 0) + (2 if kind == "legal" else 0),
                                  f"{', '.join(sorted(legal)).lower()} in the narration"))
                 if stated and found and not courtroom and re.search(CONTRADICT, " ".join(s["text"] for s in found), re.I):
-                    opts.append(("contrast", 6.0 + 1.5 * min(len(stated), len(found)) + (1.5 if 0.45 <= pos <= 0.85 else 0),
+                    opts.append(("contrast", 6.0 + 1.5 * min(len(stated), len(found)) + (1.5 if 0.45 <= pos <= 0.85 else 0) + (2.5 if kind == "statements" else 0),
                                  f"{len(stated)} statement(s) set against {len(found)} finding(s)"))
                 if len(finds) >= 3:
-                    opts.append(("findings", 1.6 * len(finds) + (2 if re.search(r"(?i)evidence|investigat|digital|search|clue|discover", ch) else 0) + (1 if 0.35 <= pos <= 0.8 else 0),
+                    opts.append(("findings", 1.6 * len(finds) + (2 if kind == "investigation" else 0) + (1 if 0.35 <= pos <= 0.8 else 0) - (2 if kind == "legal" else 0),
                                  f"{len(finds)} investigative findings in {b - a:.0f} s"))
                 for tpl, score, why in opts:
                     if score >= 6.0:
-                        cands.append((score, tpl, a, b, ch, why))
+                        cands.append((score, tpl, a, b, ch, why, None))
+    cands += _outcome_candidates(project, sents, scenes, hard, free, chapter)
     cands.sort(key=lambda c: -c[0])
     chosen = []
-    for score, tpl, a, b, ch, why in cands:
+    for c in cands:
+        score, tpl, a, b = c[:4]
         s0, s1 = a - TIM["lead"], b + TIM["hold"]
-        if any(s0 < y + sp["min_gap"] and s1 > x - sp["min_gap"] for x, y in taken + [(c[2], c[3]) for c in chosen]):
+        if any(s0 < y + sp["min_gap"] and s1 > x - sp["min_gap"] for x, y in taken + [(o[2], o[3]) for o in chosen]):
             continue
-        if sum(1 for c in chosen if c[1] == tpl) >= 2:
-            continue  # vary the layouts
-        chosen.append((score, tpl, a, b, ch, why))
+        if sum(1 for o in chosen if o[1] == tpl) >= 2:
+            continue  # vary the templates
+        chosen.append(c)
         if len(chosen) >= sp["max"]:
             break
     out = []
-    for score, tpl, a, b, ch, why in sorted(chosen, key=lambda c: c[2]):
+    for score, tpl, a, b, ch, why, ready in sorted(chosen, key=lambda c: c[2]):
         where = (ch.split("—")[0].strip().title() + " — ") if ch else ""
-        it = draft(project, tpl, a, b + 0.01, source="auto", reason=f"{where}{why}; no soundbites or emotional passages.")
+        it = ready or draft(project, tpl, a, b + 0.01, source="auto", reason=f"{where}{why}; no soundbites or emotional passages.")
         if it and len(it["lines"]) >= 2:
             out.append(it)
+    tall = _is_tall(project)
+    return [vary_layout(it, list(existing) + out[:k], tall) for k, it in enumerate(out)]
+
+
+def _outcome_candidates(project, sents, scenes, hard, free, chapter):
+    """v0.4.53: the case's legal outcome (a verdict, a sentence, a plea told in the narration), as a
+    graphic that recaps the steps before it. Allowed near the end, where outcomes are told; never
+    over a soundbite, the CTA, an emotional sentence or a chapter about the victim. One for the
+    final outcome (an earlier one only when it is told long before)."""
+    anchors = []
+    for k, s in enumerate(sents):
+        if not _outcome(s["text"]) or len(s["text"]) > LIM["text"] or re.search(EMOTION, s["text"], re.I):
+            continue
+        if chapter_kind(chapter(s)) in ("opening", "victim") or not free(s["t"], s["e"], hard):
+            continue
+        anchors.append(k)
+    keep, nxt = [], None
+    for k in reversed(anchors):
+        if nxt is None or sents[nxt]["t"] - sents[k]["e"] >= SPEC["suggest"]["recap_gap"]:
+            keep.append(k)
+            nxt = k
+    out = []
+    for k in keep:
+        s = sents[k]
+        it = draft(project, "legal", s["t"], s["e"] + 0.01, source="auto")
+        if not it or len(it["lines"]) < 2:
+            continue
+        # back to the footage before the next emotional sentence, soundbite or CTA (still readable)
+        end = it["end"]
+        for x in sents[k + 1:]:
+            if x["t"] >= end:
+                break
+            if re.search(EMOTION, x["text"], re.I) or not free(x["t"], x["e"], hard):
+                end = max(s["e"] + 1.2, x["t"] + 1.0)
+                break
+        end = min(end, min((b[0] for b in hard if b[0] > s["e"]), default=end))
+        it["end"] = round(max(end, it["start"] + LIM["length"][0]), 3)
+        if not free(it["start"], it["end"], hard):
+            continue
+        steps = ", ".join(x["label"].lower() for x in it["lines"])
+        ch = chapter(s)
+        where = (ch.split("—")[0].strip().title() + " — ") if ch else ""
+        it["reason"] = (f"{where}the legal outcome ({steps}); the earlier steps were already told, the last one appears "
+                        f"when it is said. Allowed near the end because this is where the outcome is told.")
+        out.append((12.0 + len(it["lines"]), "legal", it["start"], it["end"], ch, it["reason"], normalise_item(it)))
     return out
+
+
+# ---------------------------------------------------------------------- layouts (v0.4.53)
+
+def _is_tall(project):
+    try:
+        W, H = effects.frame_size("1080p", effects.aspect_of(project))
+        return H > W
+    except Exception:  # pragma: no cover
+        return False
+
+
+def resolve_layout(item, tall=False):
+    """The layout an item is drawn with ("auto" resolved from its content; a layout made for wide
+    frames becomes its upright counterpart in a tall frame)."""
+    lines = item["lines"]
+    lay = item["layout"]
+    tpl = item["template"]
+    if lay == "auto":
+        if tpl == "findings":
+            lay = "split" if (len(lines) >= 3 and len(item["title"]) > 18) else "stack"
+        elif tpl == "timeline":
+            lay = "horizontal" if len(lines) <= 5 else "vertical"
+        elif tpl == "contrast":
+            kinds = {l["kind"] for l in lines}
+            lay = "columns" if {"statement", "finding"} <= kinds else "rows"
+        else:
+            lay = "verdict" if (len(lines) >= 2 and lines[-1]["label"] in ("CONVICTED", "ACQUITTED", "SENTENCED", "PLEA", "DISMISSED")
+                                and len(lines[-1]["text"]) <= 120) else "list"
+    if tall:
+        lay = SPEC["layouts_tall"].get(lay, lay)
+    return lay
+
+
+def layout_options(item, tall=False):
+    """The layouts that look different for this item, in order (no duplicates once resolved)."""
+    seen, out = set(), []
+    for lid, _ in SPEC["layouts"][item["template"]]:
+        if lid == "auto":
+            continue
+        r = resolve_layout(dict(item, layout=lid), tall)
+        if r in seen or not _fits(item, r):
+            continue
+        seen.add(r)
+        out.append(r)
+    return out
+
+
+def _fits(item, lay):
+    n = len(item["lines"])
+    if lay in ("focus", "cards", "steps", "horizontal"):
+        return 1 <= n <= (4 if lay == "cards" else 5)
+    if lay == "columns":
+        return {"statement", "finding"} <= {l["kind"] for l in item["lines"]}
+    if lay == "quote":
+        return any(l["kind"] == "statement" for l in item["lines"])
+    if lay == "verdict":
+        return n >= 1
+    return True
+
+
+def vary_layout(item, others, tall=False):
+    """A graphic of a template already used looks different: the first layout that suits it and
+    that the others of the same template do not use."""
+    same = {resolve_layout(o, tall) for o in others if o is not item and o["template"] == item["template"]}
+    if not same or resolve_layout(item, tall) not in same:
+        return item
+    for lid in layout_options(item, tall):
+        if resolve_layout(dict(item, layout=lid), tall) not in same:
+            return dict(item, layout=lid)
+    return item
 
 
 # ====================================================================== drawing
@@ -623,6 +850,7 @@ class El:
     d_out: float = 0.5
     exit: str = "fade"
     lut: dict = field(default_factory=dict, repr=False)
+    early: bool = False  # v0.4.53: leaves on its own (one line at a time), not with the rest
 
 
 def ease_out(x):
@@ -651,6 +879,7 @@ class Layout:
     bg: str
     photo: Image.Image | None = None
     plan: tuple | None = None
+    layout: str = ""
 
 
 def build(item, W, H, photo_path=None):
@@ -691,7 +920,17 @@ def _build(item, W, H, photo_path, fit):
         return max(TIM["intro_end"] / sp * 0.9, at - it["start"])
 
     def add(img, x, y, t_in, kind=None, d=None):
-        els.append(El(img, int(round(x + shift_x)), int(round(y + shift_y)), t_in, d or d_in, kind or enter))
+        el = El(img, int(round(x + shift_x)), int(round(y + shift_y)), t_in, d or d_in, kind or enter)
+        els.append(el)
+        return el
+
+    def leave(group, t_next):
+        """One at a time: these elements leave just before the next line comes in."""
+        for el in group:
+            el.early = True
+            el.d_out = 0.35 / sp
+            el.t_out = max(el.t_in + el.d_in, t_next - 0.4 / sp)
+            el.exit = "fade"
 
     heading_f = font(fam, "medium", U * 0.027)
     title_f = font(fam, "bold", U * (0.074 if not tall else 0.062))
@@ -736,11 +975,66 @@ def _build(item, W, H, photo_path, fit):
 
     lines = it["lines"]
     tpl = it["template"]
-    layout = it["layout"]
+    layout = resolve_layout(it, tall)
 
-    if tpl == "findings":
-        if layout == "auto":
-            layout = "split" if (not tall and len(lines) >= 3 and len(it["title"]) > 18) else "stack"
+    if tpl == "findings" and layout == "cards":  # v0.4.53: numbered cards, two columns when wide
+        x, mw = margin, W - margin * 2
+        cols = 2 if (not tall and len(lines) >= 2) else 1
+        gap = U * 0.07
+        cw = (mw - gap * (cols - 1)) / cols
+        num_f = font(fam, "bold", U * 0.066)
+        card_f = font(fam, "regular", U * 0.036)
+        num_w = num_f.getlength("00") + U * 0.03
+        lh = card_f.getmetrics()[0] * 1.32
+        tw = cw - num_w
+        hs = [max(len(wrap(l["text"], card_f, tw, 4)) * lh, num_f.getmetrics()[0] * 1.05) + U * 0.035 for l in lines]
+        row_h = [max(hs[r * cols:(r + 1) * cols]) + U * 0.045 for r in range(math.ceil(len(lines) / cols))]
+        head_h = U * (0.05 + 0.08 * min(3, len(wrap(it["title"].upper(), title_f, mw, 3))) + 0.1)
+        y = max(H * 0.08, (H - head_h - sum(row_h)) / 2)
+        y, _ = intro(x, y, mw)
+        for k, l in enumerate(lines):
+            r, c = divmod(k, cols)
+            cx, cy = x + c * (cw + gap), y + sum(row_h[:r])
+            t = t_line(l["at"])
+            rule = rect_sprite(cw, max(2, U * 0.003), (120, 116, 110), 150)
+            add(rule, cx, cy, max(TIM["divider"] / sp, t - 0.2 / sp), "wipe", 0.6 / sp)
+            red = rect_sprite(U * 0.06, max(3, U * 0.006), ac)
+            add(red, cx, cy - (red.height - rule.height) / 2, t, "wipe", 0.4 / sp)
+            img, pad = text_sprite(f"{k + 1:02d}", num_f, ac_text)
+            add(img, cx - pad, cy + U * 0.022 - pad, t, "mask", 0.6 / sp)
+            body_block(l["text"], card_f, tc, cx + num_w, cy + U * 0.035, tw, t + 0.12 / sp, 4)
+
+    elif tpl == "findings" and layout == "focus":  # v0.4.53: one finding at a time, large
+        center = it["align"] == "center"
+        x, mw = margin, W - margin * 2
+        y, _ = intro(x, H * (0.1 if not tall else 0.12), mw, center)
+        big_f = font(fam, "medium", U * 0.058)
+        cnt_f = font(fam, "medium", U * 0.026)
+        lh = big_f.getmetrics()[0] * 1.22
+        bw = mw * (0.86 if not tall else 1.0)
+        n = len(lines)
+        bar_y = H * 0.86
+        top, bottom = y + U * 0.02, bar_y - U * 0.06
+        seg_w = min(U * 0.09, (mw * 0.5) / max(1, n))
+        times = [t_line(l["at"]) for l in lines]
+        for k, (l, t) in enumerate(zip(lines, times)):
+            rows = wrap(l["text"], big_f, bw, 4)
+            cnt, cpad = text_sprite(f"{k + 1:02d} / {n:02d}", cnt_f, ac_text, tracking=U * 0.004)
+            block = cnt.height + U * 0.02 + len(rows) * lh
+            yy = max(top, top + (bottom - top - block) / 2)
+            group = [add(cnt, (x if not center else x + (mw - cnt.width) / 2) - cpad, yy - cpad, t, "fade", 0.4 / sp)]
+            yy += cnt.height + U * 0.02
+            for j, ln in enumerate(rows):
+                img, pad = text_sprite(ln, big_f, tc)
+                lx = x if not center else x + (mw - img.width) / 2
+                group.append(add(img, lx - pad, yy + j * lh - pad, t + j * TIM["line_stagger"] / sp, "settle" if enter == "fade" else enter, 0.75 / sp))
+            if k + 1 < n:
+                leave(group, times[k + 1])
+            sx = x + k * (seg_w + U * 0.01) if not center else x + (mw - n * (seg_w + U * 0.01)) / 2 + k * (seg_w + U * 0.01)
+            add(rect_sprite(seg_w, max(3, U * 0.005), (90, 88, 84)), sx, bar_y, TIM["divider"] / sp, "wipe", 0.5 / sp)
+            add(rect_sprite(seg_w, max(3, U * 0.005), ac), sx, bar_y, t, "wipe", 0.45 / sp)
+
+    elif tpl == "findings":
         if layout == "split" and not tall:
             lx, lw = margin, W * 0.33
             rx, rw = W * 0.45, W - margin - W * 0.45
@@ -773,9 +1067,53 @@ def _build(item, W, H, photo_path, fit):
                     body_block(l["text"], body_f, tc, x, y, mw, t, 3, center=True)
                 y += h + U * 0.035
 
+    elif tpl == "timeline" and layout == "focus":  # v0.4.53: one date at a time, a strip below
+        x, mw = margin, W - margin * 2
+        y, _ = intro(x, H * (0.1 if not tall else 0.12), mw)
+        date_f = font(fam, "bold", U * (0.11 if not tall else 0.09))
+        txt_f = font(fam, "regular", U * 0.046)
+        small = font(fam, "medium", U * 0.022)
+        lh = txt_f.getmetrics()[0] * 1.3
+        tw = mw * (0.8 if not tall else 1.0)
+        n = len(lines)
+        axis_y = H * 0.85
+        top, bottom = y + U * 0.01, axis_y - U * 0.1
+        times = [t_line(l["at"]) for l in lines]
+        col = mw / max(1, n)
+        pts = [x + col * (k + 0.5) for k in range(n)]
+        base = rect_sprite(mw, max(2, U * 0.003), (120, 116, 110), 150)
+        add(base, x, axis_y, TIM["divider"] / sp, "wipe", 1.0 / sp)
+        prev = x
+        for l, px, t in zip(lines, pts, times):
+            seg = rect_sprite(max(2, px - prev), max(3, U * 0.005), ac)
+            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp)
+            prev = px
+        for k, (l, px, t) in enumerate(zip(lines, pts, times)):
+            dot = ring_sprite(U * 0.011, ac, (18, 18, 20), max(2, U * 0.0035))
+            add(dot, px - dot.width / 2, axis_y + base.height / 2 - dot.height / 2, t, "pop", 0.35 / sp)
+            if l["label"]:
+                for j, ln in enumerate(wrap(l["label"], small, col - U * 0.02, 2)):
+                    img, pad = text_sprite(ln, small, muted)
+                    add(img, px - img.width / 2, axis_y + U * 0.03 + j * small.getmetrics()[0] * 1.2 - pad, t + 0.05 / sp)
+            rows = wrap(l["text"], txt_f, tw, 4)
+            dates = wrap(l["label"], date_f, mw, 2) if l["label"] else []
+            dh = len(dates) * date_f.getmetrics()[0] * 1.05
+            block = dh + (U * 0.025 if dates else 0) + len(rows) * lh
+            yy = max(top, top + (bottom - top - block) / 2)
+            group = []
+            for j, ln in enumerate(dates):
+                img, pad = text_sprite(ln, date_f, tc)
+                group.append(add(img, x - pad, yy + j * date_f.getmetrics()[0] * 1.05 - pad, t, "mask", 0.7 / sp))
+            yy += dh + (U * 0.025 if dates else 0)
+            if dates:
+                group.append(add(rect_sprite(U * 0.12, max(3, U * 0.006), ac), x, yy - U * 0.016, t + 0.15 / sp, "wipe", 0.5 / sp))
+            for j, ln in enumerate(rows):
+                img, pad = text_sprite(ln, txt_f, tc)
+                group.append(add(img, x - pad, yy + j * lh - pad, t + (0.2 + j * TIM["line_stagger"]) / sp))
+            if k + 1 < n:
+                leave(group, times[k + 1])
+
     elif tpl == "timeline":
-        if layout == "auto":
-            layout = "horizontal" if (not tall and len(lines) <= 5) else "vertical"
         if layout == "horizontal" and not tall:
             x, mw = margin, W - margin * 2
             y, _ = intro(x, H * 0.16, mw)
@@ -838,9 +1176,44 @@ def _build(item, W, H, photo_path, fit):
                 body_block(l["text"], txt_f, muted, tx, y, tw, t + 0.12 / sp, 3)
                 y += h + U * 0.03
 
+    elif tpl == "contrast" and layout == "quote":  # v0.4.53: what was said as a quote, then the record
+        x, mw = margin, W - margin * 2
+        y, _ = intro(x, H * (0.1 if not tall else 0.1), mw)
+        q_f = font(fam, "bold", U * 0.15)
+        say_f = font(fam, "regular", U * 0.044)
+        rec_f = font(fam, "medium", U * 0.041)
+        who_f = font(fam, "medium", U * 0.024)
+        indent = U * 0.085
+        said = [l for l in lines if l["kind"] != "finding"]
+        found = [l for l in lines if l["kind"] == "finding"]
+        if said:
+            qm, qpad = text_sprite("\u201c", q_f, ac)
+            add(qm, x - qpad - U * 0.005, y - qpad - U * 0.035, t_line(said[0]["at"]), "pop", 0.45 / sp)
+        for l in said:
+            t = t_line(l["at"])
+            h = body_block(l["text"], say_f, tc if l["emphasis"] else muted, x + indent, y, mw - indent, t + 0.05 / sp, 3)
+            y += h
+            if l["label"]:
+                img, pad = text_sprite("— " + l["label"].upper(), who_f, (150, 146, 140), tracking=U * 0.004)
+                add(img, x + indent - pad, y - pad, t + 0.3 / sp)
+                y += img.height
+            y += U * 0.03
+        if found:
+            y += U * 0.02
+            t0 = t_line(found[0]["at"])
+            hdr, hpad = text_sprite("THE RECORD", who_f, ac_text, tracking=U * 0.006)
+            add(rect_sprite(min(mw, U * 0.5), max(2, U * 0.003), (120, 116, 110), 150), x, y + hdr.height / 2, t0 - 0.1 / sp, "wipe", 0.6 / sp)
+            add(hdr, x + min(mw, U * 0.5) + U * 0.02 - hpad, y - hpad, t0)
+            y += hdr.height + U * 0.025
+            for l in found:
+                t = t_line(l["at"])
+                lh = rec_f.getmetrics()[0] * 1.32
+                n = len(wrap(l["text"], rec_f, mw - indent, 3))
+                add(rect_sprite(max(3, U * 0.006), n * lh, ac), x + indent - U * 0.035, y, t, "wipe_v", 0.4 / sp)
+                body_block(l["text"], rec_f, tc, x + indent, y, mw - indent, t + 0.08 / sp, 3)
+                y += n * lh + U * 0.03
+
     elif tpl == "contrast":
-        if layout == "auto":
-            layout = "columns" if not tall and any(l["kind"] == "statement" for l in lines) and any(l["kind"] == "finding" for l in lines) else "rows"
         x, mw = margin, W - margin * 2
         if layout == "columns" and not tall:
             y, _ = intro(x, H * 0.12, mw)
@@ -889,7 +1262,68 @@ def _build(item, W, H, photo_path, fit):
                 body_block(l["text"], f, tc if finding or l["emphasis"] else muted, x + U * 0.03, y + img.height, mw - U * 0.06, t + 0.1 / sp, 3)
                 y += img.height + n * lh + U * 0.04
 
-    else:  # legal
+    elif layout == "steps":  # v0.4.53 legal: the steps across, a tag on the line for each
+        x, mw = margin, W - margin * 2
+        y, _ = intro(x, H * 0.14, mw)
+        tag_f = font(fam, "bold", U * 0.026)
+        txt_f = font(fam, "regular", U * 0.031)
+        axis_y = max(y + U * 0.1, H * 0.46)
+        n = max(1, len(lines))
+        col = mw / n
+        pts = [x + col * (k + 0.5) for k in range(n)]
+        base = rect_sprite(mw, max(2, U * 0.003), (120, 116, 110), 150)
+        add(base, x, axis_y, TIM["divider"] / sp, "wipe", 1.0 / sp)
+        prev = x
+        for l, px in zip(lines, pts):
+            t = t_line(l["at"])
+            seg = rect_sprite(max(2, px - prev), max(3, U * 0.005), ac)
+            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp)
+            prev = px
+        lh = txt_f.getmetrics()[0] * 1.3
+        for l, px in zip(lines, pts):
+            t = t_line(l["at"])
+            tag = tag_sprite(l["label"] or "—", tag_f, TAG_STYLE.get(l["label"].upper(), "outline"), ac, tc)
+            add(tag, px - tag.width / 2, axis_y + base.height / 2 - tag.height / 2, t, "pop", 0.4 / sp)
+            strong = l["label"].upper() in ("CONVICTED", "VERDICT", "SENTENCED", "PLEA", "ACQUITTED") or l["emphasis"]
+            for j, ln in enumerate(wrap(l["text"], txt_f, col - U * 0.04, 5)):
+                img, pad = text_sprite(ln, txt_f, tc if strong else muted)
+                add(img, px - img.width / 2, axis_y + tag.height / 2 + U * 0.03 + j * lh - pad, t + (0.15 + 0.08 * j) / sp)
+
+    elif layout == "verdict":  # v0.4.53 legal: the steps small, the outcome in large type
+        x, mw = margin, W - margin * 2
+        tag_f = font(fam, "bold", U * 0.021)
+        small_txt = font(fam, "regular", U * 0.03)
+        big_tag_f = font(fam, "bold", U * 0.03)
+        big_f = font(fam, "bold", U * (0.062 if not tall else 0.056))
+        earlier, last = lines[:-1], lines[-1]
+        tag_w = max([tag_sprite(l["label"] or "—", tag_f, "outline", ac, tc).width for l in earlier] + [U * 0.1])
+        slh = small_txt.getmetrics()[0] * 1.28
+        blh = big_f.getmetrics()[0] * 1.12
+        e_h = [max(len(wrap(l["text"], small_txt, mw - tag_w - U * 0.03, 2)) * slh, U * 0.04) + U * 0.018 for l in earlier]
+        big_rows = wrap(last["text"].upper(), big_f, mw, 4)
+        total = U * 0.3 + sum(e_h) + U * 0.07 + U * 0.06 + len(big_rows) * blh
+        y = max(H * 0.07, (H - total) / 2)
+        y, _ = intro(x, y, mw)
+        for l, h in zip(earlier, e_h):
+            t = t_line(l["at"])
+            if l["label"]:
+                tag = tag_sprite(l["label"], tag_f, TAG_STYLE.get(l["label"].upper(), "outline"), ac, tc)
+                add(tag, x, y + (slh - tag.height) / 2, t, "wipe", 0.4 / sp)
+            body_block(l["text"], small_txt, muted, x + tag_w + U * 0.03, y, mw - tag_w - U * 0.03, t + 0.1 / sp, 2)
+            y += h
+        y += U * 0.05
+        t = t_line(last["at"])
+        if last["label"]:
+            tag = tag_sprite(last["label"], big_tag_f, TAG_STYLE.get(last["label"].upper(), "outline"), ac, tc)
+            add(tag, x, y, t, "wipe", 0.45 / sp)
+            y += tag.height + U * 0.022
+        for j, ln in enumerate(big_rows):
+            img, pad = text_sprite(ln, big_f, tc)
+            add(img, x - pad, y + j * blh - pad, t + (0.15 + j * TIM["line_stagger"]) / sp, "mask" if enter != "fade" else "settle", 0.8 / sp)
+        y += len(big_rows) * blh + U * 0.012
+        add(rect_sprite(min(mw, U * 0.32), max(3, U * 0.006), ac), x, y, t + 0.7 / sp, "wipe", 0.7 / sp)
+
+    else:  # legal: a list
         x, mw = margin, W - margin * 2
         tag_f = font(fam, "bold", U * 0.024)
         txt_f = font(fam, "regular", U * 0.038)
@@ -912,12 +1346,20 @@ def _build(item, W, H, photo_path, fit):
 
     # exit: every element leaves, last in first out, before the background fades
     out_start = length - exit_len - TIM["background_out"] * 0.5
-    for k, el in enumerate(reversed(els)):
-        el.t_out = max(el.t_in + el.d_in, out_start + k * TIM["exit_stagger"] / sp * 0.5)
+    rest = [e for e in els if not e.early]
+    # the stagger fits in a fixed time however many pieces there are, and every piece has gone
+    # before the end (v0.4.53: with many wrapped lines the last ones were still on screen)
+    step = min(TIM["exit_stagger"] / sp * 0.5, TIM["background_out"] * 0.3 / max(1, len(rest)))
+    last_out = length - exit_len - 1.0 / FPS
+    for k, el in enumerate(reversed(rest)):
+        el.t_out = min(max(el.t_in + el.d_in, out_start + k * step), max(last_out, el.t_in))
         el.d_out = exit_len
         el.exit = it["exit"]
+    for el in els:  # one at a time: never after the rest
+        if el.early:
+            el.t_out = min(el.t_out, max(el.t_in + el.d_in, out_start))
     photo = None
-    if it["background"] == "photo" and photo_path:
+    if it["background"] in ("photo", "still") and photo_path:
         try:
             with Image.open(photo_path) as im:
                 im = ImageOps.exif_transpose(im).convert("RGB")
@@ -927,7 +1369,10 @@ def _build(item, W, H, photo_path, fit):
                 photo = im
         except OSError:
             photo = None
-    return Layout(it, W, H, els, length, frames, it["background"] if (it["background"] != "photo" or photo) else "charcoal", photo)
+    bg = it["background"]
+    if bg in ("photo", "still"):
+        bg = "photo" if photo is not None else "charcoal"  # a still from the footage is drawn like a photo
+    return Layout(it, W, H, els, length, frames, bg, photo, layout=layout)
 
 
 def _state(el, tau):
@@ -1132,9 +1577,74 @@ def frame(lay, n):
 
 # ====================================================================== cache, preview, export
 
-def item_hash(item, W, H):
+def item_hash(item, W, H, background=""):
     keep = {k: v for k, v in item.items() if k not in ("status", "reason", "source", "id", "hide_captions")}
-    return hashlib.sha1(json.dumps([ENGINE, keep, W, H], sort_keys=True).encode()).hexdigest()[:20]
+    if keep.get("background") != "still":
+        keep.pop("still_at", None)
+    return hashlib.sha1(json.dumps([ENGINE, keep, W, H, str(background or "")], sort_keys=True).encode()).hexdigest()[:20]
+
+
+def footage_at(project, t):
+    """(asset, seconds into it, or None for a picture) of the footage on the timeline at `t`,
+    the same way the export cuts it (trim, crop, looped crop). None when there is no footage."""
+    scenes = project.get("scenes") or []
+    if not scenes:
+        return None
+    assets = {a["id"]: a for a in project.get("assets") or []}
+    offsets, total = scene_offsets(scenes)
+    t = max(0.0, min(float(t), total - 1e-3))
+    i = max(k for k in range(len(scenes)) if offsets[k] <= t + 1e-9)
+    sc = scenes[i]
+    a = assets.get(sc.get("asset_id"))
+    if not a or a.get("kind") not in ("image", "video"):
+        return None
+    if a["kind"] == "image":
+        return a, None
+    dur = float(sc.get("duration") or 0)
+    trim = max(0.0, float(sc.get("trim_start", 0) or 0))
+    crop_end = float(sc["source_crop_end"]) if sc.get("source_crop_end") is not None else trim + dur
+    crop_end = min(max(trim, crop_end), float(a.get("duration", 0) or 0) or crop_end)
+    crop = crop_end - trim
+    if crop <= 0:
+        return None
+    return a, round(trim + (t - offsets[i]) % crop, 3)
+
+
+def background_path(project, item, data, asset_path):
+    """The picture behind a graphic: one of your photos, or a still from your own footage at
+    `still_at` (taken once with FFmpeg and cached). None: the charcoal (nothing is made up)."""
+    bg = item.get("background")
+    if bg == "photo":
+        a = next((x for x in project.get("assets") or [] if x["id"] == item.get("photo_id") and x.get("kind") == "image"), None)
+        src = (a, None) if a else None
+    elif bg == "still":
+        src = footage_at(project, item.get("still_at", item.get("start", 0)))
+    else:
+        return None
+    if not src:
+        return None
+    a, sec = src
+    try:
+        path = Path(asset_path(a))
+    except (OSError, ValueError, KeyError):
+        return None
+    if sec is None:
+        return str(path)
+    st = path.stat()
+    key = hashlib.sha1(f"{path}|{st.st_size}|{st.st_mtime_ns}|{sec:.3f}".encode()).hexdigest()[:20]
+    out = cache_root(data) / "stills" / f"{key}.jpg"
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_suffix(f".{threading.get_ident()}.tmp.jpg")
+        import subprocess
+        subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-ss", f"{sec:.3f}", "-i", str(path), "-frames:v", "1",
+                        "-vf", "scale='min(1920,iw)':-2", "-q:v", "3", str(tmp)], capture_output=True, timeout=60)
+        if tmp.exists() and tmp.stat().st_size > 0:
+            os.replace(tmp, out)
+        else:
+            tmp.unlink(missing_ok=True)
+            return None
+    return str(out)
 
 
 def cache_root(data):
@@ -1182,7 +1692,7 @@ def preview_plan(data, project, item, photo_path=None):
     """{hash, width, height, fps, frames: [unique index per frame], unique} for the editor; the
     item is kept so its frames can be drawn when asked for."""
     W, H = preview_size(project)
-    h = item_hash(item, W, H)
+    h = item_hash(item, W, H, photo_path)
     folder = cache_root(data) / h
     folder.mkdir(parents=True, exist_ok=True)
     spec = folder / "item.json"
@@ -1190,7 +1700,8 @@ def preview_plan(data, project, item, photo_path=None):
         spec.write_text(json.dumps({"item": item, "W": W, "H": H, "photo": str(photo_path or "")}))
     lay = _layout(item, W, H, photo_path)
     frames, unique = plan(lay)
-    return {"hash": h, "width": W, "height": H, "fps": FPS, "frames": frames, "unique": unique, "start": item["start"]}
+    return {"hash": h, "width": W, "height": H, "fps": FPS, "frames": frames, "unique": unique, "start": item["start"],
+            "layout": lay.layout, "layouts": layout_options(item, H > W), "background": lay.bg}
 
 
 _DRAWING = threading.BoundedSemaphore(2)  # preview drawings at a time (the editor stays responsive)
@@ -1269,63 +1780,101 @@ def prune(data, keep_bytes=2_000_000_000):
         total -= sizes[d]
 
 
-def _link(src, dst):
+def encode(lay, out, workers=2, cancelled=lambda: False):
+    """v0.4.53: every frame of a graphic into one video with transparency (QuickTime Animation,
+    lossless; quick to seek). The unique drawings are made by `workers` threads, in order, and
+    piped to FFmpeg as they are ready: no image files (writing PNGs took 3x longer than drawing).
+    Returns the number of drawings made."""
+    import subprocess
+    frames, unique = plan(lay)
+    first, last = {}, {}
+    for n, k in enumerate(frames):
+        first.setdefault(k, n)
+        last[k] = n
+    out = Path(out)
+    tmp = out.with_name(f"{out.stem}.{threading.get_ident()}.tmp.mov")
+    log = out.with_name(f"{out.stem}.{threading.get_ident()}.log")
+    with open(log, "wb") as err:
+        proc = subprocess.Popen(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
+                                 "-s", f"{lay.W}x{lay.H}", "-r", str(FPS), "-i", "-", "-c:v", "qtrle", "-pix_fmt", "argb",
+                                 "-g", str(FPS), "-f", "mov", str(tmp)], stdin=subprocess.PIPE, stderr=err)
+    ok = False
     try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copyfile(src, dst)
+        with ThreadPoolExecutor(max(1, workers)) as pool:
+            pending, live, nxt = {}, {}, 0
+
+            def draw(k):
+                return frame(lay, first[k]).tobytes()
+
+            for n, k in enumerate(frames):
+                if k not in live:
+                    while nxt < unique and len(pending) < max(1, workers) + 1:
+                        pending[nxt] = pool.submit(draw, nxt)
+                        nxt += 1
+                    live[k] = pending.pop(k).result()
+                    if cancelled():
+                        raise RuntimeError("Cancelled by you. No output was published.")
+                proc.stdin.write(live[k])
+                if last[k] == n:
+                    del live[k]
+        proc.stdin.close()
+        if proc.wait() != 0:
+            raise RuntimeError("FFmpeg could not write the motion graphic: " + log.read_text(errors="replace")[-300:])
+        os.replace(tmp, out)
+        ok = True
+    except (BrokenPipeError, OSError) as e:
+        raise RuntimeError(f"FFmpeg could not write the motion graphic: {e} {log.read_text(errors='replace')[-300:]}")
+    finally:
+        if not ok:
+            proc.kill()
+            proc.wait()
+            tmp.unlink(missing_ok=True)
+        log.unlink(missing_ok=True)
+    return unique
 
 
-def prepare(project, width, height, data, folder, photo_path=None, workers=None, cancelled=lambda: False):
-    """Draw every exported graphic's frames at the export size (cached by content: an unchanged
-    graphic is not drawn again). Returns [{start, end, dir, frames}] with dir/%05d.png = one PNG
-    per output frame."""
+def prepare(project, width, height, data, folder, background=None, workers=None, cancelled=lambda: False):
+    """Every exported graphic as one transparent video at the export size, cached by content (an
+    unchanged graphic is not drawn again). `background(item)` gives its photo or footage still.
+    Returns [{start, end, file, frames, unique, drawn, id}]."""
     layers = []
     items = exported(project)
     if not items:
         return layers
-    workers = workers or max(1, min(4, (os.cpu_count() or 2) - 1))
+    # measured (v0.4.53, 2 vCPUs): one drawing thread while FFmpeg encodes on the other core was the
+    # quickest; a second thread added ~180 MB and no speed. Bigger machines get two.
+    workers = workers or (1 if (os.cpu_count() or 2) <= 4 else 2)
     for it in items:
         if cancelled():
             raise RuntimeError("Cancelled by you. No output was published.")
-        pp = photo_path(it["photo_id"]) if (it["background"] == "photo" and photo_path) else None
-        h = item_hash(it, width, height)
+        pp = background(it) if (background and it["background"] in ("photo", "still")) else None
+        h = item_hash(it, width, height, pp)
         cache = cache_root(data) / h
         cache.mkdir(parents=True, exist_ok=True)
+        out = cache / "export.mov"
         lay = build(it, width, height, pp)
         frames, unique = plan(lay)
-        todo = [k for k in range(unique) if not (cache / f"u{k:05d}.png").exists()]
-        first = {}
-        for n, k in enumerate(frames):
-            first.setdefault(k, n)
-
-        def draw(k):
-            tmp = cache / f"u{k:05d}.{threading.get_ident()}.tmp.png"
-            frame(lay, first[k]).save(tmp, compress_level=1)
-            os.replace(tmp, cache / f"u{k:05d}.png")
-
-        if todo:
-            with ThreadPoolExecutor(workers) as pool:
-                list(pool.map(draw, todo))
-        d = Path(folder) / f"mg{len(layers)}"
-        d.mkdir(parents=True, exist_ok=True)
-        for n, k in enumerate(frames):
-            _link(cache / f"u{k:05d}.png", d / f"{n:05d}.png")
+        drawn = 0
+        if not out.exists():
+            drawn = encode(lay, out, workers, cancelled)
+        else:
+            os.utime(cache)  # recently used: kept by prune
         s0 = round(it["start"] * FPS) / FPS
-        layers.append({"start": s0, "end": s0 + len(frames) / FPS, "dir": d, "frames": len(frames),
-                       "unique": unique, "drawn": len(todo), "id": it["id"]})
+        layers.append({"start": s0, "end": s0 + len(frames) / FPS, "file": out, "frames": len(frames),
+                       "unique": unique, "drawn": drawn, "id": it["id"]})
     return layers
 
 
 def overlay_filters(layer, k, scene_start, scene_len):
     """(input args, filter text) to overlay a prepared graphic on a scene, or None. Continues a
-    filter chain like stickers.overlay_filters."""
+    filter chain like stickers.overlay_filters. The graphic's video is read from the frame the scene
+    needs (seeking half a frame early keeps it exact to the frame)."""
     a, b = max(layer["start"], scene_start), min(layer["end"], scene_start + scene_len)
     if b - a < 1 / FPS:
         return None
     first = round((a - layer["start"]) * FPS)
     ra, rb = a - scene_start, b - scene_start
-    args = ["-framerate", str(FPS), "-start_number", str(first), "-i", str(Path(layer["dir"]) / "%05d.png")]
+    args = ["-ss", f"{max(0.0, (first - 0.5) / FPS):.4f}", "-t", f"{b - a + 2 / FPS:.4f}", "-i", str(layer["file"])]
     text = (
         f"[mgb{k}];[{k}:v]format=rgba,setpts=PTS-STARTPTS+{ra:.4f}/TB[mgv{k}];"
         f"[mgb{k}][mgv{k}]overlay=0:0:eof_action=pass:enable='between(t,{ra:.4f},{rb - 0.0001:.4f})':format=auto"

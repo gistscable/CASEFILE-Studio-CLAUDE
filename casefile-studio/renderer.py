@@ -743,15 +743,15 @@ def render(
             except (ValueError, OSError, KeyError) as e:
                 warnings.append(f"The stickers were left out: {e}")
         # v0.4.52: approved motion graphics, drawn once at the export size (cached by content).
+        # v0.4.53: each one is a single transparent video (no PNG frames).
         motion_layers, motion_hide = [], []
         if motiongfx.exported(project):
             progress(4, "Drawing the motion graphics")
             try:
-                def photo_of(aid):
-                    a = assets.get(aid)
-                    return str(asset_path(a)) if a and a.get("kind") == "image" else None
+                def background_of(it):  # your photo, or a still from your own footage (v0.4.53)
+                    return motiongfx.background_path(project, it, DATA, asset_path)
 
-                motion_layers = motiongfx.prepare(project, width, height, DATA, work / "motion", photo_of, cancelled=cancelled)
+                motion_layers = motiongfx.prepare(project, width, height, DATA, work / "motion", background_of, cancelled=cancelled)
                 motion_hide = motiongfx.caption_gaps(project)
                 motiongfx.prune(DATA)  # the cache stays under ~2 GB (the oldest graphics go first)
                 for t0, t1 in cta_events:
