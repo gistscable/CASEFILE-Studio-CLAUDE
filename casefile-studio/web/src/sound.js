@@ -102,6 +102,19 @@ export function decodeDuck(d) {
   return { rate: d.rate, gain: g, key: d.key };
 }
 
+/** v0.4.58 A small waveform: `n` peak values 0..1 of a decoded sound. Pure. */
+export function peaks(buf, n = 48) {
+  if (!buf) return [];
+  const ch = buf.getChannelData(0), step = Math.max(1, Math.floor(ch.length / n)), out = [];
+  for (let i = 0; i < n; i++) {
+    let m = 0;
+    for (let j = i * step, e = Math.min(ch.length, (i + 1) * step); j < e; j++) { const v = Math.abs(ch[j]); if (v > m) m = v; }
+    out.push(m);
+  }
+  const top = Math.max(1e-6, ...out);
+  return out.map((v) => v / top);
+}
+
 export function soundUrl(projectId, sid) {
   return sid.startsWith("a:") ? `/api/projects/${projectId}/sound/custom/${sid.slice(2)}.wav` : `/api/sound/lib/${sid}.wav`;
 }
@@ -134,6 +147,23 @@ export class SfxPreview {
     this.duck = null; // v0.4.57: {rate, gain} — the export's ducking, applied in the preview
     this.duckUntil = 0; // ctx time up to which the ducking is scheduled
     this.narr = new WeakMap(); // <audio> -> its gain node, when the narration is boosted over 100%
+    this.master = 1; // v0.4.58: the effects volume now / the one the plan's levels were made with
+    this.override = new Map(); // item id -> a live volume factor while its slider moves (not saved yet)
+    this.itemGains = new Map(); // item id -> the gain nodes of its sounds playing now
+    this.horizon = -1; // every sound starting before this timeline time has been started
+    this.aud = null; // the one audition playing: {src, sid, onEnd}
+  }
+  /** v0.4.58 The effects volume, in real time: a short ramp on the output, no new plan. */
+  setMaster(ratio) {
+    this.master = Math.max(0, Number.isFinite(+ratio) ? +ratio : 1);
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(this.master, this.ctx.currentTime, 0.03);
+  }
+  /** v0.4.58 One sound's volume while its slider moves (factor; null = back to its saved level). */
+  setItemGain(id, factor) {
+    if (factor === null || factor === undefined) this.override.delete(id);
+    else this.override.set(id, Math.max(0, +factor || 0));
+    const f = this.override.get(id) ?? 1;
+    for (const [g, base] of this.itemGains.get(id) || []) if (this.ctx) g.gain.setTargetAtTime(base * f, this.ctx.currentTime, 0.02);
   }
   setDuck(d) {
     this.duck = d;
@@ -170,7 +200,7 @@ export class SfxPreview {
       } catch { el.volume = Math.min(1, v); return; }
     }
     el.volume = 1;
-    g.gain.value = v;
+    if (Math.abs(g.gain.value - v) > 1e-4) g.gain.setTargetAtTime(v, this.ctx.currentTime, 0.03);
   }
   ensure() {
     if (!this.ctx) {
@@ -178,7 +208,10 @@ export class SfxPreview {
       if (!C) return null;
       this.ctx = new C({ latencyHint: "interactive" });
       this.out = this.ctx.createGain();
+      this.out.gain.value = this.master;
       this.out.connect(this.ctx.destination);
+      this.audOut = this.ctx.createGain(); // auditions: their own volume, not the mix's
+      this.audOut.connect(this.ctx.destination);
       this.duckNode = this.ctx.createGain(); // every effect goes through the ducking, then the volume
       this.duckNode.connect(this.out);
     }
@@ -206,6 +239,8 @@ export class SfxPreview {
     const ctx = this.ctx, src = ctx.createBufferSource(), g = ctx.createGain();
     src.buffer = buf;
     const len = it && it.length ? Math.min(buf.duration, it.length) : buf.duration;
+    const base = gain;
+    if (ducked && it?.id && this.override.has(it.id)) gain *= this.override.get(it.id);
     g.gain.value = gain;
     const fi = it?.fade_in || 0, fo = it?.fade_out || (it?.length ? 0.015 : 0);
     if (fi > offset) {
@@ -216,36 +251,73 @@ export class SfxPreview {
       g.gain.setValueAtTime(gain, when + Math.max(0, len - fo - offset));
       g.gain.linearRampToValueAtTime(0.0001, when + Math.max(0.001, len - offset));
     }
-    src.connect(g).connect(ducked ? this.duckNode : this.out); // auditions are not ducked
+    src.connect(g).connect(ducked ? this.duckNode : this.audOut); // auditions are not ducked
     src.start(when, Math.max(0, offset), Math.max(0.001, len - offset));
+    if (!ducked) return src; // an audition: not one of the timeline's sounds
     this.live.push(src);
-    src.onended = () => (this.live = this.live.filter((s) => s !== src));
+    const key = it?.id;
+    if (key && !fi && !fo) { // a live volume change follows it (fades keep their own automation)
+      if (!this.itemGains.has(key)) this.itemGains.set(key, new Map());
+      this.itemGains.get(key).set(g, base);
+    }
+    src.onended = () => {
+      this.live = this.live.filter((s) => s !== src);
+      if (key) this.itemGains.get(key)?.delete(g);
+    };
+    return src;
   }
-  /** One sound now (the library browser, "play this sound"). */
-  async audition(projectId, sid, gain = 0.8, it = null) {
+  /** v0.4.58 Audition one sound now (the library, "play this sound"): only one at a time — a new
+   *  one stops the last. Nothing is added to the project. Resolves with its length in seconds.
+   *  `onEnd` is called when it stops (ended or stopped). */
+  async audition(projectId, sid, gain = 0.8, it = null, onEnd = null) {
     const ctx = this.ensure();
-    if (!ctx) return;
+    if (!ctx) return null;
+    this.stopAudition();
+    const token = {};
+    this.aud = { token, sid, onEnd };
     const buf = await this.load(soundUrl(projectId, sid));
-    if (buf) this.play(buf, ctx.currentTime + 0.02, 0, gain, it);
+    if (!buf || this.aud?.token !== token) { if (this.aud?.token === token) this.stopAudition(); return buf ? buf.duration : null; }
+    const src = this.play(buf, ctx.currentTime + 0.02, 0, gain, it ? { ...it, id: undefined } : null);
+    this.aud.src = src;
+    src.onended = () => { if (this.aud?.src === src) { const cb = this.aud.onEnd; this.aud = null; cb?.(); } };
+    return buf.duration;
+  }
+  stopAudition() {
+    const a = this.aud;
+    this.aud = null;
+    if (!a) return;
+    try { a.src?.stop(); } catch { /* already ended */ }
+    a.onEnd?.();
+  }
+  /** v0.4.58 The audition volume, in real time. */
+  setAuditionVolume(v) {
+    this.ensure();
+    if (this.audOut) this.audOut.gain.setTargetAtTime(Math.max(0, +v || 0), this.ctx.currentTime, 0.02);
   }
   stop() {
     for (const s of this.live) try { s.stop(); } catch { /* already ended */ }
     this.live = [];
+    this.itemGains.clear();
     this.anchor = null;
+    this.horizon = -1;
   }
   /** Called on every preview clock tick: starts the sounds that fall in the next moment. */
-  tick(projectId, list, t, playing, volume = 1) {
-    const ctx = this.ctx;
+  tick(projectId, list, t, playing) {
     if (!playing || !list.length) {
       if (this.anchor) this.stop();
       return;
     }
     if (!this.ensure()) return;
-    this.out.gain.value = volume;
     const now = this.ctx.currentTime;
     const expect = this.anchor ? this.anchor.t + (now - this.anchor.at) : null;
-    if (this.list !== list || expect === null || Math.abs(expect - t) > 0.25) {
-      // started, seeked or the plan changed: begin again from here
+    if (expect !== null && Math.abs(expect - t) <= 0.25 && this.list !== list) {
+      // v0.4.58 the plan changed while playing (an edit): carry on — the sounds already started
+      // play on, the new plan continues from the first sound not yet started (no restart, no gap)
+      this.list = list;
+      this.next = list.findIndex((x) => x[0] >= this.horizon - 1e-6);
+      if (this.next < 0) this.next = list.length;
+    } else if (expect === null || Math.abs(expect - t) > 0.25) {
+      // started or seeked: begin again from here
       this.stop();
       this.list = list;
       this.scheduleDuck(t, now, true);
@@ -268,5 +340,6 @@ export class SfxPreview {
       if (when >= now) this.play(buf, when, 0, g, it, true);
       else if (now - when < buf.duration) this.play(buf, now, now - when, g, it, true);
     }
+    this.horizon = t + ahead;
   }
 }

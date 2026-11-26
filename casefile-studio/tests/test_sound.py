@@ -157,11 +157,12 @@ def test_density_and_variation():
     assert len(lo) < len(hi)
     t = sorted(e["t"] for e in sound.events(proj(sc)) if e["anchor"] in {i["anchor"] for i in hi})
     assert min(b - a for a, b in zip(t, t[1:])) >= sound.SPEC["spacing"]["whoosh"] - 1e-6  # whooshes never pile up
-    # related elements share one sound; unrelated ones rotate variations
+    # related elements stay in one family (v0.4.58: alternating variations, never the identical sample twice in a row)
     items, _ = sound.plan(proj(items=[gitem(lines=[{"text": f"Line number {k} of the findings", "at": 2 + k} for k in range(4)])]),
                           {"enabled": True, "density": 1.0})
     lines = [it for it in items if it["label"].startswith("Line")]
-    assert len(lines) >= 3 and len({it["sound"] for it in lines}) == 1
+    assert len(lines) >= 3 and {sfxlib.BY_ID[it["sound"]][1] for it in lines} == {"click"}
+    assert all(a["sound"] != b["sound"] for a, b in zip(lines, lines[1:]))
 
 
 def test_sounds_follow_the_actual_animation_frames():
@@ -706,3 +707,57 @@ def test_preview_ducking_runs_one_job_per_project_and_drops_obsolete_ones(tmp_pa
     assert sound.duck_curve({"id": "p2", "v": "C"}, tmp_path, wait=True)["status"] == "ready"
     assert sound.duck_curve({"id": "p1", "v": "A"}, tmp_path)["status"] == "working"  # undo: made again
     sound.duck_curve({"id": "p1", "v": "B"}, tmp_path)  # redo: the cached curve, and A stops again
+
+
+def test_each_motion_graphics_template_has_its_own_coordinated_sound_palette(data):
+    """v0.4.58 A template sounds like itself (a family per template, shaped by the actual entrance /
+    exit animation, layout and kind of line); two graphics of one template are related, not identical."""
+    def g(gid, start, **kw):
+        return gitem(id=gid, start=start, end=start + 8.0, **kw)
+    lines3 = [{"text": "Phone records placed him near the scene", "at": 2.0}, {"text": "Video showed the car", "at": 3.5},
+              {"text": "A receipt eleven minutes later", "at": 5.0}]
+    shift = lambda ls, s: [dict(x, at=x["at"] + s) for x in ls]
+    items = [
+        g("fa", 1.0, lines=shift(lines3, 0)),                                   # findings
+        g("fb", 41.0, lines=shift(lines3, 40)),                                 # findings again
+        g("fs", 81.0, lines=shift(lines3, 80), enter="slide", exit="slide"),    # slides in and out
+        g("tl", 121.0, template="timeline", layout="horizontal",
+          lines=[dict(x, label=f"MARCH {k + 3}") for k, x in enumerate(shift(lines3, 120))]),
+        g("cx", 161.0, template="contrast", layout="rows",
+          lines=[{"text": "I was home all night", "kind": "statement", "at": 162.0},
+                 {"text": "His phone pinged two miles away", "kind": "finding", "at": 164.0},
+                 {"text": "His car was on camera at 11:52", "kind": "finding", "at": 165.5}]),
+        g("lg", 201.0, template="legal", layout="list",
+          lines=[{"text": "Charged with murder", "label": "CHARGED", "at": 202.0}, {"text": "Jury trial", "label": "TRIAL", "at": 203.5}]),
+    ]
+    scenes = [{"id": f"s{k}", "title": "", "chapter": "CHAPTER 3 — THE EVIDENCE", "duration": 20.0, "narration": ""} for k in range(12)]
+    placed, _ = sound.resolve(proj(scenes, items=items), data)
+    at = {"fa": "0:01", "fb": "0:41", "fs": "1:21", "tl": "2:01", "cx": "2:41", "lg": "3:21"}
+    by = {gid: [r for r in placed if r["label"].endswith(f"graphic at {m}")] for gid, m in at.items()}
+    fam = lambda gid, word: [r["sound"] for r in by[gid] if r["label"].startswith(word)]
+    cat = lambda sid: sfxlib.BY_ID[sid][1]
+    # findings: mechanical clicks on every line, one sound per graphic; the next findings graphic rotates
+    la, lb = fam("fa", "Line"), fam("fb", "Line")
+    assert len(la) == 3 and all(x.startswith("click-mech-") for x in la + lb)
+    assert all(a != b for a, b in zip(la, la[1:])), la  # never the identical click twice in a row
+    assert lb[0] != la[0]  # the next findings graphic starts on another variation
+    lv = [r["gain"] for r in by["lg"] if r["label"].startswith("Legal step")]
+    assert len(set(lv)) == len(lv), lv  # the steady legal steps are accented, not one identical hit
+    assert all("dir-" not in s for s in fam("fa", "Entrance") + fam("fb", "Entrance"))  # nothing moves sideways: no directional air
+    assert cat(fam("fa", "Divider")[0]) == "tonal-sweep" and "up" in fam("fa", "Divider")[0]
+    # the animation decides the movement: slides in from the right -> leftward; slides out -> rightward
+    assert fam("fs", "Entrance") == ["whoosh-dir-l"] and fam("fs", "Exit") in ([], ["whoosh-dir-r"])
+    # timeline: travel along the time axis, a tick on each date
+    assert fam("tl", "Entrance") == ["whoosh-dir-r"] and [cat(s) for s in fam("tl", "Diagram marker")] == ["tick"] * 3
+    # contradiction: soft statement, a low pulse where the record contradicts it, firmer record after
+    assert cat(fam("cx", "Entrance")[0]) == "reverse-whoosh" and "down" in fam("cx", "Divider")[0]
+    assert fam("cx", "Statement")[0] in ("click-muted-1", "click-muted-2")
+    assert cat(fam("cx", "Contradiction")[0]) == "pulse" and fam("cx", "Record") == ["click-muted-3"]
+    # legal: the document, the heavy click on each step
+    assert cat(fam("lg", "Document")[0]) == "document" and set(fam("lg", "Legal step")) == {"click-mech-3"}
+    # and the templates do not share their line sound
+    lines_of = {gid: {s for r in by[gid] for s in [r["sound"]] if r["kind"] in ("motion", "diagrams") and not r["label"].startswith(("Entrance", "Exit", "Divider"))}
+                for gid in ("fa", "tl", "cx", "lg")}
+    for a in lines_of:
+        for b in lines_of:
+            assert a == b or not (lines_of[a] & lines_of[b]), (a, b)

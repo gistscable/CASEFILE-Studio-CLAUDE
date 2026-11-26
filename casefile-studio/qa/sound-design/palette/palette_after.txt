@@ -1,0 +1,18 @@
+findings/stack/default       Entrance=whoosh-short-2, Divider=sweep-up-2, Line 1=click-mech-2, Line 2=click-mech-1, Line 3=click-mech-2
+findings/stack/type          Typing=type-strike-1x12, Typing=type-strike-1x39, Typing=type-strike-1x39, Typing=type-strike-1x30
+findings/split/default       Entrance=whoosh-mid-1, Divider=sweep-up-1, Line 1=click-mech-1, Line 2=click-mech-2, Line 3=click-mech-1
+findings/center/default      Entrance=whoosh-mid-2, Divider=sweep-up-2, Line 1=click-mech-2, Line 2=click-mech-1, Line 3=click-mech-2
+findings/cards/default       Entrance=whoosh-short-1, Divider=sweep-up-1, Line 1=pop-soft-3, Line 2=pop-soft-1, Line 3=pop-soft-2
+findings/focus/default       Entrance=whoosh-short-2, Divider=sweep-up-2, Line 1=click-mech-1, Line 2=click-mech-2, Line 3=click-mech-1
+timeline/horizontal/default  Entrance=whoosh-dir-r, Divider=sweep-up-1, Diagram marker 1=tick-2, Diagram marker 2=tick-1, Diagram marker 3=tick-2
+timeline/horizontal/type     Typing=type-strike-1x8, Diagram marker 1=tick-1, Diagram marker 2=tick-2, Diagram marker 3=tick-1
+timeline/vertical/default    Entrance=whoosh-mid-1, Divider=sweep-up-2, Diagram marker 1=tick-2, Diagram marker 2=tick-1, Diagram marker 3=tick-2
+timeline/focus/default       Entrance=whoosh-mid-2, Divider=sweep-up-1, Diagram marker 1=tick-1, Diagram marker 2=tick-2, Diagram marker 3=tick-1
+contrast/columns/default     Entrance=rwhoosh-2, Divider=sweep-down-1, Statement 1=click-muted-2, Contradiction=pulse-low-2, Record 2=click-muted-3
+contrast/columns/type        Typing=type-strike-1x20, Typing=type-strike-1x20, Typing=type-strike-1x36, Typing=type-strike-1x30
+contrast/rows/default        Entrance=rwhoosh-1, Divider=sweep-down-1, Statement 1=click-muted-1, Contradiction=pulse-low-2, Record 2=click-muted-3
+contrast/quote/default       Entrance=rwhoosh-2, Divider=sweep-down-1, Statement 1=click-muted-2, Contradiction=pulse-low-2, Record 2=click-muted-3
+legal/list/default           Document reveal=doc-3, Divider=sweep-down-1, Legal step 1=click-mech-3, Legal step 2=click-mech-3, Legal step 3=click-mech-3
+legal/list/type              Typing=type-strike-1x13, Typing=type-strike-1x32, Typing=type-strike-1x33, Typing=type-strike-1x20
+legal/steps/default          Document reveal=doc-1, Divider=sweep-down-1, Diagram tag 1=click-mech-3, Diagram tag 2=click-mech-3, Diagram tag 3=click-mech-3
+legal/verdict/default        Document reveal=doc-3, Divider=sweep-down-1, Legal step 1=click-mech-3, Legal step 2=click-mech-3, Outcome=thump-deep-2

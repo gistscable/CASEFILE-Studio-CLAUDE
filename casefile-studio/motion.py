@@ -1422,6 +1422,14 @@ def _state(el, tau):
     return (min(1.0, round(p, 3)), round(max(0.0, q), 3))
 
 
+def line_starts(item):
+    """v0.4.58 [(seconds from the graphic's start, line)] — when each line of the item starts to be
+    drawn (the same rule the layouts use), in order. The sound design uses it to know which line a
+    drawn element belongs to (a statement or the record, in a contradiction graphic)."""
+    sp = item["speed"]
+    return sorted(((max(TIM["intro_end"] / sp * 0.9, ln["at"] - item["start"]), ln) for ln in item["lines"]), key=lambda x: x[0])
+
+
 def sound_events(lay):
     """v0.4.56 Every animation event of a built graphic, for the sound design, in seconds from its
     start: [{t, role, enter, d, chars}] (`chars`: when each typed character appears), with the

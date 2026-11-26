@@ -9,7 +9,7 @@
    },
    {
     "t": 1.4,
-    "sound": "sweep-down-1",
+    "sound": "sweep-up-2",
     "label": "Divider \u2014 findings graphic at 0:00",
     "keys": 0
    },
@@ -21,7 +21,7 @@
    },
    {
     "t": 4.9167,
-    "sound": "click-mech-2",
+    "sound": "click-mech-1",
     "label": "Line 2 \u2014 findings graphic at 0:00",
     "keys": 0
    },
@@ -35,18 +35,18 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 5.69,
-   "after": 3.89
+   "before": 6.85,
+   "after": 4.25
   },
-  "plan_s": 0.084,
-  "after_peak_dbfs": -3.06,
+  "plan_s": 0.116,
+  "after_peak_dbfs": -3.12,
   "after_samples_over_full_scale": 0,
   "effects_peak_dbfs": -20.13,
-  "loudest_effect_vs_speech_db": -10.7,
+  "loudest_effect_vs_speech_db": -17.8,
   "transient_sync_error_ms": {
    "n": 2,
    "max": 2.4,
-   "mean": 2.1
+   "mean": 2.0
   },
   "typing_sync_error_ms": {
    "n": 0,
@@ -65,7 +65,7 @@
   },
   "loudness_before": {
    "integrated_lufs": -19.3,
-   "true_peak_dbfs": -2.9
+   "true_peak_dbfs": -3.0
   }
  },
  "2-typing": {
@@ -92,14 +92,14 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 4.68,
-   "after": 3.16
+   "before": 5.78,
+   "after": 4.43
   },
-  "plan_s": 0.054,
-  "after_peak_dbfs": -4.79,
+  "plan_s": 0.062,
+  "after_peak_dbfs": -4.83,
   "after_samples_over_full_scale": 0,
-  "effects_peak_dbfs": -21.69,
-  "loudest_effect_vs_speech_db": -14.4,
+  "effects_peak_dbfs": -21.49,
+  "loudest_effect_vs_speech_db": -14.3,
   "transient_sync_error_ms": {
    "n": 0,
    "max": null,
@@ -107,9 +107,9 @@
   },
   "typing_sync_error_ms": {
    "n": 84,
-   "max": 19.1,
-   "median": 0.3,
-   "p95": 14.1
+   "max": 19.9,
+   "median": 0.4,
+   "p95": 7.6
   },
   "export_vs_stem_lag_ms": 0.0,
   "exact_placement_error_ms": {
@@ -117,7 +117,7 @@
    "max": 0.0
   },
   "loudness_after": {
-   "integrated_lufs": -19.8,
+   "integrated_lufs": -19.7,
    "true_peak_dbfs": -4.8
   },
   "loudness_before": {
@@ -135,7 +135,7 @@
    },
    {
     "t": 1.4,
-    "sound": "sweep-down-1",
+    "sound": "sweep-up-2",
     "label": "Divider \u2014 timeline graphic at 0:00",
     "keys": 0
    },
@@ -147,7 +147,7 @@
    },
    {
     "t": 5.6667,
-    "sound": "tick-2",
+    "sound": "tick-1",
     "label": "Diagram marker 2 \u2014 timeline graphic at 0:00",
     "keys": 0
    },
@@ -161,18 +161,18 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 6.02,
-   "after": 3.74
+   "before": 9.29,
+   "after": 5.74
   },
   "plan_s": 0.027,
-  "after_peak_dbfs": -4.11,
+  "after_peak_dbfs": -4.13,
   "after_samples_over_full_scale": 0,
-  "effects_peak_dbfs": -22.08,
-  "loudest_effect_vs_speech_db": -10.3,
+  "effects_peak_dbfs": -22.7,
+  "loudest_effect_vs_speech_db": -16.0,
   "transient_sync_error_ms": {
    "n": 2,
-   "max": 0.7,
-   "mean": 0.6
+   "max": 0.6,
+   "mean": 0.4
   },
   "typing_sync_error_ms": {
    "n": 0,
@@ -186,12 +186,12 @@
    "max": 0.0
   },
   "loudness_after": {
-   "integrated_lufs": -19.4,
+   "integrated_lufs": -19.5,
    "true_peak_dbfs": -3.8
   },
   "loudness_before": {
-   "integrated_lufs": -19.5,
-   "true_peak_dbfs": -3.9
+   "integrated_lufs": -19.4,
+   "true_peak_dbfs": -3.8
   }
  },
  "4-transitions": {
@@ -218,14 +218,14 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 6.48,
-   "after": 7.28
+   "before": 8.73,
+   "after": 8.3
   },
-  "plan_s": 0.003,
-  "after_peak_dbfs": -4.06,
+  "plan_s": 0.002,
+  "after_peak_dbfs": -3.98,
   "after_samples_over_full_scale": 0,
-  "effects_peak_dbfs": -23.64,
-  "loudest_effect_vs_speech_db": -10.9,
+  "effects_peak_dbfs": -22.96,
+  "loudest_effect_vs_speech_db": -9.4,
   "transient_sync_error_ms": {
    "n": 0,
    "max": null,
@@ -243,12 +243,12 @@
    "max": 0.0
   },
   "loudness_after": {
-   "integrated_lufs": -19.6,
-   "true_peak_dbfs": -4.1
+   "integrated_lufs": -19.7,
+   "true_peak_dbfs": -4.0
   },
   "loudness_before": {
    "integrated_lufs": -19.6,
-   "true_peak_dbfs": -3.9
+   "true_peak_dbfs": -4.0
   }
  },
  "5-narrative-development": {
@@ -263,18 +263,18 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 1.76,
-   "after": 2.05
+   "before": 1.82,
+   "after": 2.57
   },
   "plan_s": 0.001,
-  "after_peak_dbfs": -4.36,
+  "after_peak_dbfs": -4.28,
   "after_samples_over_full_scale": 0,
-  "effects_peak_dbfs": -24.46,
-  "loudest_effect_vs_speech_db": -7.5,
+  "effects_peak_dbfs": -20.57,
+  "loudest_effect_vs_speech_db": -4.2,
   "transient_sync_error_ms": {
    "n": 1,
-   "max": 2.2,
-   "mean": 2.2
+   "max": 2.1,
+   "mean": 2.1
   },
   "typing_sync_error_ms": {
    "n": 0,
@@ -289,11 +289,11 @@
   },
   "loudness_after": {
    "integrated_lufs": -19.4,
-   "true_peak_dbfs": -4.2
+   "true_peak_dbfs": -4.1
   },
   "loudness_before": {
    "integrated_lufs": -19.5,
-   "true_peak_dbfs": -4.2
+   "true_peak_dbfs": -4.1
   }
  },
  "6-cta": {
@@ -318,7 +318,7 @@
    },
    {
     "t": 4.6,
-    "sound": "whoosh-short-1",
+    "sound": "whoosh-short-2",
     "label": "Subscribe \u2014 exit",
     "keys": 0
    }
@@ -326,8 +326,8 @@
   "silenced": [],
   "warnings": [],
   "render_s": {
-   "before": 5.98,
-   "after": 6.35
+   "before": 7.34,
+   "after": 7.44
   },
   "plan_s": 0.001,
   "after_peak_dbfs": -4.63,
@@ -380,10 +380,10 @@
   ],
   "warnings": [],
   "render_s": {
-   "before": 16.1,
-   "after": 15.77
+   "before": 18.81,
+   "after": 19.14
   },
-  "plan_s": 0.001,
+  "plan_s": 0.002,
   "after_peak_dbfs": -1.14,
   "after_samples_over_full_scale": 0,
   "effects_peak_dbfs": -180.0,
@@ -413,5 +413,5 @@
    "true_peak_dbfs": -1.1
   }
  },
- "max_rss_mb": 191
+ "max_rss_mb": 193
 }

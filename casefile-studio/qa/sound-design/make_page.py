@@ -162,7 +162,7 @@ tail cut {bcut}&rarr;{acut} dB<br>RMS {b.get('rms_db', D)}&rarr;{a['rms_db']} dB
         lib_html.append(f"<h3>{html.escape(cat)}</h3><table><tr><th>Sound</th><th>v0.4.56</th><th>v0.4.57</th><th>What changed</th><th>Measured</th></tr>{''.join(trs)}</table>")
 
     changed = sum(1 for r in rows.values() if r["changed"])
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Casefile sound design \u2014 v0.4.57 demos and library</title>
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Casefile sound design \u2014 v0.4.58 demos and library</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 body{{font:15px/1.5 Inter,system-ui,sans-serif;background:#111317;color:#e9e5dc;margin:0;padding:28px 36px;max-width:1500px}}
@@ -175,9 +175,10 @@ details{{font-size:13px;color:#b8b2a6}} table{{border-collapse:collapse;width:10
 td,th{{border-bottom:1px solid #26292f;padding:6px 8px;text-align:left;vertical-align:middle}} audio{{height:30px;width:230px}}
 .same{{color:#6f6b64}} .note{{background:#1a1d22;border-left:3px solid #d9b77a;padding:10px 14px;margin:14px 0}}
 </style></head><body>
-<h1>Casefile sound design \u2014 v0.4.57</h1>
+<h1>Casefile sound design \u2014 v0.4.58</h1>
 <p>Rendered by the real exporter at 720p. Narration voices are AI-generated for these demos; the pictures are neutral plates (no case imagery is made up).
-Use headphones for the low sounds. <a href="demo-reel.mp4">All 7 demos in one video (before, then after)</a>.</p>
+Use headphones for the low sounds. <a href="demo-reel.mp4">All 7 demos in one video (before, then after)</a>.
+<b><a href="music.html">Background music demos (v0.4.58): loop, chapter, long track, all layers</a></b>.</p>
 <div class="note">Not a final approval: this page is for your review. The measurements say where each sound landed and how loud it is;
 only listening says whether it sounds right.</div>
 <h2>The seven demos</h2>

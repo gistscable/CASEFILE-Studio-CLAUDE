@@ -1057,3 +1057,43 @@ first (`casefile-studio/qa/sound-design/index.html`). Write-up: `SOUND-DESIGN.md
 
 **Limits:** still rule-based; on long timelines the preview's ducking lags an edit by ~1 min; key
 variations remain fairly similar (0.93–0.96) — variety comes from the cycle and strengths.
+
+## Sound refinement and background music (v0.4.58)
+
+**Request:** template-specific sound palettes synced to real animation events; fix slow narration /
+music / effects / per-sound volume sliders (real-time WebAudio, save on release, no rebuilds); manual
+audition (one at a time, never modifies the project); background music: loop whole / range / once /
+chapters or scenes, part of a track, seamless adjustable crossfade, fades, ducking, the timeline
+authoritative; efficient FFmpeg rendering (references, no copies); tests and measured performance.
+**Not finally approved** — the user reviews `casefile-studio/qa/sound-design/music.html` and
+`index.html` first. Write-up: `SOUND-DESIGN.md` ("v0.4.58").
+
+**What changed**
+* `music.py` (new): `normalise`, `layout` (runs → passes `{at, src, len}`), `gain_at`, `filters`
+  (≤ 12 passes: `acrossfade` qsin chain, one `-ss/-t` reference per pass; more: one input, seam made
+  once, `aloop`); all trims in samples, the bed exactly `timeline × 48000` samples. `renderer.py` uses it
+  (`MUSIC_DUCK`, `music_duration`) and the transparent limiter (`SFX_LIMIT`) in every mix — the bare
+  `alimiter` delayed the voices 239 samples when music played without effects.
+* `sound.py`: per-template palettes (`PALETTES`, motion branch, variation, `_typing_keys` rotation);
+  `_duck_job` also makes the music's curve (`.m.u8`, response field `music`).
+* `app.py` / `history.py`: `music` field (PATCH, episode options, diagnostics, history label).
+  `scene.narration_volume` and the per-scene `music_*` fields were never played; the per-scene narration
+  "Volume" control is now the documentary's live narration level.
+* Frontend: `LiveRange.jsx` (live `onLive`, one `onCommit` on release — never mid-drag — compares with the
+  value at the start of the gesture); `music.js` (`MusicPreview`: two elements, live bus gain, duck);
+  `MusicPanel.jsx`; the music lane (full width, runs + seams); `sound.js` (`setMaster`, `setItemGain`, plan carry-over without restarts,
+  `audition`/`stopAudition`/`setAuditionVolume`, `peaks`); `SoundPanel.jsx` (library: search, category,
+  lengths, waveforms, audition volume, variations with "Use"); `main.jsx` (live handlers, `scenesSig` so a
+  save's new arrays do not re-fetch the plan/duck, music lane runs/seams, scene music checkboxes;
+  `window.__casefileQA` hook only when a test defines it).
+
+**Verified** (numbers in `SOUND-DESIGN.md`)
+* Tests: full suite 638 passed, 1 skipped (was 626); JS 49 (was 42); `test_music.py` 11 incl. Python↔JS
+  layout/gain parity (< 1e-9), 25-min loop exact length, aloop = chain, full render.
+* Browser (headless Chromium, 25 min / 150 scenes, playing): input → gain ≈ 0.4 ms; 0 saves during drags,
+  1 after; audition one at a time, 0 project requests.
+* Demos (`music_demos.py`, `--old` renders "before" with the v0.4.57 exporter from `git archive c6ec51e`):
+  durations = timeline; seams −0.3…−1.3 dB (v0.4.57: +2.3 dB jumps); voices 0 samples / corr 1.0 vs v0.4.57.
+
+**Limits:** preview seam timing within ~0.2 s (export exact); exact duck on 25 min / 150 scenes ≈ 3.4 min
+in the background (mostly the existing per-scene voice bus); "scenes" music follows scene ids.

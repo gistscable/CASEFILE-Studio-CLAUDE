@@ -397,6 +397,39 @@ def _quiet(t, zones):
     return next((z[2] for z in zones if z[0] <= t <= z[1]), None)
 
 
+# v0.4.58 Each motion graphics template has its own sound identity: one coherent family per template,
+# shaped by what the graphic actually does (its entrance and exit animation, its layout, the kind of
+# line). Within a family, the least recently used variation is chosen, so two graphics of the same
+# template sound related but not identical. (category, hint): hint picks variations by id.
+PALETTES = {
+    # investigative findings: neutral air, a rising divider, crisp mechanical clicks ("logged")
+    "findings": {"enter": [("whoosh", ("short", "mid"))], "divider": [("tonal-sweep", "up")],
+                 "line": [("click", ("mech-1", "mech-2"))], "cards": ["pop"], "typing": "typewriter"},
+    # chronological timeline: travel along the time axis, small precise ticks on each date
+    "timeline": {"enter": [("whoosh", ("short", "mid"))], "enter_horizontal": [("whoosh", "dir-r")],
+                 "divider": [("tonal-sweep", "up")], "marker": ["tick"], "connector": ["scan"],
+                 "line": ["tick"], "typing": "typewriter"},
+    # contradictory statements: an intake of breath, a falling divider; what was said is a soft muted
+    # click, the record a firmer felt one, and the first piece of the record that contradicts it a low pulse
+    "contrast": {"enter": ["reverse-whoosh", ("whoosh", "mid")], "divider": [("tonal-sweep", "down")],
+                 "statement": [("click-muted", ("muted-1", "muted-2"))], "finding": [("click-muted", "muted-3")], "contradiction": [("pulse", "low")],
+                 "typing": "typewriter"},
+    # legal outcome: the record itself (a document), a falling divider, the heavy click on every step
+    # (the same weight each time), the outcome lands. Typed entrances keep the typewriter everywhere:
+    # the animation is called "Typewriter" (soft keys only at a low intensity, as before)
+    "legal": {"enter": [("document", ""), "paper"], "divider": [("tonal-sweep", "down")],
+              "tag": [("click", "mech-3")], "marker": [("click", "mech-3")],
+              "connector": ["scan"], "verdict": ["thump", "bass-impact"], "typing": "typewriter"},
+}
+# the entrance / exit animation decides the movement of the air
+ENTER_MOVES = {"slide": [("whoosh", "dir-l")]}  # slides in from the right: a leftward whoosh
+EXIT_MOVES = {"slide": [("whoosh", "dir-r")]}   # slides out to the right
+
+
+def palette(template):
+    return PALETTES.get(template, PALETTES["findings"])
+
+
 def events(project, mg=None, sents=None, ctx=None):
     """Every candidate moment for a sound: [{anchor, kind, t, prio, cats, group, reason, label,
     gain, typed}] in timeline seconds (where the sound's sync point goes)."""
@@ -425,6 +458,16 @@ def events(project, mg=None, sents=None, ctx=None):
         last_t = -1.0
         # a typed piece is its own sound: no click or whoosh on top of the first keys
         typed_at = [start + on_frame(e["t"]) for e in evs if e["chars"]]
+        pal = palette(tpl)
+        enter_kind = it.get("enter") or "mask"
+        exit_kind = it.get("exit") or "fade"
+        starts = motion.line_starts(it) if tpl == "contrast" else []
+        first_finding = next((k for k, (_, ln) in enumerate(starts) if ln["kind"] == "finding"), None)
+        contradicts = bool(first_finding) and any(ln["kind"] != "finding" for _, ln in starts[:first_finding])
+
+        def line_of(local):  # the line (of a contradiction graphic) a drawn element belongs to
+            k = max((j for j, (t0, _) in enumerate(starts) if t0 <= local + 1e-3), default=0)
+            return k, starts[k][1] if starts else None
         for e in evs:
             role = e["role"]
             k = counts.get(role, 0)
@@ -432,8 +475,10 @@ def events(project, mg=None, sents=None, ctx=None):
             anchor = f"mg:{gid}:{role}:{k}"
             t = start + on_frame(e["t"])
             if e["chars"]:
-                add(anchor, "typing", t, 0.8, ["typewriter"], f"typing, key by key, as the {role} is typed", f"Typing — {name}",
-                    group=f"mg:{gid}:type", gain=-5.0, typed=[[round(start + on_frame(c[0]), 4), bool(c[1])] for c in e["chars"]])
+                fam = pal["typing"]
+                add(anchor, "typing", t, 0.8, [fam], f"{'typing' if fam == 'typewriter' else 'keys'}, key by key, as the {role} is typed",
+                    f"Typing — {name}", group=f"mg:{gid}:type", gain=-5.0,
+                    typed=[[round(start + on_frame(c[0]), 4), bool(c[1])] for c in e["chars"]])
                 continue
             if role != "exit" and any(abs(t - ta) < 0.35 for ta in typed_at):
                 continue
@@ -443,33 +488,48 @@ def events(project, mg=None, sents=None, ctx=None):
                 if tpl == "legal" or photo:
                     add(anchor, "documents", t + 0.25, 0.75, ["document", "paper"], "an official record / picture comes up", f"Document reveal — {name}", gain=-2.0)
                 else:
-                    add(anchor, "motion", t + 0.3, 0.75, ["whoosh"], "the graphic comes in", f"Entrance — {name}", gain=-5.0)
+                    cats = ENTER_MOVES.get(enter_kind) or pal.get(f"enter_{layout}") or pal["enter"]
+                    how = {"slide": "slides in", "fade": "fades in", "type": "comes in to be typed"}.get(enter_kind, "rises in")
+                    add(anchor, "motion", t + 0.3, 0.75, cats, f"the {tpl} graphic {how}", f"Entrance — {name}",
+                        gain=-8.0 if enter_kind == "fade" else -5.0)
             elif role == "heading" and k == 0:
                 add(anchor, "motion", t, 0.3, ["click-muted"], "heading entrance", f"Heading — {name}", group=f"mg:{gid}:click", gain=-4.0)
             elif role == "title" and k == 0:
                 add(anchor, "motion", t, 0.35, ["tonal-sweep"], "masked title reveal", f"Title — {name}", gain=-3.0)
             elif role == "divider":
-                add(anchor, "motion", t + 0.15, 0.55, ["tonal-sweep"], "animated divider", f"Divider — {name}", gain=-2.0)
+                add(anchor, "motion", t + 0.15, 0.55, pal["divider"], "animated divider", f"Divider — {name}", gain=-2.0)
             elif role in ("marker", "tag") and diagram:
-                cat = "tick" if tpl == "timeline" else "click"
-                add(anchor, "diagrams", t, 0.68, [cat, "pop"], f"diagram {'marker' if role == 'marker' else 'step label'} appears",
+                add(anchor, "diagrams", t, 0.68, pal.get(role) or pal.get("marker") or ["tick"],
+                    f"diagram {'marker' if role == 'marker' else 'step label'} appears",
                     f"Diagram {role} {k + 1} — {name}", group=f"mg:{gid}:{role}", gain=-1.0)
             elif role == "connector" and diagram:
-                add(anchor, "diagrams", t + 0.1, 0.42, ["scan", "tonal-sweep"], "connecting line draws to the next point",
+                add(anchor, "diagrams", t + 0.1, 0.42, pal.get("connector", ["scan"]), "connecting line draws to the next point",
                     f"Connector {k + 1} — {name}", group=f"mg:{gid}:connector", gain=-6.0)
             elif role == "tag":
-                add(anchor, "motion", t, 0.7, ["click"], "legal step appears", f"Legal step {k + 1} — {name}", group=f"mg:{gid}:click", gain=-1.0)
+                add(anchor, "motion", t, 0.7, pal.get("tag", ["click"]), "legal step appears", f"Legal step {k + 1} — {name}",
+                    group=f"mg:{gid}:tag", gain=-1.0)
             elif role == "verdict" and k == 0:
-                add(anchor, "moments", t, 0.86, ["thump", "bass-impact"], "the legal outcome lands", f"Outcome — {name}", gain=-8.0)
+                add(anchor, "moments", t, 0.86, pal.get("verdict", ["thump", "bass-impact"]), "the legal outcome lands", f"Outcome — {name}", gain=-8.0)
             elif role in ("line", "marker", "date") and not diagram:
-                if t - last_t < 0.3:  # a bullet marker and its line come together: one sound
+                if t - last_t < 0.3:  # a bullet marker and its line (or a wrapped line) come together: one sound
                     continue
                 last_t = t
-                cat = "click-muted" if (tpl == "contrast" and role == "line" and k == 0) else "click"
-                add(anchor, "motion", t, 0.7, [cat], "an information line is revealed", f"Line {counts[role]} — {name}",
-                    group=f"mg:{gid}:click", gain=-2.0)
+                if tpl == "contrast":
+                    j, ln = line_of(e["t"])
+                    kind = ln["kind"] if ln else "statement"
+                    if kind == "finding" and contradicts and j == first_finding:
+                        # the record contradicts what was said: a low pulse, or the firm click if it cannot be placed
+                        add(f"{anchor}:x", "motion", t, 0.72, pal["contradiction"], "the record contradicts the statement",
+                            f"Contradiction — {name}", gain=-9.0)
+                    add(anchor, "motion", t, 0.7, pal[kind], "what the record shows" if kind == "finding" else "what was said",
+                        f"{'Record' if kind == 'finding' else 'Statement'} {sum(1 for _, x in starts[:j + 1] if x['kind'] == kind)} — {name}", group=f"mg:{gid}:{kind}",
+                        gain=-1.0 if kind == "finding" else -3.0)
+                    continue
+                cats = pal["cards"] if (layout == "cards" and "cards" in pal) else (pal.get("line") or pal.get("tag") or ["click"])
+                add(anchor, "motion", t, 0.7, cats, "an information line is revealed", f"Line {counts[role]} — {name}",
+                    group=f"mg:{gid}:line", gain=-2.0)
             elif role == "exit":
-                add(anchor, "motion", t, 0.35, ["whoosh"], "the graphic leaves", f"Exit — {name}", gain=-10.0)
+                add(anchor, "motion", t, 0.35, EXIT_MOVES.get(exit_kind) or [("whoosh", "short")], "the graphic leaves", f"Exit — {name}", gain=-10.0)
 
     # --- transitions and chapter starts
     for i in range(1, len(scenes)):
@@ -588,12 +648,31 @@ def _candidates(cat, intensity):
     if cat == "typewriter":
         pool = [c for c in pool if "space" not in c[0]]
     if hint:
-        hinted = [c for c in pool if hint in c[0]]
+        hints = (hint,) if isinstance(hint, str) else tuple(hint)
+        hinted = [c for c in pool if any(h in c[0] for h in hints)]
         pool = hinted or pool
     want = 1 + round(intensity * 2)  # 1..3
     pool.sort(key=lambda c: (abs(c[3] - want), c[0]))
     best = abs(pool[0][3] - want) if pool else 0
     return [c[0] for c in pool if abs(c[3] - want) <= best + (1 if len(pool) > 3 else 0)]
+
+
+def _family(cat):
+    """v0.4.58 Every variation of a palette entry (category, hint), whatever the intensity: the
+    siblings a graphic's repeated element alternates between."""
+    hint = None
+    if isinstance(cat, (list, tuple)):
+        cat, hint = cat
+    pool = [c[0] for c in sfxlib.CATALOG if c[1] == cat and not c[0].startswith("shutter") and "-seq" not in c[0] and "space" not in c[0]]
+    if hint:
+        hints = (hint,) if isinstance(hint, str) else tuple(hint)
+        pool = [c for c in pool if any(h in c for h in hints)] or pool
+    return sorted(pool)
+
+
+# a repeated element of one graphic is humanised: the same family, alternating variations and a
+# small accent pattern (dB) — related, never the identical sample at the identical level
+ACCENTS = (0.0, -1.2, -0.5, -1.6)
 
 
 def plan(project, settings=None, keep=(), held=()):
@@ -660,7 +739,9 @@ def plan(project, settings=None, keep=(), held=()):
             fam = "keyboard" if (e["cats"] == ["keyboard"] or st["intensity"] < 0.3) else "typewriter"
             sid = _candidates(fam, st["intensity"])[0]
         elif e["group"] in group_sound:
-            sid = group_sound[e["group"]]
+            g = group_sound[e["group"]]
+            g["n"] += 1
+            sid = g["sids"][g["n"] % len(g["sids"])]
         else:
             pool = []
             for cat in e["cats"]:
@@ -675,9 +756,12 @@ def plan(project, settings=None, keep=(), held=()):
                 sid = min(pool, key=lambda s: last_used.get(s, -1e9))
             else:
                 sid = pool[0]
-            group_sound[e["group"]] = sid
+            sibs = [x for x in _family(next((c for c in e["cats"] if _candidates(c, st["intensity"])), e["cats"][0])) if x != sid]
+            group_sound[e["group"]] = {"sids": [sid] + (sibs if st["variation"] else []), "n": 0}
         last_used[sid] = e["t"]
         level = e["gain"] + (st["intensity"] - 0.4) * 8.0  # +-~5 dB around the designed level
+        if not e["typed"] and e["group"] in group_sound and e["group"] != e["anchor"]:
+            level += ACCENTS[group_sound[e["group"]]["n"] % len(ACCENTS)]
         items.append(_item({
             "anchor": e["anchor"], "kind": e["kind"], "sound": sid, "gain": round(level, 1), "source": "auto",
             "status": "approved" if st["mode"] == "auto" else "suggested", "reason": e["reason"], "label": e["label"],
@@ -794,9 +878,10 @@ def _typing_keys(chars, sound, shift, manifest, data):
     keys = [c[0] for c in sfxlib.CATALOG if c[1] == fam and "space" not in c[0]] or [sound]
     space = next((c[0] for c in sfxlib.CATALOG if c[1] == fam and "space" in c[0]), keys[0])
     sfxlib.ensure(data, keys + [space])
+    start = int(round((chars[0][0] if chars else 0) * 7)) % len(keys)  # v0.4.58 not every line the same keys
     out = []
     for k, (t, is_space) in enumerate(chars):
-        sid = space if is_space else keys[(k * 5 + 2) % len(keys)]
+        sid = space if is_space else keys[(k * 5 + 2 + start) % len(keys)]
         out.append([round(t + shift, 4), sid, round(0.8 + 0.2 * (((k * 37) % 7) / 6), 3)])
     return out
 
@@ -1019,11 +1104,16 @@ def _duck_job(project):
     export would not duck (ducking off, no narration)."""
     import renderer
 
+    import music as musiclib
+
     st = normalise(project.get("sound"))
     scenes = project.get("scenes") or []
     assets = {a.get("id"): a for a in project.get("assets") or []}
     narration = assets.get(project.get("narration_id"))
-    if not st["enabled"] or not st["duck"] or not scenes or not narration or not narration.get("has_audio", narration.get("kind") == "audio"):
+    # v0.4.58: the music's dip too (the export's music compressor), made in the same pass
+    fx_ducks = st["enabled"] and st["duck"]
+    music_ducks = bool(assets.get(project.get("music_id"))) and musiclib.normalise(project.get("music"))["duck"]
+    if not (fx_ducks or music_ducks) or not scenes or not narration or not narration.get("has_audio", narration.get("kind") == "audio"):
         return None, None
     total = sum(round(float(sc["duration"]) * FPS) / FPS for sc in scenes)
     paths = [renderer.asset_path(narration)]
@@ -1038,9 +1128,13 @@ def _duck_job(project):
     graph = renderer.voice_graph(project, scenes, total, 0, inserts)
     d = SPEC["duck"]
     graph += [
+        "[voice]asplit=2[vk1][vk2]",
         f"aevalsrc=1|1:s=48000:d={total}[one]",
-        f"[one][voice]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
-        f"release={d['release']}:makeup={d['makeup']},pan=mono|c0=c0,aresample=1000[g]",
+        f"aevalsrc=1|1:s=48000:d={total}[one2]",
+        f"[one][vk1]sidechaincompress=threshold={d['threshold']}:ratio={d['ratio']}:attack={d['attack']}:"
+        f"release={d['release']}:makeup={d['makeup']},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gf]",
+        f"[one2][vk2]{renderer.MUSIC_DUCK},pan=mono|c0=c0,aresample=1000,aformat=sample_fmts=flt:channel_layouts=mono[gm]",
+        "[gf][gm]amerge=inputs=2[g]",
     ]
     cmd = ["ffmpeg", "-v", "error", "-nostdin"]
     for path in paths:
@@ -1065,16 +1159,18 @@ def duck_curve(project, data, wait=False):
         return {"status": "none"}
     folder = Path(data) / "cache" / "sfx" / "duck"
     path = folder / f"{key}.u8"
+    mpath = folder / f"{key}.m.u8"  # v0.4.58: the music's dip
     if key in _DUCK_FAILED:
         return {"status": "none"}
     pid = str(project.get("id") or "")
-    if path.exists():
+    if path.exists() and mpath.exists():
         with _DUCK_LOCK:  # back to a timeline already made (undo): a job for another version is obsolete
             _DUCK_LATEST[pid] = key
             old = _DUCK_PROC.get(pid)
             if old and old[0] != key:
                 old[1].kill()
-        return {"status": "ready", "rate": DUCK_RATE, "key": key, "gain": base64.b64encode(path.read_bytes()).decode()}
+        return {"status": "ready", "rate": DUCK_RATE, "key": key, "gain": base64.b64encode(path.read_bytes()).decode(),
+                "music": base64.b64encode(mpath.read_bytes()).decode()}
 
     def run():
         superseded = False
@@ -1102,15 +1198,18 @@ def duck_curve(project, data, wait=False):
                 return
             if proc.returncode:
                 raise subprocess.CalledProcessError(proc.returncode, cmd)
-            g = np.frombuffer(raw, dtype="<f4")
+            both = np.frombuffer(raw, dtype="<f4")
+            both = both[: len(both) // 2 * 2].reshape(-1, 2)
             step = 1000 // DUCK_RATE
-            g = g[: len(g) // step * step].reshape(-1, step).mean(axis=1) if len(g) >= step else g
             folder.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(np.clip(np.round(g * 255), 0, 255).astype(np.uint8).tobytes())
-            tmp.replace(path)
+            for col, dest in ((0, path), (1, mpath)):
+                g = both[:, col]
+                g = g[: len(g) // step * step].reshape(-1, step).mean(axis=1) if len(g) >= step else g
+                tmp = dest.with_suffix(".tmp")
+                tmp.write_bytes(np.clip(np.round(g * 255), 0, 255).astype(np.uint8).tobytes())
+                tmp.replace(dest)
             olds = sorted(folder.glob("*.u8"), key=lambda q: q.stat().st_mtime)
-            for q in olds[:-20]:  # keep the latest 20
+            for q in olds[:-40]:  # keep the latest 20 (two files each)
                 q.unlink(missing_ok=True)
         except (subprocess.SubprocessError, OSError, ValueError):
             with _DUCK_LOCK:
@@ -1131,7 +1230,7 @@ def duck_curve(project, data, wait=False):
             thread.start()
     if wait:
         thread.join()
-        return duck_curve(project, data) if path.exists() else {"status": "none"}
+        return duck_curve(project, data) if path.exists() and mpath.exists() else {"status": "none"}
     return {"status": "working", "key": key}
 
 

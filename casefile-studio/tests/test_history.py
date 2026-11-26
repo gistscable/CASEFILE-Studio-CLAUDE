@@ -37,6 +37,7 @@ def test_every_editor_setting_can_be_undone_and_redone(proj):
         "vertical_fit": "blur",
         "look": "archive",
         "music_volume": 0.31,
+        "music": {"mode": "range", "offset": 2.0, "crossfade": 3.0, "start": 4.0},
     }
     tested = []
     for field, value in edits.items():
@@ -50,7 +51,7 @@ def test_every_editor_setting_can_be_undone_and_redone(proj):
         redone = c.post(url + "/redo").json()
         assert redone.get(field) == after.get(field), field
     print("tested", tested)
-    assert {"stickers", "cta", "aspect", "vertical_fit", "look", "music_volume"} <= set(tested)
+    assert {"stickers", "cta", "aspect", "vertical_fit", "look", "music_volume", "music"} <= set(tested)
 
 
 def test_scene_keyframes_and_fill_undo_redo_with_names(proj):

@@ -17,7 +17,10 @@ import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
 import { graphicAt, normaliseMotion } from "./motion.js";
 import SoundPanel from "./SoundPanel.jsx";
-import { SfxPreview, schedule as sfxSchedule, normaliseSound, editItem as editSfx, decodeDuck } from "./sound.js";
+import { SfxPreview, SFX, schedule as sfxSchedule, normaliseSound, editItem as editSfx, decodeDuck } from "./sound.js";
+import { MusicPreview, musicLayout, normaliseMusic, timelineTotal, approxDuck, MUSIC_DUCK_RATIO } from "./music.js";
+import MusicPanel from "./MusicPanel.jsx";
+import LiveRange from "./LiveRange.jsx";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
@@ -144,7 +147,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.57";
+const APP_VERSION = "0.4.58";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -422,7 +425,6 @@ function App() {
     watched = useRef(new Set()),
     initialPoll = useRef(true);
   const audioRef = useRef(null),
-    musicRef = useRef(null),
     videoRef = useRef(null),
     screenRef = useRef(null),
     fileRef = useRef(null),
@@ -458,6 +460,17 @@ function App() {
   const soundOn = !!project?.sound?.enabled;
   const sfxPreview = useRef(null);
   if (!sfxPreview.current) sfxPreview.current = new SfxPreview();
+  // v0.4.58 Levels while a slider moves (heard at once, saved when you let go): {narration, music, master}
+  const live = useRef({});
+  // the plan depends on every sound setting except the effects volume (applied live, see below)
+  // a saved project comes back with new arrays: the plan and the ducking follow what the scenes say, not the array
+  const scenesSig = useMemo(() => JSON.stringify(scenes), [scenes]);
+  const soundKey = useMemo(() => {
+    const { master, ...rest } = project?.sound || {};
+    return JSON.stringify(rest);
+  }, [project?.sound]);
+  const musicPreview = useRef(null);
+  if (!musicPreview.current) musicPreview.current = new MusicPreview(sfxPreview.current);
   useEffect(() => {
     if (!project?.id || !soundOn) return setSoundPlan(null);
     let live = true;
@@ -468,40 +481,94 @@ function App() {
         .catch((e) => live && setSoundPlanError(e.message || String(e)));
     }, 350);
     return () => { live = false; clearTimeout(id); };
-  }, [project?.id, soundOn, scenes, project?.motion, project?.sound, project?.cta, project?.episode?.timings]);
+  }, [project?.id, soundOn, scenesSig, project?.motion, soundKey, project?.cta, project?.episode?.timings]);
   const sfxList = useMemo(() => (soundPlan ? sfxSchedule(soundPlan.items) : []), [soundPlan]);
+  // v0.4.58 The effects volume is a gain on the preview's output (a ramp, in real time): the plan's
+  // levels were made with the master it reports, so only the ratio is applied — no new plan.
+  const sfxMaster = normaliseSound(project?.sound).master;
+  useEffect(() => {
+    sfxPreview.current.setMaster((live.current.master ?? sfxMaster) / (soundPlan?.settings?.master || 1));
+  }, [sfxMaster, soundPlan]);
+  useEffect(() => { sfxPreview.current.override.clear(); }, [soundPlan]); // the new plan has the saved levels
   useEffect(() => {
     if (sfxList.length && project?.id) sfxPreview.current.preload(project.id, sfxList);
   }, [sfxList]);
   useEffect(() => {
-    sfxPreview.current.tick(project?.id, sfxList, time, playing && soundOn && !sfxMute && !muted, 1);
+    sfxPreview.current.tick(project?.id, sfxList, time, playing && soundOn && !sfxMute && !muted);
   }, [time, playing, sfxList, soundOn, sfxMute, muted]);
-  useEffect(() => () => sfxPreview.current?.stop(), []);
+  useEffect(() => () => { sfxPreview.current?.stop(); sfxPreview.current?.stopAudition(); musicPreview.current?.stop(); }, []);
+  // QA only: an automated check that defines window.__casefileQA beforehand can read the players
+  useEffect(() => { if (window.__casefileQA) Object.assign(window.__casefileQA, { sfx: sfxPreview.current, music: musicPreview.current }); }, []);
   // v0.4.57 The export's ducking, for the preview: the server runs the export's own compressor on
   // the export's own voice bus (made once in the background per narration/timeline/level, cached).
   const sfxDuckOn = soundOn && normaliseSound(project?.sound).duck;
-  useEffect(() => {
-    if (!project?.id || !sfxDuckOn || !project?.narration_id) {
+  // v0.4.58 and the music's (the export's music compressor), made in the same background pass.
+  // While a new curve is made (after a narration level change) the last one is used, moved by the
+  // level change (approxDuck) — playback, seeking and the sliders never wait for it.
+  const musicDuckOn = !!project?.music_id && normaliseMusic(project?.music).duck;
+  const duckBase = useRef(null); // {fx, music, nv}: the last exact curves and the narration level they were made at
+  const applyDuck = () => {
+    const base = duckBase.current;
+    if (!base) {
       sfxPreview.current.setDuck(null);
+      musicPreview.current.setDuck(null);
+      return;
+    }
+    const nv = live.current.narration ?? projectRef.current?.narration_volume ?? 1;
+    const ratio = base.nv > 0 ? nv / base.nv : 1;
+    sfxPreview.current.setDuck(sfxDuckOn ? approxDuck(base.fx, ratio, SFX.duck.ratio) : null);
+    musicPreview.current.setDuck(musicDuckOn ? approxDuck(base.music, ratio, MUSIC_DUCK_RATIO) : null);
+    setSfxDuck(Math.abs(ratio - 1) > 1e-3 ? "approx" : "ready");
+  };
+  useEffect(() => {
+    if (!project?.id || !(sfxDuckOn || musicDuckOn) || !project?.narration_id) {
+      duckBase.current = null;
+      applyDuck();
       setSfxDuck("none");
       return;
     }
-    let live = true, timer = null, tries = 0;
+    let live_ = true, timer = null, tries = 0;
+    const nvAsked = project?.narration_volume ?? 1;
+    if (duckBase.current) applyDuck(); // the toggles changed: same curves
     const ask = () => {
       fetch(`/api/projects/${project.id}/sound/duck`, { credentials: "same-origin" })
         .then((r) => (r.ok ? r.json() : { status: "none" }))
         .then((d) => {
-          if (!live) return;
-          if (d.status === "working" && tries++ < 300) { setSfxDuck("working"); timer = setTimeout(ask, 2000); return; }
-          const curve = decodeDuck(d);
-          sfxPreview.current.setDuck(curve);
-          setSfxDuck(curve ? "ready" : "none");
+          if (!live_) return;
+          if (d.status === "working" && tries++ < 300) { if (!duckBase.current) setSfxDuck("working"); timer = setTimeout(ask, 2000); return; }
+          const fx = decodeDuck(d), mus = decodeDuck(d.music ? { ...d, gain: d.music } : null);
+          duckBase.current = fx ? { fx, music: mus, nv: nvAsked } : null;
+          applyDuck();
+          if (!fx) setSfxDuck("none");
         })
-        .catch(() => live && setSfxDuck("none"));
+        .catch(() => live_ && setSfxDuck("none"));
     };
     timer = setTimeout(ask, 600);
-    return () => { live = false; clearTimeout(timer); };
-  }, [project?.id, sfxDuckOn, project?.narration_id, project?.narration_volume, scenes, project?.episode?.guide, project?.assets?.length]);
+    return () => { live_ = false; clearTimeout(timer); };
+  }, [project?.id, sfxDuckOn, musicDuckOn, project?.music_id, project?.narration_id, project?.narration_volume, scenesSig, project?.episode?.guide, project?.assets?.length]);
+  /** v0.4.58 The narration level while its slider moves: the preview's gain now, the ducking moved with it. */
+  const liveNarration = (v) => {
+    live.current.narration = v;
+    sfxPreview.current.narration(audioRef.current, v);
+    applyDuck();
+  };
+  const commitNarration = (v) => {
+    queueSave({ narration_volume: v });
+    setTimeout(() => { if (live.current.narration === v) delete live.current.narration; }, 0);
+  };
+  const liveMusicVolume = (v) => {
+    live.current.music = v;
+    musicPreview.current.setVolume(Math.min(0.5, v));
+  };
+  const commitMusicVolume = (v) => {
+    queueSave({ music_volume: v });
+    setTimeout(() => { if (live.current.music === v) delete live.current.music; }, 0);
+  };
+  const liveMaster = (v) => {
+    if (v === null) { delete live.current.master; return; } // saved: the project's value is used again
+    live.current.master = v;
+    sfxPreview.current.setMaster(v / (soundPlan?.settings?.master || 1));
+  };
   // the chosen inspector tab is always in view (eight tabs do not fit a narrow inspector)
   useEffect(() => {
     document.querySelector(".inspector-tabs button.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -516,6 +583,18 @@ function App() {
   const visual = assets.find((a) => a.id === activeScene?.asset_id),
     voice = assets.find((a) => a.id === project?.narration_id),
     music = assets.find((a) => a.id === project?.music_id);
+  // v0.4.58 Background music in the preview: the export's own layout (where, which part, loops and
+  // their crossfades, fades), streamed and mixed with WebAudio; the volume is a real-time gain.
+  const musicLay = useMemo(
+    () => (music ? musicLayout(project?.music, +music.duration || 0, timelineTotal(scenes), scenes) : null),
+    [project?.music, music?.id, music?.duration, scenes],
+  );
+  useEffect(() => { musicPreview.current.setSource(music?.url || null); }, [music?.url]);
+  useEffect(() => { musicPreview.current.setLayout(musicLay); }, [musicLay]);
+  useEffect(() => { musicPreview.current.setVolume(Math.min(0.5, live.current.music ?? project?.music_volume ?? 0)); }, [project?.music_volume]);
+  useEffect(() => {
+    musicPreview.current.tick(time, playing, muted || (sfxSolo && soundOn));
+  }, [time, playing, muted, sfxSolo, soundOn, musicLay]);
   const activeJob = jobs.find((j) => ["running", "queued"].includes(j.status));
   const locked = busy || !!activeJob;
   const notify = (message, tone = "success") => {
@@ -812,12 +891,11 @@ function App() {
     const local = time - (offsets[activeIndex] || 0),
       source = (activeScene?.audio_start || 0) + local;
     const a = audioRef.current,
-      m = musicRef.current,
       v = videoRef.current;
     const isBreak = !!activeScene?.insert_audio;
     if (a) {
       a.muted = muted || (sfxSolo && soundOn);
-      sfxPreview.current.narration(a, project?.narration_volume ?? 1); // v0.4.57: the narration level
+      sfxPreview.current.narration(a, live.current.narration ?? project?.narration_volume ?? 1); // v0.4.57: the narration level
       // Audio breaks (Mode O) pause the narration; it resumes at the same word.
       const inSpeech =
         speechAt(activeScene, offsets[activeIndex] || 0, time) !== null &&
@@ -834,14 +912,6 @@ function App() {
         a.currentTime = Math.min(source, voice?.duration || source);
       if (playing && inSpeech) a.play().catch(() => {});
       else a.pause();
-    }
-    if (m) {
-      m.muted = muted || (sfxSolo && soundOn);
-      m.volume = Math.min(0.5, project?.music_volume || 0);
-      if (m.duration && Math.abs(m.currentTime - (time % m.duration)) > 0.4)
-        m.currentTime = time % m.duration;
-      if (playing) m.play().catch(() => {});
-      else m.pause();
     }
     if (v) {
       // Source audio is muted, except a producer-cleared audio break.
@@ -881,8 +951,6 @@ function App() {
     muted,
     activeScene?.id,
     voice?.id,
-    music?.id,
-    project?.music_volume,
     tab,
     sfxSolo,
     soundOn,
@@ -2083,65 +2151,59 @@ function App() {
                                 }
                               />
                             </label>
-                            <label className="field">Volume
-                              <input
-                                className="range" type="range" min="0" max="200" step="5"
-                                value={Math.round(f.volume * 100)}
-                                onChange={(e) =>
-                                  updateTrack(kind, { volume: Number(e.target.value) / 100 })
-                                }
-                              />
-                              <span>{Math.round(f.volume * 100)}%</span>
-                            </label>
+                            {/* v0.4.58: the old per-scene volume was never heard (preview or export) and saved the
+                                whole scene list on every move; this is the documentary's narration level, live */}
+                            <LiveRange
+                              label="Narration level (whole documentary)"
+                              value={project.narration_volume ?? 1}
+                              min={0}
+                              max={2}
+                              step={0.05}
+                              disabled={locked}
+                              format={(v) => `${Math.round(v * 100)}%`}
+                              onLive={liveNarration}
+                              onCommit={commitNarration}
+                            />
                           </>
                         )}
-                        {kind === "music" && (
-                          <>
-                            <label className="field">Music source
-                              <select
-                                value={f.id || ""}
-                                onChange={(e) => updateTrack(kind, { id: e.target.value || null })}
-                              >
-                                <option value="">No music</option>
-                                {assets
-                                  .filter((a) => a.has_audio || a.kind === "audio")
-                                  .map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}
-                                    </option>
-                                  ))}
-                              </select>
-                            </label>
-                            <label className="field">Start (sec)
-                              <input
-                                type="number" min="0" step="0.5"
-                                value={f.start}
-                                onChange={(e) =>
-                                  updateTrack(kind, { start: Math.max(0, Number(e.target.value) || 0) })
-                                }
-                              />
-                            </label>
-                            <label className="field">Duration (sec)
-                              <input
-                                type="number" min="0.5" step="0.5"
-                                value={f.duration}
-                                onChange={(e) =>
-                                  updateTrack(kind, { duration: Math.max(0.5, Number(e.target.value) || 0.5) })
-                                }
-                              />
-                            </label>
-                            <label className="field">Volume
-                              <input
-                                className="range" type="range" min="0" max="200" step="5"
-                                value={Math.round(f.volume * 100)}
-                                onChange={(e) =>
-                                  updateTrack(kind, { volume: Number(e.target.value) / 100 })
-                                }
-                              />
-                              <span>{Math.round(f.volume * 100)}%</span>
-                            </label>
-                          </>
-                        )}
+                        {kind === "music" && (() => {
+                          // v0.4.58 The music follows the project's music placement (Audio tab);
+                          // here: does it play in this scene, and choose it for this scene / chapter.
+                          const m = normaliseMusic(project.music);
+                          const at = offsets[scenes.findIndex((x) => x.id === selected?.id)] ?? 0;
+                          const len = selected ? Math.max(1, Math.round((+selected.duration || 0) * 24)) / 24 : 0;
+                          const plays = !!musicLay?.runs.some((r) => r.at < at + len && r.end > at);
+                          const sid = String(selected?.id ?? "");
+                          return (
+                            <>
+                              <p className="micro-note block">
+                                {music ? `${music.name}: ${plays ? "plays in this scene" : "silent in this scene"} (${{ whole: "the whole documentary", range: "a range", once: "once", scenes: "chosen chapters and scenes" }[m.mode]}).` : "No background music chosen yet."}
+                              </p>
+                              {music && m.mode === "scenes" && (
+                                <>
+                                  <label className="cs-check">
+                                    <input type="checkbox" checked={m.scenes.includes(sid)} disabled={locked}
+                                      onChange={(e) => queueSave({ music: { ...m, scenes: e.target.checked ? [...m.scenes, sid] : m.scenes.filter((x) => x !== sid) } })} />
+                                    Music in this scene
+                                  </label>
+                                  {selected?.chapter && (
+                                    <label className="cs-check">
+                                      <input type="checkbox" checked={m.chapters.includes(selected.chapter)} disabled={locked}
+                                        onChange={(e) => queueSave({ music: { ...m, chapters: e.target.checked ? [...m.chapters, selected.chapter] : m.chapters.filter((x) => x !== selected.chapter) } })} />
+                                      Music in this chapter ({selected.chapter})
+                                    </label>
+                                  )}
+                                </>
+                              )}
+                              {music && m.mode !== "scenes" && (
+                                <button className="btn" disabled={locked} onClick={() => queueSave({ music: { ...m, mode: "scenes", scenes: [sid], chapters: [] } })}>
+                                  Music only in chosen scenes (start with this one)
+                                </button>
+                              )}
+                              <button className="text-link" onClick={() => setInspectorTab("audio")}>Music settings: track part, loop, crossfade, fades, ducking…</button>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -2243,7 +2305,9 @@ function App() {
             preview={sfxPreview.current}
             duckStatus={sfxDuck}
             narrationVolume={project.narration_volume ?? 1}
-            onNarrationVolume={(v) => queueSave({ narration_volume: v })}
+            onNarrationVolume={commitNarration}
+            onLiveNarration={liveNarration}
+            onLiveMaster={liveMaster}
             onSelectMany={setSoundIds}
             selectedIds={soundIds}
             mute={sfxMute}
@@ -2357,54 +2421,47 @@ function App() {
                   ))}
               </select>
             </label>
-            <label className="field">
-              Narration level{" "}
-              <span className="field-note">
-                {Math.round((project.narration_volume ?? 1) * 100)}%
-              </span>
-              <input
-                aria-label="Narration level"
-                className="range"
-                type="range"
-                min="0"
-                max="200"
-                step="5"
-                value={Math.round((project.narration_volume ?? 1) * 100)}
-                onChange={(e) =>
-                  queueSave({ narration_volume: Number(e.target.value) / 100 })
-                }
+            <LiveRange
+              label="Narration level"
+              value={project.narration_volume ?? 1}
+              min={0}
+              max={2}
+              step={0.05}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onLive={liveNarration}
+              onCommit={commitNarration}
+            />
+            {music ? (
+              <MusicPanel
+                project={project}
+                music={music}
+                scenes={scenes}
+                time={time}
+                selected={selected}
+                disabled={locked}
+                preview={musicPreview.current}
+                onSave={(m) => queueSave({ music: m })}
+                onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
+                volume={project.music_volume ?? 0.12}
+                onLiveVolume={liveMusicVolume}
+                onCommitVolume={commitMusicVolume}
               />
-            </label>
-            <label className="field">
-              Music level{" "}
-              <span className="field-note">
-                {Math.round(project.music_volume * 100)}%
-              </span>
-              <input
-                aria-label="Music level"
-                className="range"
-                type="range"
-                min="0"
-                max="50"
-                value={Math.round(project.music_volume * 100)}
-                onChange={(e) =>
-                  queueSave({ music_volume: Number(e.target.value) / 100 })
-                }
-              />
-            </label>
+            ) : (
+              <p className="micro-note block">Choose a track to place it: the whole documentary, a range, once, or chosen chapters and scenes, with a seamless loop.</p>
+            )}
             <div className="feature-note">
               <ShieldCheck size={15} />
               <div>
                 <b>Speech stays in front</b>
                 <p>
-                  Exports normalize narration and automatically duck music
-                  underneath it.
+                  Exports normalize narration and duck music underneath it
+                  (auto ducking). The preview applies the same dip.
                 </p>
               </div>
             </div>
             <p className="micro-note block">
-              Preview audio is approximate. Export applies the final mix. Supply
-              music you have permission to use.
+              The preview plays the music where the export puts it, with the same loops, fades,
+              volume and ducking. Supply music you have permission to use.
             </p>
           </div>
         ) : (
@@ -3748,7 +3805,16 @@ function App() {
                       >
                         {music ? (
                           <>
-                            <Wave values={music.waveform} color="#c4ae7e" />
+                            {(musicLay?.runs || []).map((r, i) => (
+                              <i key={"mr" + i} className="music-run" title={`Music ${r.iters.length > 1 ? `(${r.iters.length} passes) ` : ""}${r.at.toFixed(1)}–${r.end.toFixed(1)} s`}
+                                style={{ left: `${(r.at / duration) * 100}%`, width: `${((r.end - r.at) / duration) * 100}%` }} />
+                            ))}
+                            {(musicLay?.runs || []).flatMap((r) => r.iters.slice(1)).map((it, i) => (
+                              <b key={"ms" + i} className="music-seam" title={`Loop seam at ${it.at.toFixed(1)} s (${musicLay.crossfade.toFixed(1)} s crossfade)`}
+                                style={{ left: `${(it.at / duration) * 100}%`, width: `${Math.max(0.15, (musicLay.crossfade / duration) * 100)}%` }} />
+                            ))}
+                            {/* v0.4.58: the lane shows where the music plays (runs, loop seams), not the file's
+                                own waveform stretched over the documentary */}
                             <span className="audio-lane-label">
                               <Music2 size={10} />
                               {music.name}
@@ -4722,9 +4788,6 @@ function App() {
         )}
       </div>
       {voice && <audio ref={audioRef} src={voice.url} preload="metadata" />}
-      {music && (
-        <audio ref={musicRef} src={music.url} preload="metadata" loop />
-      )}
       <input
         ref={fileRef}
         type="file"

@@ -1,4 +1,4 @@
-# Intelligent sound design (v0.4.56, corrected in v0.4.57)
+# Intelligent sound design (v0.4.56, corrected in v0.4.57; palettes, live levels, audition and music in v0.4.58)
 
 Optional, **off by default**. When switched on (inspector → **Sound** → "Add sound design to the export"),
 Casefile plans restrained editorial sound effects from the timeline you already have and mixes them
@@ -336,6 +336,15 @@ Full suite: **626 passed, 1 skipped**; JS **42 pass**.
   foley: listen on the page before deciding. Imported sounds can replace any of them.
 * Two keystroke variations (`type-strike-6`, `key-soft-6`) are 2.1–2.4 dB lighter than in v1 on purpose
   (a lighter finger in the cycle); every other changed sound is within 1.5 dB of its v1 loudness.
+* (v0.4.58) The music preview plays two `<audio>` elements that follow the timeline; while playing it
+  re-seeks only past 0.2 s of drift (re-seeking a playing element glitches), so a loop seam in the preview can
+  sit up to ~0.1–0.2 s from the export's (the gains and levels are the export's; the export is sample-exact).
+* (v0.4.58) The music duck is exact only after the background job; on a 25 min / 150-scene project that job
+  takes ≈ 3.4 min (2 cores), ≈ 2.5 min of it the existing voice bus (`voice_graph`, one trim per scene), which
+  the export runs as well. Meanwhile the preview applies an immediate approximation (the last exact curve
+  scaled for the new narration level) and nothing waits for it.
+* (v0.4.58) "Chosen scenes" music follows scene ids; chapters are steadier (a full replacement of the scene
+  list gives scenes new ids).
 
 ## v0.4.57 corrections
 
@@ -369,3 +378,64 @@ Targeted fixes after the v0.4.56 review; the engine, the plan format and the exi
 7. **Performance:** no dependency added (NumPy, FFmpeg). Context scores cached per sentence; the duck curve
    cached and computed one job per project at low priority.
 
+
+## v0.4.58 — template palettes, live levels, audition, background music
+
+Targeted changes after the v0.4.57 review. The sound engine, the plan format, the narration, soundbites,
+footage mapping and the timeline are unchanged; the timeline's length is always the export's length.
+
+### What existed and what was corrected
+
+| Area | Before (v0.4.57) | v0.4.58 |
+|---|---|---|
+| Template sounds | one click repeated for every line / marker; same entrance family everywhere | a palette per template: findings (mechanical clicks alternating, cards pop), timelines (directional whoosh, alternating ticks), contradiction (reverse whoosh, muted statement / low pulse on the contradiction / record), legal (document reveal, heavier step click, verdict thump); typed lines start on a different key each line (`qa/sound-design/palette/palette_before.txt` → `palette_after.txt`) |
+| Level sliders | each move saved the project; the effects level re-fetched the plan and restarted the sounds; the narration level restarted the server duck (~1 min on long projects); per-scene "volume" fields that nothing played | WebAudio gains with smooth ramps (time constant 20–30 ms) while dragging (`LiveRange`): no request, no plan, no duck recomputation, no re-render of the editor; one save on release (or 400 ms after the last key); the duck preview follows the narration level at once (approximation) |
+| Audition | overlapping playbacks; library rows had no length or waveform | one audition at a time (play/stop), name · category · length · waveform, search + category, audition volume, variations of the selected sound with an explicit "Use", imported sounds; never touches the project |
+| Music (export) | `-stream_loop -1`: hard restart at the end of the file, fixed 1.5/2 s fades, always the whole documentary | `music.py`: whole / range / once / chosen scenes or chapters; part of the track (start/end); loop with an adjustable equal-power crossfade (0–10 s); fades; ducking on/off; each pass is a reference to the original file (`-ss/-t` inputs, or for many short passes one input + `aloop`), cut to the timeline; nothing is copied |
+| Music (preview) | one `<audio loop>` (hard restart, no placement) | the same layout (`web/src/music.js`, parity-tested against Python to 1e-9), two elements crossfading at the seams, a live gain for the level, the duck curve |
+| Music lane | a button that shrank to its label: a box over the first minutes, the file's waveform stretched | full width; filled exactly where the music plays, every loop seam marked |
+| Mix | with music and no effects the bare `alimiter` delayed the narration and soundbites by 239 samples (5 ms) and lifted them ~0.45 dB | the transparent limiter of the effects mix everywhere: voices at 0 samples, identical with or without music |
+
+### Music settings (`project.music`)
+
+`mode` whole · range (`offset`–`until`) · once · scenes (`chapters` / `scenes`); `start`/`end` (part of the
+track, s); `loop`; `crossfade` 0–10 s; `fade_in` / `fade_out` 0–15 s; `duck`. The level stays
+`project.music_volume` (0–0.5). Editor: Audio tab → music panel (and Scene inspector → Music: plays here /
+silent, choose this scene or chapter); the music lane shows where it plays and every loop seam.
+
+A pass of a looped part is `len = part − crossfade`; the next pass starts there and the two overlap by the
+crossfade with `sin`/`cos` gains (equal power: constant loudness for unrelated material). Up to 12 passes
+are an `acrossfade` chain (one `-ss/-t` reference per pass); beyond that the part is decoded once, the seam
+is made once, and `aloop` repeats one period in memory. All trims are sample counts, and the bed is padded
+and cut to exactly `timeline × 48000` samples.
+
+### Measurements (2-core sandbox)
+
+* **Sliders, in the browser** (headless Chromium, 25 min / 150-scene project, playing, real mouse drags):
+  input → gain 0.4–0.7 ms median; 0 project saves and 0 plan requests during a drag, exactly 1 save after
+  release; 60 rapid key presses → 1 save; the gain equals the slider value; playback continues; frame
+  times during a drag ≈ the same playback without input (this headless renderer is slow either way).
+* **Audition:** one at a time (a second stops the first), stop works, 0 project requests, the project
+  unchanged; search "whoosh" 11 rows, lengths and waveforms shown.
+* **Music export, 25 min, 3 min track** (`music_bench.py`, music branch alone): v0.4.57 stream_loop 2.5 s /
+  15 MB; v0.4.58 crossfade chain (9 passes) 3.4–4.6 s / 56 MB; `aloop` (54 passes of a 30 s part, 1 input)
+  0.8 s / 56 MB; once 0.7 s. Exact 72,000,000 samples; seams within 1.8 dB of the reference RMS.
+* **Demos** (`music_demos.py`, real exporter, 720p; `music.html`): durations equal to the timeline in all 4;
+  loop seams: v0.4.57 +2.3 dB level jump at every restart, v0.4.58 −0.3 to −1.3 dB; chapter-only music
+  −180 dB (silence) outside the chapter; the part played is the part chosen (cross-correlation: 26.0 s for
+  26.0 s, 25.0 s for 25.0 s); music −11.7 dB under narration, −5.8 dB under the soundbite, −0.5 dB in a pause;
+  narration and soundbite at 0 samples and correlation 1.0 against the v0.4.57 export; render 17.9 s
+  (v0.4.57: 19.0 s; without music 14.1 s) for 60 s.
+* **Duck job** (25 min / 150 scenes): 205 s, 97 MB, background, cached; a music level change does not
+  recompute it.
+
+* **Tests:** full suite 638 passed, 1 skipped (v0.4.57: 626); JS 49 (v0.4.57: 42).
+
+### Files
+
+`music.py` (layout + FFmpeg graph), `renderer.py` (music wiring, transparent limiter), `sound.py` (palettes,
+duck job makes the music's curve too), `app.py` / `history.py` (`music` field), `web/src/music.js`
+(`MusicPreview`, layout), `web/src/LiveRange.jsx`, `web/src/MusicPanel.jsx`, `web/src/sound.js` (master /
+per-sound live gains, plan carry-over, `audition`), `web/src/SoundPanel.jsx` (library, variations),
+`web/src/main.jsx` (live levels, music lane, scene music). Tests: `tests/test_music.py` (11),
+`tests/js/music.test.mjs` (7). QA: `qa/sound-design/music_demos.py`, `music_bench.py`, `music.html`.
