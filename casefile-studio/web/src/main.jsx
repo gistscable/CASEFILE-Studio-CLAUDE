@@ -16,6 +16,8 @@ import StickerPanel from "./StickerPanel.jsx";
 import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
 import { graphicAt, normaliseMotion } from "./motion.js";
+import SoundPanel from "./SoundPanel.jsx";
+import { SfxPreview, schedule as sfxSchedule, normaliseSound, editItem as editSfx } from "./sound.js";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
@@ -51,6 +53,7 @@ import {
   Settings2,
   Music2,
   AudioLines,
+  AudioWaveform,
   Film,
   Image as ImageIcon,
   X,
@@ -109,7 +112,7 @@ function downloadProjectSnapshot(project, onBlocked) {
     return;
   }
   snapshot._casefile_export = {
-    version: "0.4.55",
+    version: "0.4.56",
     preview_origin: window.location.origin,
     exported_at: new Date().toISOString(),
     media_bytes_included: false,
@@ -141,7 +144,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.55";
+const APP_VERSION = "0.4.56";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -396,6 +399,11 @@ function App() {
   const [stickerId, setStickerId] = useState(null),
     [motionId, setMotionId] = useState(null),
     [motionStatus, setMotionStatus] = useState(""),
+    [soundId, setSoundId] = useState(null), // v0.4.56 the selected sound effect
+    [soundPlan, setSoundPlan] = useState(null),
+    [soundPlanError, setSoundPlanError] = useState(""),
+    [sfxMute, setSfxMute] = useState(false),
+    [sfxSolo, setSfxSolo] = useState(false),
     [stickerDialog, setStickerDialog] = useState(false),
     [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
@@ -443,6 +451,34 @@ function App() {
   );
   const ctaEvents = useMemo(() => ctaSpots.filter((r) => r.shown).map((r) => [r.start, r.end, r]), [ctaSpots]);
   const nameCards = useMemo(() => effectiveLowerThirds(project), [project?.name_cards, scenes]);
+  // v0.4.56 Sound design: the plan from the server (re-read after an edit that can move a sound),
+  // played in the preview with WebAudio on the preview clock.
+  const soundOn = !!project?.sound?.enabled;
+  const sfxPreview = useRef(null);
+  if (!sfxPreview.current) sfxPreview.current = new SfxPreview();
+  useEffect(() => {
+    if (!project?.id || !soundOn) return setSoundPlan(null);
+    let live = true;
+    const id = setTimeout(() => {
+      fetch(`/api/projects/${project.id}/sound/plan`, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : r.json().then((d) => Promise.reject(new Error(d.detail || "The sound plan could not be read.")))))
+        .then((d) => { if (live) { setSoundPlan(d); setSoundPlanError(""); } })
+        .catch((e) => live && setSoundPlanError(e.message || String(e)));
+    }, 350);
+    return () => { live = false; clearTimeout(id); };
+  }, [project?.id, soundOn, scenes, project?.motion, project?.sound, project?.cta, project?.episode?.timings]);
+  const sfxList = useMemo(() => (soundPlan ? sfxSchedule(soundPlan.items) : []), [soundPlan]);
+  useEffect(() => {
+    if (sfxList.length && project?.id) sfxPreview.current.preload(project.id, sfxList);
+  }, [sfxList]);
+  useEffect(() => {
+    sfxPreview.current.tick(project?.id, sfxList, time, playing && soundOn && !sfxMute && !muted, 1);
+  }, [time, playing, sfxList, soundOn, sfxMute, muted]);
+  useEffect(() => () => sfxPreview.current?.stop(), []);
+  // the chosen inspector tab is always in view (eight tabs do not fit a narrow inspector)
+  useEffect(() => {
+    document.querySelector(".inspector-tabs button.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [inspectorTab]);
   const clockRef = useRef({ scenes: [], offsets: [] });
   clockRef.current = { scenes, offsets };
   const activeIndex = Math.max(
@@ -478,7 +514,7 @@ function App() {
         const saved = await cachedSetups().catch(() => []);
         api("/api/browser-session", "POST", {
           origin: window.location.origin,
-          version: "0.4.55",
+          version: "0.4.56",
           snapshot: saved[0]?.project || null,
         }).catch(() => {});
         const b = await api("/api/bootstrap");
@@ -554,7 +590,7 @@ function App() {
             if (status !== "newer-saved-copy")
               api("/api/browser-session", "POST", {
                 origin: window.location.origin,
-                version: "0.4.55",
+                version: "0.4.56",
                 snapshot: project,
               }).catch(() => {});
           })
@@ -753,7 +789,7 @@ function App() {
       v = videoRef.current;
     const isBreak = !!activeScene?.insert_audio;
     if (a) {
-      a.muted = muted;
+      a.muted = muted || (sfxSolo && soundOn);
       a.volume = 1;
       // Audio breaks (Mode O) pause the narration; it resumes at the same word.
       const inSpeech =
@@ -773,7 +809,7 @@ function App() {
       else a.pause();
     }
     if (m) {
-      m.muted = muted;
+      m.muted = muted || (sfxSolo && soundOn);
       m.volume = Math.min(0.5, project?.music_volume || 0);
       if (m.duration && Math.abs(m.currentTime - (time % m.duration)) > 0.4)
         m.currentTime = time % m.duration;
@@ -782,7 +818,7 @@ function App() {
     }
     if (v) {
       // Source audio is muted, except a producer-cleared audio break.
-      v.muted = muted || !isBreak;
+      v.muted = muted || !isBreak || (sfxSolo && soundOn);
       v.volume = 1;
       const trimStart = activeScene?.trim_start || 0;
       const sceneDur = activeScene?.duration || 0;
@@ -821,6 +857,8 @@ function App() {
     music?.id,
     project?.music_volume,
     tab,
+    sfxSolo,
+    soundOn,
   ]);
 
   function queueSave(fields) {
@@ -1692,6 +1730,7 @@ function App() {
             ["effects", "Effects", Film],
             ["stickers", "Stickers", Sticker],
             ["motion", "Motion", Type],
+            ["sound", "Sound", AudioWaveform],
             ["audio", "Audio", AudioLines],
             ["director", "Director", Sparkles],
           ].map(([key, label, Icon]) => (
@@ -2154,6 +2193,42 @@ function App() {
             onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
             onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
             previewStatus={motionStatus}
+            disabled={locked}
+          />
+        ) : inspectorTab === "sound" ? (
+          <SoundPanel
+            project={project}
+            plan={soundPlan}
+            planError={soundPlanError}
+            time={time}
+            playing={playing}
+            selectedId={soundId}
+            onSelect={setSoundId}
+            onChange={(v) => queueSave({ sound: v })}
+            onGenerate={async () => {
+              await flushSave();
+              const r = await api(`/api/projects/${project.id}/sound/generate`, "POST", {});
+              acceptProject(r.project);
+              notify(`${r.added} sound${r.added === 1 ? "" : "s"} planned; ${r.silenced} moment${r.silenced === 1 ? "" : "s"} left silent on purpose.`, "info");
+            }}
+            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+            onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
+            preview={sfxPreview.current}
+            mute={sfxMute}
+            solo={sfxSolo}
+            onMute={(v) => { setSfxMute(v); if (v) setSfxSolo(false); }}
+            onSolo={(v) => { setSfxSolo(v); if (v) setSfxMute(false); }}
+            onUploadSound={async (file) => {
+              await flushSave();
+              const form = new FormData();
+              form.append("files", file);
+              form.append("episode_role", "sfx");
+              const before = new Set((project.assets || []).map((a) => a.id));
+              const p = await api(`/api/projects/${project.id}/upload`, "POST", form);
+              acceptProject(p);
+              const added = p.assets.find((a) => !before.has(a.id));
+              if (added) notify(`${added.name} is in your sounds: choose it for a sound, or add it at the playhead from the library.`, "info");
+            }}
             disabled={locked}
           />
         ) : inspectorTab === "captions" ? (
@@ -3413,6 +3488,13 @@ function App() {
                     <span>Music</span>
                     <span className="track-tag">A2</span>
                   </div>
+                  {soundOn && (
+                    <div className="track-label sfx">
+                      <AudioWaveform size={12} />
+                      <span>Sound FX</span>
+                      <span className="track-tag">A3</span>
+                    </div>
+                  )}
                 </div>
                 <div
                   className="timeline-scroll"
@@ -3628,6 +3710,45 @@ function App() {
                           </span>
                         )}
                       </button>
+                    {soundOn && (
+                      <div className="audio-lane sfx-lane has-audio" onClick={(e) => e.stopPropagation()}>
+                        {(soundPlan?.zones || []).map((z, i) => (
+                          <i key={"z" + i} className="sfx-zone" title={`No automatic sound: ${z.why}`}
+                            style={{ left: `${(z.start / duration) * 100}%`, width: `${((z.end - z.start) / duration) * 100}%` }} />
+                        ))}
+                        {(soundPlan?.items || []).filter((x) => x.t != null).map((x) => (
+                          <b key={x.id} className={`sfx-mark ${x.kind} ${x.status} ${x.id === soundId ? "on" : ""}`}
+                            title={`${x.label} · ${x.sound}${x.reason ? " · " + x.reason : ""} (drag to move)`}
+                            style={{ left: `${(x.t / duration) * 100}%`, width: x.keys ? `${(Math.max(0.05, x.keys.at(-1)[0] - x.t) / duration) * 100}%` : undefined }}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setPlaying(false);
+                              setSoundId(x.id);
+                              setInspectorTab("sound");
+                              if (locked) return;
+                              const content = timelineRef.current?.querySelector(".timeline-content");
+                              if (!content) return;
+                              const pps = content.getBoundingClientRect().width / duration, x0 = e.clientX, el = e.currentTarget, base = x.offset || 0;
+                              let moved = 0;
+                              const move = (ev) => {
+                                moved = Math.round(((ev.clientX - x0) / pps) * 24) / 24; // whole frames
+                                el.style.transform = `translateX(${moved * pps}px)`;
+                              };
+                              const up = () => {
+                                window.removeEventListener("pointermove", move);
+                                window.removeEventListener("pointerup", up);
+                                el.style.transform = "";
+                                if (moved) queueSave({ sound: editSfx(normaliseSound(project.sound), x, { offset: Math.round((base + moved) * 10000) / 10000 }) });
+                                else setTime(Math.max(0, x.t - 0.02));
+                              };
+                              window.addEventListener("pointermove", move);
+                              window.addEventListener("pointerup", up);
+                            }} />
+                        ))}
+                        {!soundPlan && <span>{soundPlanError || "Reading the timeline…"}</span>}
+                      </div>
+                    )}
                     {duration > 0 && (
                       <div
                         className="playhead"

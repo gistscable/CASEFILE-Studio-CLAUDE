@@ -1,6 +1,6 @@
 {
   "name": "casefile-studio",
-  "version": "0.4.55",
+  "version": "0.4.56",
   "private": true,
   "description": "A source-led documentary editing workspace with a real FFmpeg renderer",
   "scripts": {

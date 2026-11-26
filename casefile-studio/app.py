@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
 import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers, history
 import motion as motiongfx
+import sfxlib
+import sound as sfxplan
 from storage import (
     ROOT,
     DATA,
@@ -32,7 +34,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.55", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.56", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -594,6 +596,7 @@ async def update_project(id: str, request: Request):
             "watermark",
             "stickers",
             "motion",
+            "sound",
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
@@ -668,6 +671,8 @@ async def update_project(id: str, request: Request):
             p["stickers"] = stickers.normalise(changes["stickers"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "motion" in changes:
             p["motion"] = motiongfx.normalise(changes["motion"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
+        if "sound" in changes:  # v0.4.56: one edited sound leaves the rest of the plan as it is
+            p["sound"] = sfxplan.normalise(changes["sound"])
         if "watermark" in changes:
             p["watermark"] = watermark.normalise(changes["watermark"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "aspect" in changes:
@@ -783,9 +788,12 @@ def assemble(id: str):
 async def upload(
     id: str,
     files: list[UploadFile] = File(...),
-    episode_role: Literal["narration", "music", "sources"] | None = Form(default=None),
+    episode_role: Literal["narration", "music", "sources", "sfx"] | None = Form(default=None),
 ):
     p = project_or_404(id)
+    # v0.4.56: "sfx" = your own short sound effect for the sound design: added to the media only
+    # (never rebuilds the timeline, never becomes narration or music)
+    sfx_upload = episode_role == "sfx"
     if len(files) > 30:
         raise HTTPException(422, "Upload up to 30 files at a time.")
     folder = DATA / "media" / id
@@ -899,6 +907,10 @@ async def upload(
                 raise ValueError(
                     "Narration and music require an actual audio track, not an image or silent video."
                 )
+            if sfx_upload and (asset.get("kind") != "audio" or float(asset.get("duration") or 0) > 30):
+                raise ValueError("A sound effect must be an audio file (WAV, MP3, M4A, OGG, FLAC) of up to 30 seconds.")
+            if sfx_upload:
+                asset["sfx"] = True
             if episode_role == "sources" and asset["kind"] not in ("image", "video"):
                 raise ValueError(
                     "The source-file input accepts uploaded images and videos. Keep music and narration in their own cards."
@@ -919,6 +931,8 @@ async def upload(
     with LOCK:
         p = project_or_404(id)
         p["assets"].extend(added)
+        if sfx_upload:
+            return save_project(p)
         if episode_role and not p.get("episode"):
             p["episode"] = copy.deepcopy(episode.state(p))
         if script is not None:
@@ -1122,6 +1136,55 @@ def motion_frame(h: str, k: int):
     except (KeyError, FileNotFoundError, ValueError):
         raise HTTPException(404, "Not prepared.")
     return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+# ------------------------------------------------------------------ v0.4.56 sound design
+
+@app.get("/api/sound/catalog")
+def sound_catalog():
+    """The built-in library (made by sfxlib on this computer; nothing is downloaded)."""
+    return {"sounds": sfxlib.catalog(), "categories": sfxlib.CATEGORIES, "version": sfxlib.LIB_VERSION}
+
+
+@app.get("/api/sound/lib/{sid}.wav")
+def sound_file(sid: str):
+    if sid not in sfxlib.BY_ID:
+        raise HTTPException(404, "Unknown sound.")
+    sfxlib.ensure(DATA, [sid])
+    return FileResponse(sfxlib.path_of(DATA, sid), media_type="audio/wav", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/api/projects/{id}/sound/custom/{asset_id}.wav")
+def sound_custom_file(id: str, asset_id: str):
+    p = project_or_404(id)
+    try:
+        path = sfxplan.custom_file(p, DATA, f"a:{asset_id}")
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        path = None
+    if not path:
+        raise HTTPException(404, "That sound file could not be read.")
+    return FileResponse(path, media_type="audio/wav")
+
+
+@app.get("/api/projects/{id}/sound/plan")
+def sound_plan(id: str):
+    """Where every sound falls on the timeline now, what was left silent and why."""
+    p = project_or_404(id)
+    return sfxplan.overview(p, DATA)
+
+
+@app.post("/api/projects/{id}/sound/generate")
+def sound_generate(id: str):
+    """Plan again from the timeline (your own sounds, edits and removals stay; can be undone)."""
+    with LOCK:
+        p = project_or_404(id)
+        checkpoint(p)
+        cur = sfxplan.normalise(p.get("sound"))
+        mine = [it for it in cur["items"] if it["source"] == "manual" or it["edited"] or it["status"] == "removed"]
+        fresh, info = sfxplan.plan(p, cur, keep={it["anchor"] for it in mine})
+        p["sound"] = {**cur, "items": mine + fresh}
+        p = save_project(p)
+    return {"project": p, "added": len(fresh), "silenced": len(info["silenced"])}
 
 
 @app.delete("/api/projects/{id}/assets/{asset_id}")

@@ -733,6 +733,10 @@
       [
         "fade",
         "Fade in"
+      ],
+      [
+        "type",
+        "Typewriter"
       ]
     ],
     "exits": [
@@ -835,7 +839,8 @@
       "exit": 0.6,
       "exit_stagger": 0.04,
       "hold": 2.5,
-      "lead": 1.5
+      "lead": 1.5,
+      "type_cps": 17
     },
     "suggest": {
       "max": 5,
@@ -854,5 +859,184 @@
       "columns": "rows",
       "steps": "list"
     }
+  },
+  "sound": {
+    "fps": 24,
+    "defaults": {
+      "enabled": false,
+      "mode": "auto",
+      "preset": "cinematic",
+      "master": 0.8,
+      "intensity": 0.4,
+      "density": 0.4,
+      "lead": 0.0,
+      "duck": true,
+      "variation": true,
+      "kinds": {
+        "motion": true,
+        "diagrams": true,
+        "typing": true,
+        "transitions": true,
+        "moments": true,
+        "documents": true,
+        "cta": true
+      },
+      "items": []
+    },
+    "presets": [
+      {
+        "id": "subtle",
+        "label": "Subtle Documentary",
+        "about": "Restrained clicks, soft transitions, few effects. For emotional, interview-led episodes.",
+        "intensity": 0.25,
+        "density": 0.25,
+        "kinds": {
+          "motion": true,
+          "diagrams": false,
+          "typing": true,
+          "transitions": true,
+          "moments": false,
+          "documents": true,
+          "cta": true
+        }
+      },
+      {
+        "id": "cinematic",
+        "label": "Cinematic Investigative (recommended)",
+        "about": "Balanced whooshes, mechanical clicks, digital pulses and controlled impacts.",
+        "intensity": 0.4,
+        "density": 0.4,
+        "kinds": {
+          "motion": true,
+          "diagrams": true,
+          "typing": true,
+          "transitions": true,
+          "moments": true,
+          "documents": true,
+          "cta": true
+        }
+      },
+      {
+        "id": "intense",
+        "label": "Intense Investigative",
+        "about": "Stronger but controlled design for the big developments. Never on traumatic events.",
+        "intensity": 0.65,
+        "density": 0.6,
+        "kinds": {
+          "motion": true,
+          "diagrams": true,
+          "typing": true,
+          "transitions": true,
+          "moments": true,
+          "documents": true,
+          "cta": true
+        }
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "about": "Your own volume, intensity, density and kinds."
+      }
+    ],
+    "kinds": [
+      [
+        "motion",
+        "Motion graphics"
+      ],
+      [
+        "diagrams",
+        "Animated diagrams (timelines, legal steps)"
+      ],
+      [
+        "typing",
+        "Typing"
+      ],
+      [
+        "transitions",
+        "Transitions"
+      ],
+      [
+        "moments",
+        "Investigative revelations"
+      ],
+      [
+        "documents",
+        "Photographs and documents"
+      ],
+      [
+        "cta",
+        "Subscribe animation"
+      ],
+      [
+        "manual",
+        "Added by you"
+      ]
+    ],
+    "limits": {
+      "master": [
+        0.0,
+        1.5
+      ],
+      "intensity": [
+        0.0,
+        1.0
+      ],
+      "density": [
+        0.0,
+        1.0
+      ],
+      "lead": [
+        -0.2,
+        0.2
+      ],
+      "gain": [
+        -24.0,
+        6.0
+      ],
+      "fade": [
+        0.0,
+        2.0
+      ],
+      "offset": [
+        -5.0,
+        5.0
+      ],
+      "items": 600
+    },
+    "duck": {
+      "threshold": 0.035,
+      "ratio": 3,
+      "attack": 5,
+      "release": 250,
+      "makeup": 1
+    },
+    "spacing": {
+      "any": 0.22,
+      "whoosh": 5.0,
+      "reverse-whoosh": 25.0,
+      "thump": 30.0,
+      "bass-impact": 45.0,
+      "swell": 50.0,
+      "riser": 90.0,
+      "pulse": 20.0,
+      "transition-impact": 30.0,
+      "notification": 30.0,
+      "scan": 8.0,
+      "document": 6.0,
+      "paper": 6.0,
+      "tonal-sweep": 4.0,
+      "tick": 0.25,
+      "click": 0.25,
+      "click-muted": 0.25,
+      "pop": 0.25
+    },
+    "per_minute": [
+      4,
+      10
+    ],
+    "keep_above": [
+      0.75,
+      0.25
+    ]
   }
 }

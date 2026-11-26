@@ -6861,3 +6861,120 @@ body.resizing-row * {
 .motion-wrap ~ .film-captions {
   z-index: 6;
 }
+
+/* v0.4.56 Intelligent sound design */
+.track-label.sfx > svg {
+  color: #9aa7c4;
+}
+.sfx-lane {
+  border-style: solid;
+  border-color: #3e4760;
+  background: #222838;
+  justify-content: flex-start;
+  overflow: visible;
+}
+.sfx-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, #ffffff08 0 4px, transparent 4px 8px);
+  border-left: 1px solid #ffffff10;
+  border-right: 1px solid #ffffff10;
+  pointer-events: auto;
+}
+.sfx-mark {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  min-width: 3px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: #8ea0d0;
+  cursor: grab;
+  z-index: 2;
+  touch-action: none;
+}
+.sfx-mark:hover,
+.sfx-mark.on {
+  background: #e6ecff;
+  box-shadow: 0 0 0 1px #e6ecff80;
+}
+.sfx-mark.transitions { background: #c9a86b; }
+.sfx-mark.moments { background: #c97b6b; }
+.sfx-mark.typing { background: #7fb39a; opacity: 0.8; }
+.sfx-mark.cta { background: #d06a6a; }
+.sfx-mark.documents { background: #a39a84; }
+.sfx-mark.removed,
+.sfx-mark.suggested {
+  background: transparent !important;
+  border: 1px dashed #8ea0d0;
+}
+.sfx-kinds {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  margin: 4px 0 6px;
+}
+.sfx-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.sfx-item.off > span,
+.sfx-item.gone > span {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.sfx-kind {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: #8ea0d0;
+  min-width: 46px;
+}
+.sfx-kind.transitions { color: #c9a86b; }
+.sfx-kind.moments { color: #c97b6b; }
+.sfx-kind.typing { color: #7fb39a; }
+.sfx-kind.cta { color: #d06a6a; }
+.sfx-silent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 4px 0 8px;
+}
+.sfx-silent .text-link {
+  text-align: left;
+  white-space: normal;
+  line-height: 1.35;
+}
+.sfx-lib {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.sfx-lib-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.sfx-lib-row > span {
+  flex: 1;
+}
+.btn.on {
+  border-color: #8ea0d0;
+  color: #e6ecff;
+}
+/* v0.4.56: eight inspector tabs (Sound added) fit without hiding the last one */
+.edit-grid .inspector-tabs {
+  gap: 10px;
+  padding: 0 10px;
+}
+/* v0.4.56: the lanes scroll as one when there are more than fit (the Sound FX lane); before,
+   the timeline was clipped to the visible height, so a lane below it could never be reached */
+.edit-grid .timeline-scroll {
+  align-self: flex-start;
+  min-height: 100%;
+}

@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import copy
+import bisect
 import hashlib
 import json
 import math
@@ -783,6 +784,22 @@ def text_sprite(text, fnt, color, tracking=0.0, alpha=255):
     return im, pad
 
 
+def type_chars(text, fnt, pad, tracking=0.0, cps=17.0):
+    """v0.4.56 The typewriter entrance of one line of text: [(seconds after it starts, width shown)]
+    (and whether it is a space) per character. A slightly uneven, repeatable rhythm (a steady machine gun of keys sounds fake):
+    spaces and punctuation take a little longer."""
+    out, t, x = [], 0.0, float(pad)
+    for i, ch in enumerate(text):
+        x += fnt.getlength(ch) + (tracking if i else 0.0)
+        out.append((round(t, 4), int(math.ceil(x)), ch.isspace()))
+        jitter = ((i * 7919 + len(text) * 31) % 11) / 10.0 - 0.5  # -0.5..0.5, the same every time
+        step = (1.0 + 0.28 * jitter) / cps
+        if ch in " ,.;:!?\u2014-":
+            step *= 1.6
+        t += step
+    return out
+
+
 def rect_sprite(w, h, color, alpha=255, radius=0):
     im = Image.new("RGBA", (max(1, int(w)), max(1, int(h))), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -851,6 +868,11 @@ class El:
     exit: str = "fade"
     lut: dict = field(default_factory=dict, repr=False)
     early: bool = False  # v0.4.53: leaves on its own (one line at a time), not with the rest
+    # v0.4.56: what the element is (heading, title, divider, line, marker, connector, tag, rule,
+    # label): the sound design follows these events. `chars`: for the typewriter entrance, the
+    # [(seconds after t_in, visible width in px, is a space)] of each typed character.
+    role: str = ""
+    chars: list | None = None
 
 
 def ease_out(x):
@@ -919,10 +941,21 @@ def _build(item, W, H, photo_path, fit):
     def t_line(at):
         return max(TIM["intro_end"] / sp * 0.9, at - it["start"])
 
-    def add(img, x, y, t_in, kind=None, d=None):
-        el = El(img, int(round(x + shift_x)), int(round(y + shift_y)), t_in, d or d_in, kind or enter)
+    cps = TIM.get("type_cps", 17) * sp
+
+    def add(img, x, y, t_in, kind=None, d=None, role=None, chars=None):
+        kind = kind or enter
+        if kind == "type" and not chars:
+            kind = "fade"  # only plain lines of text are typed
+        if kind == "type":
+            d = chars[-1][0] + 1.0 / cps
+        role = role or {"pop": "marker", "wipe": "rule", "wipe_v": "rule"}.get(kind, "label")
+        el = El(img, int(round(x + shift_x)), int(round(y + shift_y)), t_in, d or d_in, kind, role=role, chars=chars)
         els.append(el)
         return el
+
+    def typed(text, fnt, pad, tracking=0.0):
+        return type_chars(text, fnt, pad, tracking, cps) if enter == "type" else None
 
     def leave(group, t_next):
         """One at a time: these elements leave just before the next line comes in."""
@@ -945,21 +978,22 @@ def _build(item, W, H, photo_path, fit):
             bar = rect_sprite(U * 0.03, max(2, U * 0.004), ac)
             hx = x if not center else x + (max_w - img.width) / 2
             if not center:
-                add(bar, hx, y + img.height / 2 - bar.height / 2, TIM["heading"] / sp, "wipe", 0.5 / sp)
+                add(bar, hx, y + img.height / 2 - bar.height / 2, TIM["heading"] / sp, "wipe", 0.5 / sp, role="heading")
                 hx += bar.width + U * 0.016
-            add(img, hx - pad, y - pad, TIM["heading"] / sp + 0.08 / sp)
+            add(img, hx - pad, y - pad, TIM["heading"] / sp + 0.08 / sp, role="heading",
+                chars=typed(it["heading"].upper(), heading_f, pad, U * 0.006))
             y += img.height - pad + U * 0.012
         if it["title"]:
             lines = wrap(it["title"].upper(), title_f, max_w, 3)  # never cut: the fit makes it smaller
             for k, ln in enumerate(lines):
                 img, pad = text_sprite(ln, title_f, tc)
                 lx = x if not center else x + (max_w - img.width) / 2
-                add(img, lx - pad, y - pad, TIM["title"] / sp + k * TIM["line_stagger"] / sp, "settle" if enter == "fade" else "mask", 0.8 / sp)
+                add(img, lx - pad, y - pad, TIM["title"] / sp + k * TIM["line_stagger"] / sp, "settle" if enter == "fade" else "mask", 0.8 / sp, role="title")
                 y += title_f.getmetrics()[0] * 1.08
         y += U * 0.022
         dw = min(max_w, U * 0.32)
         div = rect_sprite(dw, max(2, U * 0.0045), ac)
-        add(div, x if not center else x + (max_w - dw) / 2, y, TIM["divider"] / sp, "wipe", 0.75 / sp)
+        add(div, x if not center else x + (max_w - dw) / 2, y, TIM["divider"] / sp, "wipe", 0.75 / sp, role="divider")
         y += U * 0.05
         return y, y - y0
 
@@ -967,10 +1001,13 @@ def _build(item, W, H, photo_path, fit):
         """Wrapped text, line by line; returns the height used."""
         lh = fnt.getmetrics()[0] * 1.32
         lines = wrap(text, fnt, max_w, max_lines)
+        t = t_in
         for k, ln in enumerate(lines):
             img, pad = text_sprite(ln, fnt, color)
             lx = x if not center else x + (max_w - img.width) / 2
-            add(img, lx - pad, y + k * lh - pad, t_in + k * TIM["line_stagger"] / sp)
+            el = add(img, lx - pad, y + k * lh - pad, t if enter == "type" else t_in + k * TIM["line_stagger"] / sp,
+                     role="line", chars=typed(ln, fnt, pad))
+            t = el.t_in + el.d_in + 0.04 / sp  # typed rows follow one another
         return len(lines) * lh
 
     lines = it["lines"]
@@ -1027,7 +1064,7 @@ def _build(item, W, H, photo_path, fit):
             for j, ln in enumerate(rows):
                 img, pad = text_sprite(ln, big_f, tc)
                 lx = x if not center else x + (mw - img.width) / 2
-                group.append(add(img, lx - pad, yy + j * lh - pad, t + j * TIM["line_stagger"] / sp, "settle" if enter == "fade" else enter, 0.75 / sp))
+                group.append(add(img, lx - pad, yy + j * lh - pad, t + j * TIM["line_stagger"] / sp, "settle" if enter == "fade" else enter, 0.75 / sp, role="line"))
             if k + 1 < n:
                 leave(group, times[k + 1])
             sx = x + k * (seg_w + U * 0.01) if not center else x + (mw - n * (seg_w + U * 0.01)) / 2 + k * (seg_w + U * 0.01)
@@ -1086,7 +1123,7 @@ def _build(item, W, H, photo_path, fit):
         prev = x
         for l, px, t in zip(lines, pts, times):
             seg = rect_sprite(max(2, px - prev), max(3, U * 0.005), ac)
-            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp)
+            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp, role="connector")
             prev = px
         for k, (l, px, t) in enumerate(zip(lines, pts, times)):
             dot = ring_sprite(U * 0.011, ac, (18, 18, 20), max(2, U * 0.0035))
@@ -1103,13 +1140,13 @@ def _build(item, W, H, photo_path, fit):
             group = []
             for j, ln in enumerate(dates):
                 img, pad = text_sprite(ln, date_f, tc)
-                group.append(add(img, x - pad, yy + j * date_f.getmetrics()[0] * 1.05 - pad, t, "mask", 0.7 / sp))
+                group.append(add(img, x - pad, yy + j * date_f.getmetrics()[0] * 1.05 - pad, t, "mask", 0.7 / sp, role="date"))
             yy += dh + (U * 0.025 if dates else 0)
             if dates:
                 group.append(add(rect_sprite(U * 0.12, max(3, U * 0.006), ac), x, yy - U * 0.016, t + 0.15 / sp, "wipe", 0.5 / sp))
             for j, ln in enumerate(rows):
                 img, pad = text_sprite(ln, txt_f, tc)
-                group.append(add(img, x - pad, yy + j * lh - pad, t + (0.2 + j * TIM["line_stagger"]) / sp))
+                group.append(add(img, x - pad, yy + j * lh - pad, t + (0.2 + j * TIM["line_stagger"]) / sp, role="line"))
             if k + 1 < n:
                 leave(group, times[k + 1])
 
@@ -1129,7 +1166,7 @@ def _build(item, W, H, photo_path, fit):
             for l, px in zip(lines, pts):  # the red line grows to each event first; the dots go on top
                 t = t_line(l["at"])
                 seg = rect_sprite(max(2, px - prev), max(3, U * 0.005), ac)
-                add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp)
+                add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp, role="connector")
                 prev = px
             for k, (l, px) in enumerate(zip(lines, pts)):
                 t = t_line(l["at"])
@@ -1142,7 +1179,7 @@ def _build(item, W, H, photo_path, fit):
                 lh = txt_f.getmetrics()[0] * 1.3
                 for j, ln in enumerate(wrap(l["text"], txt_f, col - U * 0.04, 4)):
                     img, pad = text_sprite(ln, txt_f, muted)
-                    add(img, px - img.width / 2, axis_y + U * 0.045 + j * lh - pad, t + (0.15 + 0.08 * j) / sp)
+                    add(img, px - img.width / 2, axis_y + U * 0.045 + j * lh - pad, t + (0.15 + 0.08 * j) / sp, role="line")
         else:
             x, mw = margin, W - margin * 2
             date_f = font(fam, "bold", U * 0.034)
@@ -1162,7 +1199,7 @@ def _build(item, W, H, photo_path, fit):
                 t = t_line(l["at"])
                 cy = yy + date_f.getmetrics()[0] * 0.6
                 seg = rect_sprite(max(3, U * 0.004), max(2, cy - prev), ac)
-                add(seg, line_x - seg.width / 2, prev, max(TIM["divider"] / sp, t - 0.4 / sp), "wipe_v", 0.45 / sp)
+                add(seg, line_x - seg.width / 2, prev, max(TIM["divider"] / sp, t - 0.4 / sp), "wipe_v", 0.45 / sp, role="connector")
                 prev = cy
                 yy += h + U * 0.03
             for l, h in zip(lines, heights):
@@ -1277,17 +1314,17 @@ def _build(item, W, H, photo_path, fit):
         for l, px in zip(lines, pts):
             t = t_line(l["at"])
             seg = rect_sprite(max(2, px - prev), max(3, U * 0.005), ac)
-            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp)
+            add(seg, prev, axis_y - (seg.height - base.height) / 2, max(TIM["divider"] / sp, t - 0.45 / sp), "wipe", 0.5 / sp, role="connector")
             prev = px
         lh = txt_f.getmetrics()[0] * 1.3
         for l, px in zip(lines, pts):
             t = t_line(l["at"])
             tag = tag_sprite(l["label"] or "—", tag_f, TAG_STYLE.get(l["label"].upper(), "outline"), ac, tc)
-            add(tag, px - tag.width / 2, axis_y + base.height / 2 - tag.height / 2, t, "pop", 0.4 / sp)
+            add(tag, px - tag.width / 2, axis_y + base.height / 2 - tag.height / 2, t, "pop", 0.4 / sp, role="tag")
             strong = l["label"].upper() in ("CONVICTED", "VERDICT", "SENTENCED", "PLEA", "ACQUITTED") or l["emphasis"]
             for j, ln in enumerate(wrap(l["text"], txt_f, col - U * 0.04, 5)):
                 img, pad = text_sprite(ln, txt_f, tc if strong else muted)
-                add(img, px - img.width / 2, axis_y + tag.height / 2 + U * 0.03 + j * lh - pad, t + (0.15 + 0.08 * j) / sp)
+                add(img, px - img.width / 2, axis_y + tag.height / 2 + U * 0.03 + j * lh - pad, t + (0.15 + 0.08 * j) / sp, role="line")
 
     elif layout == "verdict":  # v0.4.53 legal: the steps small, the outcome in large type
         x, mw = margin, W - margin * 2
@@ -1308,18 +1345,18 @@ def _build(item, W, H, photo_path, fit):
             t = t_line(l["at"])
             if l["label"]:
                 tag = tag_sprite(l["label"], tag_f, TAG_STYLE.get(l["label"].upper(), "outline"), ac, tc)
-                add(tag, x, y + (slh - tag.height) / 2, t, "wipe", 0.4 / sp)
+                add(tag, x, y + (slh - tag.height) / 2, t, "wipe", 0.4 / sp, role="tag")
             body_block(l["text"], small_txt, muted, x + tag_w + U * 0.03, y, mw - tag_w - U * 0.03, t + 0.1 / sp, 2)
             y += h
         y += U * 0.05
         t = t_line(last["at"])
         if last["label"]:
             tag = tag_sprite(last["label"], big_tag_f, TAG_STYLE.get(last["label"].upper(), "outline"), ac, tc)
-            add(tag, x, y, t, "wipe", 0.45 / sp)
+            add(tag, x, y, t, "wipe", 0.45 / sp, role="tag")
             y += tag.height + U * 0.022
         for j, ln in enumerate(big_rows):
             img, pad = text_sprite(ln, big_f, tc)
-            add(img, x - pad, y + j * blh - pad, t + (0.15 + j * TIM["line_stagger"]) / sp, "mask" if enter != "fade" else "settle", 0.8 / sp)
+            add(img, x - pad, y + j * blh - pad, t + (0.15 + j * TIM["line_stagger"]) / sp, "mask" if enter != "fade" else "settle", 0.8 / sp, role="verdict")
         y += len(big_rows) * blh + U * 0.012
         add(rect_sprite(min(mw, U * 0.32), max(3, U * 0.006), ac), x, y, t + 0.7 / sp, "wipe", 0.7 / sp)
 
@@ -1339,7 +1376,7 @@ def _build(item, W, H, photo_path, fit):
             t = t_line(l["at"])
             if l["label"]:
                 tag = tag_sprite(l["label"], tag_f, TAG_STYLE.get(l["label"].upper(), "outline"), ac, tc)
-                add(tag, x, y + (txt_f.getmetrics()[0] * 1.3 - tag.height) / 2, t, "wipe", 0.45 / sp)
+                add(tag, x, y + (txt_f.getmetrics()[0] * 1.3 - tag.height) / 2, t, "wipe", 0.45 / sp, role="tag")
             strong = l["label"].upper() in ("CONVICTED", "VERDICT", "SENTENCED", "PLEA") or l["emphasis"]
             body_block(l["text"], txt_f, tc if strong else muted, tx, y, tw, t + 0.12 / sp, 3)
             y += h + U * 0.035
@@ -1383,6 +1420,21 @@ def _state(el, tau):
     if q >= 1:
         return None
     return (min(1.0, round(p, 3)), round(max(0.0, q), 3))
+
+
+def sound_events(lay):
+    """v0.4.56 Every animation event of a built graphic, for the sound design, in seconds from its
+    start: [{t, role, enter, d, chars}] (`chars`: when each typed character appears), with the
+    background coming in at 0 and the exit (when the first piece starts to leave)."""
+    out = [{"t": 0.0, "role": "background", "enter": "fade", "d": TIM["background_in"], "chars": None}]
+    for el in lay.els:
+        out.append({"t": round(el.t_in, 4), "role": el.role or "label", "enter": el.enter, "d": round(el.d_in, 4),
+                    "chars": [[round(el.t_in + c[0], 4), c[2]] for c in el.chars] if el.chars else None})
+    rest = [el.t_out for el in lay.els if not el.early and el.t_out < 1e8]
+    if rest:
+        out.append({"t": round(min(rest), 4), "role": "exit", "enter": lay.item.get("exit", "fade"), "d": TIM["exit"], "chars": None})
+    out.sort(key=lambda e: e["t"])
+    return out
 
 
 def bg_alpha(lay, tau):
@@ -1558,6 +1610,16 @@ def frame(lay, n):
             if h < 1:
                 continue
             img = img.crop((0, 0, img.width, h))
+        elif kind == "type" and el.chars:  # v0.4.56: character by character, a cursor while typing
+            local = tau - el.t_in
+            shown = bisect.bisect_right([c[0] for c in el.chars], local + 1e-6)
+            if shown < 1:
+                continue
+            w = min(img.width, el.chars[shown - 1][1])
+            img = img.crop((0, 0, max(1, w), img.height))
+            if shown < len(el.chars) and q <= 0:
+                cw_, ch_ = max(2, int(img.height * 0.07)), int(img.height * 0.62)
+                _paste(canvas, rect_sprite(cw_, ch_, _rgb(it["accent"])), x + w + 2, y + int(img.height * 0.2))
         else:  # fade
             alpha = p
         if q > 0:

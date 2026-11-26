@@ -1,0 +1,389 @@
+{
+ "1-bullet-reveals": {
+  "sounds": [
+   {
+    "t": 0.5917,
+    "sound": "whoosh-mid-2",
+    "label": "Entrance \u2014 findings graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 1.4,
+    "sound": "sweep-down-1",
+    "label": "Divider \u2014 findings graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 1.6667,
+    "sound": "click-mech-2",
+    "label": "Line 1 \u2014 findings graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 4.9167,
+    "sound": "click-mech-2",
+    "label": "Line 2 \u2014 findings graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 8.6667,
+    "sound": "click-mech-2",
+    "label": "Line 3 \u2014 findings graphic at 0:00",
+    "keys": 0
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 5.41,
+   "after": 3.72
+  },
+  "plan_s": 0.08,
+  "after_peak_dbfs": -3.06,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -19.98,
+  "loudest_effect_vs_speech_db": -9.1,
+  "transient_sync_error_ms": {
+   "n": 2,
+   "max": 1.9,
+   "mean": 1.6
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.4,
+   "true_peak_dbfs": -2.9
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.3,
+   "true_peak_dbfs": -2.9
+  }
+ },
+ "2-typing": {
+  "sounds": [
+   {
+    "t": 0.5833,
+    "sound": "type-strike-1",
+    "label": "Typing \u2014 findings graphic at 0:00",
+    "keys": 12
+   },
+   {
+    "t": 1.7083,
+    "sound": "type-strike-1",
+    "label": "Typing \u2014 findings graphic at 0:00",
+    "keys": 38
+   },
+   {
+    "t": 6.5,
+    "sound": "type-strike-1",
+    "label": "Typing \u2014 findings graphic at 0:00",
+    "keys": 34
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 5.01,
+   "after": 3.06
+  },
+  "plan_s": 0.044,
+  "after_peak_dbfs": -4.74,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -21.92,
+  "loudest_effect_vs_speech_db": -13.8,
+  "transient_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "mean": null
+  },
+  "typing_sync_error_ms": {
+   "n": 84,
+   "max": 18.9,
+   "median": 0.3,
+   "p95": 6.7
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.8,
+   "true_peak_dbfs": -4.7
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.7,
+   "true_peak_dbfs": -4.8
+  }
+ },
+ "3-diagram": {
+  "sounds": [
+   {
+    "t": 0.5917,
+    "sound": "whoosh-dir-r",
+    "label": "Entrance \u2014 timeline graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 1.4,
+    "sound": "sweep-down-1",
+    "label": "Divider \u2014 timeline graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 1.6667,
+    "sound": "tick-2",
+    "label": "Diagram marker 1 \u2014 timeline graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 5.6667,
+    "sound": "tick-2",
+    "label": "Diagram marker 2 \u2014 timeline graphic at 0:00",
+    "keys": 0
+   },
+   {
+    "t": 8.9583,
+    "sound": "tick-2",
+    "label": "Diagram marker 3 \u2014 timeline graphic at 0:00",
+    "keys": 0
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 5.46,
+   "after": 3.67
+  },
+  "plan_s": 0.026,
+  "after_peak_dbfs": -4.29,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -20.95,
+  "loudest_effect_vs_speech_db": -8.7,
+  "transient_sync_error_ms": {
+   "n": 2,
+   "max": 0.7,
+   "mean": 0.6
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.5,
+   "true_peak_dbfs": -4.0
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.5,
+   "true_peak_dbfs": -3.9
+  }
+ },
+ "4-transitions": {
+  "sounds": [
+   {
+    "t": 2.8833,
+    "sound": "whoosh-dir-l",
+    "label": "Transition into Scene 2",
+    "keys": 0
+   },
+   {
+    "t": 5.275,
+    "sound": "sweep-up-1",
+    "label": "Transition into Scene 3",
+    "keys": 0
+   },
+   {
+    "t": 7.4583,
+    "sound": "swell-3",
+    "label": "Chapter: CHAPTER 4 \u2014 THE EVIDENCE",
+    "keys": 0
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 6.61,
+   "after": 6.95
+  },
+  "plan_s": 0.003,
+  "after_peak_dbfs": -4.19,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -24.88,
+  "loudest_effect_vs_speech_db": -10.0,
+  "transient_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "mean": null
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.6,
+   "true_peak_dbfs": -4.2
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.6,
+   "true_peak_dbfs": -3.9
+  }
+ },
+ "5-narrative-development": {
+  "sounds": [
+   {
+    "t": 7.222,
+    "sound": "thump-deep-1",
+    "label": "\u201cThe DNA on the receipt matched him.\u201d",
+    "keys": 0
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 1.8,
+   "after": 1.95
+  },
+  "plan_s": 0.001,
+  "after_peak_dbfs": -4.36,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -24.2,
+  "loudest_effect_vs_speech_db": -7.3,
+  "transient_sync_error_ms": {
+   "n": 1,
+   "max": 2.5,
+   "mean": 2.5
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.5,
+   "true_peak_dbfs": -4.2
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.5,
+   "true_peak_dbfs": -4.2
+  }
+ },
+ "6-cta": {
+  "sounds": [
+   {
+    "t": 0.3,
+    "sound": "whoosh-short-1",
+    "label": "Subscribe \u2014 entrance",
+    "keys": 0
+   },
+   {
+    "t": 1.65,
+    "sound": "cta-click-1",
+    "label": "Subscribe \u2014 click",
+    "keys": 0
+   },
+   {
+    "t": 2.1,
+    "sound": "bell-2",
+    "label": "Subscribe \u2014 bell",
+    "keys": 0
+   },
+   {
+    "t": 4.6,
+    "sound": "whoosh-short-1",
+    "label": "Subscribe \u2014 exit",
+    "keys": 0
+   }
+  ],
+  "silenced": [],
+  "warnings": [],
+  "render_s": {
+   "before": 5.85,
+   "after": 6.22
+  },
+  "plan_s": 0.001,
+  "after_peak_dbfs": -4.61,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -23.81,
+  "loudest_effect_vs_speech_db": -16.5,
+  "transient_sync_error_ms": {
+   "n": 1,
+   "max": 1.2,
+   "mean": 1.2
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": 0.0,
+  "loudness_after": {
+   "integrated_lufs": -19.2,
+   "true_peak_dbfs": -4.2
+  },
+  "loudness_before": {
+   "integrated_lufs": -19.2,
+   "true_peak_dbfs": -4.1
+  }
+ },
+ "7-interview-suppression": {
+  "sounds": [],
+  "silenced": [
+   {
+    "t": 5.2583,
+    "label": "Transition into Interview",
+    "why": "Silence: original source audio (a soundbite)."
+   },
+   {
+    "t": 24.0083,
+    "label": "Transition into Back to the case",
+    "why": "Silence: original source audio (a soundbite)."
+   },
+   {
+    "t": 24.0083,
+    "label": "Photograph \u2014 Back to the case",
+    "why": "Silence: original source audio (a soundbite)."
+   }
+  ],
+  "warnings": [],
+  "render_s": {
+   "before": 15.68,
+   "after": 15.87
+  },
+  "plan_s": 0.001,
+  "after_peak_dbfs": -1.14,
+  "after_samples_over_full_scale": 0,
+  "effects_peak_dbfs": -180.0,
+  "loudest_effect_vs_speech_db": -158.2,
+  "transient_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "mean": null
+  },
+  "typing_sync_error_ms": {
+   "n": 0,
+   "max": null,
+   "median": null,
+   "p95": null
+  },
+  "export_vs_stem_lag_ms": null,
+  "loudness_after": {
+   "integrated_lufs": -17.4,
+   "true_peak_dbfs": -1.1
+  },
+  "loudness_before": {
+   "integrated_lufs": -17.4,
+   "true_peak_dbfs": -1.1
+  }
+ },
+ "max_rss_mb": 176
+}

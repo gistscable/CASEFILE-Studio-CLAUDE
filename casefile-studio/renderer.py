@@ -12,6 +12,12 @@ import watermark
 import picture
 import stickers
 import motion as motiongfx
+import sound as sfx
+
+# v0.4.56: the limiter after the effects mix. level=disabled: no automatic make-up gain (the
+# default lifts everything ~0.45 dB); latency=1: the 5 ms look-ahead is compensated. So turning
+# the effects on leaves the narration sample-for-sample where it was and at the same level.
+SFX_LIMIT = "alimiter=limit=0.95:attack=5:release=50:level=disabled:latency=1"
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from storage import DATA, ROOT, resolve_asset
@@ -613,6 +619,8 @@ def timing_report(t: dict) -> str:
         used.append(f"subscribe animation x{t['cta_events']}")
     if t.get("stickers"):
         used.append(f"stickers x{t['stickers']}")
+    if t.get("sound_effects"):
+        used.append(f"sound effects x{t['sound_effects']}")
     if t.get("motion_graphics"):
         mg = t["motion_graphics"]
         used.append(f"motion graphics x{len(mg)} ({sum(m['drawn'] for m in mg)} new drawings, "
@@ -748,6 +756,7 @@ def render(
                 warnings.append(f"The stickers were left out: {e}")
         # v0.4.52: approved motion graphics, drawn once at the export size (cached by content).
         # v0.4.53: each one is a single transparent video (no PNG frames).
+        sfx_placed = []  # v0.4.56: the sound effects placed (set when the audio is mixed)
         motion_layers, motion_hide = [], []
         if motiongfx.exported(project):
             progress(4, "Drawing the motion graphics")
@@ -1187,6 +1196,23 @@ def render(
                 insert_inputs[i] = inputs
                 command += ["-i", str(asset_path(clip))]
                 inputs += 1
+        # v0.4.56: the sound design layer (A4): one stem with every approved effect in place.
+        sfx_index, sfx_placed = None, []
+        sfx_settings = sfx.normalise(project.get("sound"))
+        if sfx_settings["enabled"]:
+            progress(93, "Placing the sound effects")
+            try:
+                stem_path, sfx_placed, gone = sfx.stem(project, DATA, total, work, cancelled)
+                for it, why in gone:
+                    warnings.append(f"A sound effect ({it['label'] or it['sound']}) was left out: {why}.")
+                if stem_path:
+                    sfx_index = inputs
+                    command += ["-i", str(stem_path)]
+                    inputs += 1
+                sfx.prune(DATA)
+            except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as e:
+                warnings.append(f"The sound effects were left out: {e}")
+                sfx_index, sfx_placed = None, []
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
         # v0.4.19: narration timestamps are rebuilt from the sample count
@@ -1284,7 +1310,23 @@ def render(
             af.append(
                 f"[{music_index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=duration={total},asetpts=PTS-STARTPTS,volume={volume},afade=t=in:d=1.5,afade=t=out:st={max(0, total - 2)}:d=2[bed]"
             )
-        if voice_index is not None and music_index is not None:
+        if sfx_index is not None:
+            # narration (and soundbites) first and untouched; the music and the effects ducked under it
+            duck = sfx_settings["duck"] and voice_index is not None
+            if voice_index is not None:
+                outs = "[main]" + ("[side]" if music_index is not None else "") + ("[fxkey]" if duck else "")
+                af.append(f"[voice]asplit={outs.count('[')}{outs}")
+            if voice_index is not None and music_index is not None:
+                af.append("[bed][side]sidechaincompress=threshold=0.03:ratio=8:attack=30:release=800[ducked]")
+            af += sfx.mix_filters(sfx_index, total, "[fxkey]" if duck else None, duck)
+            parts = (["[main]"] if voice_index is not None else []) + (
+                (["[ducked]"] if voice_index is not None else ["[bed]"]) if music_index is not None else []) + ["[fx]"]
+            if len(parts) > 1:
+                af.append(f"{''.join(parts)}amix=inputs={len(parts)}:duration=first:normalize=0,{SFX_LIMIT}[aout]")
+            else:
+                af.append(f"[fx]{SFX_LIMIT}[aout]")
+            audio = "[aout]"
+        elif voice_index is not None and music_index is not None:
             af += [
                 "[voice]asplit=2[main][side]",
                 "[bed][side]sidechaincompress=threshold=0.03:ratio=8:attack=30:release=800[ducked]",
@@ -1349,6 +1391,7 @@ def render(
             "cta_events": len(cta_events),
             "stickers": len(sticker_layers),
             "motion_graphics": [{k: m[k] for k in ("id", "frames", "unique", "drawn")} for m in motion_layers],
+            "sound_effects": len(sfx_placed),
             "per_scene": scene_info,
             "warnings": list(warnings),
         },

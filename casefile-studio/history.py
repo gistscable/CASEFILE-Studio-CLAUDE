@@ -38,7 +38,7 @@ FIELDS = (
     "script", "script_dirty", "script_origin", "script_approved_hash",
     "scenes", "assets", "look", "captions", "narration_id", "music_id", "music_volume", "review",
     "episode", "caption_style", "effects", "aspect", "vertical_fit", "cta", "name_cards",
-    "watermark", "stickers", "motion",
+    "watermark", "stickers", "motion", "sound",
 )
 MISSING = "__casefile_missing__"
 # Of a media file only what you edit is undone; its preview stills, codec, thumbnail… are made by
@@ -346,6 +346,44 @@ def _motion_name(b, a):
     return what, "motion:" + ",".join(changed) + ":" + ",".join(keys)
 
 
+def _sound_name(b, a):
+    """v0.4.56 The sound design: settings, or one sound placed, moved, changed or removed."""
+    try:  # a project that never had sound design has the defaults
+        import sound
+
+        b, a = sound.normalise(b), sound.normalise(a)
+    except Exception:  # pragma: no cover
+        b, a = b if isinstance(b, dict) else {}, a if isinstance(a, dict) else {}
+    keys = sorted(k for k in set(b) | set(a) if k != "items" and b.get(k) != a.get(k))
+    if keys and b.get("items") == a.get("items"):
+        if keys == ["enabled"]:
+            return ("Sound design on" if a.get("enabled") else "Sound design off"), None
+        words = {"preset": "Sound preset", "master": "Sound effects volume", "intensity": "Sound intensity", "density": "Sound density",
+                 "mode": "Sound design mode", "duck": "Dialogue protection", "kinds": "Sound design switches", "lead": "Sound timing"}
+        return (words.get(keys[0], "Sound design") if len(keys) == 1 else "Sound design settings"), "sound:" + ",".join(keys)
+    was, now, added, removed, changed, ikeys = _changed_items(b.get("items"), a.get("items"))
+    if len(added) == 1 and not removed and not changed and now[added[0]].get("source") == "auto":
+        # in automatic mode a planned sound is stored only once you change it
+        x = now[added[0]]
+        return ("Remove sound effect" if x.get("status") == "removed" else "Edit sound effect"), None
+    if added and len(added) > 1:
+        return f"Plan {len(added)} sound effects", None
+    if added:
+        return "Add sound effect", None
+    if removed:
+        return ("Remove sound effect" if len(removed) == 1 else f"Remove {len(removed)} sound effects"), None
+    if not changed:
+        return "Sound design", None
+    k = set(ikeys) - {"edited"}
+    if k == {"status"}:
+        st = {now[i].get("status") for i in changed}
+        return ("Mute sound effect" if st == {"removed"} else "Restore sound effect"), None
+    what = ("Move sound effect" if k <= {"offset"} else "Sound effect volume" if k <= {"gain"} else
+            "Sound effect fades" if k <= {"fade_in", "fade_out", "length"} else "Replace sound effect" if k <= {"sound", "label"} else
+            "Edit sound effect")
+    return what, "sound:" + ",".join(changed) + ":" + ",".join(sorted(k))
+
+
 def _cta_name(b, a):
     b, a = b if isinstance(b, dict) else {}, a if isinstance(a, dict) else {}
     keys = sorted(k for k in set(b) | set(a) if b.get(k) != a.get(k))
@@ -403,6 +441,8 @@ def describe(before, after):
             parts.append(_cta_name(b, a))
         elif k == "motion":
             parts.append(_motion_name(b, a))
+        elif k == "sound":
+            parts.append(_sound_name(b, a))
         elif k == "assets":
             parts.append(_assets_name(_view(k, b), _view(k, a)))
         elif k in FIELD_WORDS:
