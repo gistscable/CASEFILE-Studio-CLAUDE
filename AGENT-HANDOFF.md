@@ -1241,4 +1241,6 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
 - **Demos, photo provenance and crops:** `qa/cinegfx-demos/`; provenance in `photos/sources.json`.
   - The vigil photo is cropped below faces.
   - The Freeman St photo is cropped so the No. 2 train isn't presented as the No. 5.
+- **Look options page:** `qa/cinegfx-demos/make_looks.py` (add `--clips` for the 5 narrated MP4s) writes `qa/cinegfx-demos/looks/`
+  with the app's own look code; serve with `qa/cinegfx-demos/serve.py` (port 8001, `/looks/`). Overview image: `qa/look-options-gallery.jpg`.
 - **Kit extraction for Storyroom** comes after the user approves the integrated version.
