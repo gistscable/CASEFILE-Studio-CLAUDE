@@ -391,8 +391,22 @@ def test_cached_soundbites_give_the_voice_bus_exactly_the_in_graph_samples(tmp_p
     made = renderer.prepare_soundbites(scenes, clips, lambda: False)
     assert sorted(made) == sorted(clips) and all(Path(p).suffix == ".wav" for p in made.values())
     out = bus(True, made)
-    assert len(out) == len(ref)
+    assert len(out) == len(ref) == round(total * 48000) * 8  # v0.4.61 every soundbite its full length
     assert hashlib.sha1(out).digest() == hashlib.sha1(ref).digest()
+    # v0.4.61 the narration after each soundbite resumes on the right sample (was up to ~0.1 s early)
+    nar = np.frombuffer(subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(voice), "-af", "asetpts=N/SR/TB,aformat=sample_fmts=flt:sample_rates=48000:"
+         "channel_layouts=stereo", "-f", "f32le", "-"], capture_output=True, check=True).stdout, "<f4").reshape(-1, 2)
+    bus_s = np.frombuffer(out, "<f4").reshape(-1, 2)
+    t, ncur = 0.0, 0.0
+    for s in scenes:
+        length = round(s["duration"] * 24) / 24
+        if not s.get("insert_audio"):
+            a, n = round(t * 48000), round(length * 48000) - 2
+            b0 = round(ncur * 48000)
+            assert np.array_equal(bus_s[a + 1:a + n], nar[b0 + 1:b0 + n]), t
+            ncur += length
+        t += length
     # cached: nothing made again
     calls = []
     real = renderer.run

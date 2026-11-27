@@ -734,7 +734,7 @@ def _split_tree(head, cuts, tree):
 # back. The same filters on the same decoded frames, written as float: the bus gets exactly the samples
 # the in-graph chain made (tests/test_audiobreak.py compares them), but no longer holds one loudnorm
 # (~110-130 MB each: it works at 192 kHz) per soundbite in memory at the same time.
-SOUNDBITE_V = 1  # part of each cached file's key: bump when the chain below changes
+SOUNDBITE_V = 2  # part of each cached file's key: bump when the chain below changes
 SOUNDBITE_KEEP_MB = 2048  # the cache folder is pruned to about this (oldest first; files in use kept)
 _VOICE_FMT = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
 
@@ -745,7 +745,15 @@ def soundbite_length(scene):
 
 def soundbite_chain(scene):
     """The filters that make a soundbite's part of the voice bus from its clip's audio (before the
-    re-timing): its trim, loudness normalisation and fades, padded to the scene's length."""
+    re-timing): its trim, loudness normalisation and fades, padded to the scene's length.
+    v0.4.61 Re-timed from its sample count right after the loudnorm. loudnorm stamps its frames 0.1 s
+    apart even when the last one before its flush is short, so its timestamps ran up to ~0.1 s ahead of
+    its samples, and the fades and the trim to the scene's length (which go by timestamps) cut the end
+    of the soundbite: it was up to ~0.1 s short, and everything after it in the voice bus (the
+    narration resuming, later soundbites) came that much early against the picture, adding up over a
+    film. A guide export of soundbites with no music or effects could be refused as too short. Exact
+    when a soundbite's length is a multiple of 0.1 s (nothing was cut there); otherwise the soundbite
+    now keeps its full length and its fade-out ends on its last frame."""
     length = soundbite_length(scene)
     a = float(scene.get("trim_start", 0))
     b = a + length
@@ -753,7 +761,7 @@ def soundbite_chain(scene):
     fmt = _VOICE_FMT
     return (
         f"atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
-        f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},afade=t=in:d={fade},"
+        f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},{RESTAMP},afade=t=in:d={fade},"
         f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}"
     )
 
