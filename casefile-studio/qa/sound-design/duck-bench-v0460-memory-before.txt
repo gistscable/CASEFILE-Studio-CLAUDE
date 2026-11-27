@@ -1,0 +1,43 @@
+sliced
+  first_analysis                       111.15 s  cpu  114.05 s  ffmpeg    98 MB  ready
+  narration_volume_changed              10.81 s  cpu   13.18 s  ffmpeg    16 MB  ready
+inserts
+  first_analysis                        29.87 s  cpu   33.11 s  ffmpeg  1079 MB  ready
+  narration_volume_changed              11.71 s  cpu   13.63 s  ffmpeg    17 MB  ready
+{
+ "minutes": 25,
+ "scenes": 150,
+ "cpu_count": 2,
+ "sliced": {
+  "first_analysis": {
+   "wall_s": 111.15,
+   "cpu_s": 114.05,
+   "status": "ready",
+   "ffmpeg_peak_rss_mb": 98,
+   "python_peak_rss_mb": 69
+  },
+  "narration_volume_changed": {
+   "wall_s": 10.81,
+   "cpu_s": 13.18,
+   "status": "ready",
+   "ffmpeg_peak_rss_mb": 16,
+   "python_peak_rss_mb": 81
+  }
+ },
+ "inserts": {
+  "first_analysis": {
+   "wall_s": 29.87,
+   "cpu_s": 33.11,
+   "status": "ready",
+   "ffmpeg_peak_rss_mb": 1079,
+   "python_peak_rss_mb": 82
+  },
+  "narration_volume_changed": {
+   "wall_s": 11.71,
+   "cpu_s": 13.63,
+   "status": "ready",
+   "ffmpeg_peak_rss_mb": 17,
+   "python_peak_rss_mb": 82
+  }
+ }
+}

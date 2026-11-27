@@ -1093,7 +1093,8 @@ _DUCK_BUSY: dict = {}
 _DUCK_FAILED: set = set()  # keys whose job failed: answered "none" instead of retried on every poll
 _DUCK_LOCK = threading.Lock()
 _DUCK_LATEST: dict = {}  # project id -> the key of its newest curve: an older job still running is stopped
-_DUCK_PROC: dict = {}  # project id -> (key, the FFmpeg process making it)
+_DUCK_PROC: dict = {}  # project id -> (key, [the FFmpeg processes making it])
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000  # Windows: the analysis yields to the editor and an export
 
 
 def _low_priority():  # pragma: no cover - runs in the child
@@ -1104,6 +1105,7 @@ def _low_priority():  # pragma: no cover - runs in the child
 
 
 VOICE_LEVEL = "aeval=(abs(val(0))+abs(val(1)))/2:c=mono"  # what the compressors detect (link=average)
+_FMT2 = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"  # the export's voice format
 
 
 def _duck_job(project):
@@ -1120,7 +1122,17 @@ def _duck_job(project):
       curve - the two compressors on that level, the narration volume applied to it (an exact
               scaling: the export applies the volume after the loudnorm, and to the narration
               only), a few seconds; keyed by the bus, the narration volume and the settings.
-    The "{BUS}" in both commands is the cached file's path (duck_curve fills it in)."""
+    v0.4.60 How they run (the same filters, the same samples — tests/test_sound.py compares them):
+      "chain"      - the bus: one command, or two piped (the scene cuts | the loudnorm onwards), so
+                     the narration's decoding and cutting runs beside the loudnorm instead of
+                     before it. The last writes the bus to {BUS} and streams the same 16-bit
+                     samples to its stdout, where
+      "curve_pipe" - the two compressors read them, so a new timeline's curve is ready when its
+                     bus is (not a curve step after it);
+      "curve"      - with the bus already on disk (a narration-level change, an undo): the two
+                     compressors as two processes side by side, each writing its gain to {OUT}.
+    The narration's scene slicing uses voice_graph(tree=True): the export's own trims, split in
+    two levels (renderer._split_tree)."""
     import renderer
 
     import music as musiclib
@@ -1147,21 +1159,33 @@ def _duck_job(project):
     level = renderer.narration_volume(project)
     # the bus at 100% narration: the volume is not part of the timeline's analysis
     unit = {**project, "narration_volume": 1.0}
-    graph = renderer.voice_graph(unit, scenes, total, 0, inserts, stems=True)
+    graph = renderer.voice_graph(unit, scenes, total, 0, inserts, stems=True, tree=True)
     two = any(g.endswith("[voicei]") for g in graph)
     fmt = "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=mono"
     if two:
         graph += [f"[voice]aresample=48000,{VOICE_LEVEL},{fmt}[ln]", f"[voicei]aresample=48000,{VOICE_LEVEL},{fmt}[li]",
-                  "[ln][li]amerge=inputs=2[bus]"]
+                  "[ln][li]amerge=inputs=2[busall]"]
     else:
-        graph += [f"[voice]aresample=48000,{VOICE_LEVEL},{fmt}[bus]"]
-    bus = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
+        graph += [f"[voice]aresample=48000,{VOICE_LEVEL},{fmt}[busall]"]
+    graph += ["[busall]asplit=2[bus][busp]"]  # the file, and the same samples for the compressors
+    ins = []
     for path in paths:
-        bus += ["-i", str(path)]
-    bus += ["-filter_complex", ";".join(graph), "-map", "[bus]", "-c:a", "flac", "-sample_fmt", "s16",
-            "-compression_level", "0", "-f", "flac", "{BUS}"]
+        ins += ["-i", str(path)]
+    outs = ["-map", "[bus]", "-c:a", "flac", "-sample_fmt", "s16", "-compression_level", "0", "-f", "flac", "{BUS}",
+            "-map", "[busp]", "-f", "s16le", "-c:a", "pcm_s16le", "pipe:1"]
+    head = ["ffmpeg", "-v", "error", "-nostdin", "-y"]
+    loud = f"{_FMT2},loudnorm=I=-16:TP=-1.5:LRA=11[voice]"
+    split = [k for k, g in enumerate(graph) if g.endswith("," + loud)]
+    if split:  # the scene-sliced narration: its cuts in one process, its loudnorm onwards in the next
+        k = split[0]
+        cuts = graph[:k] + [graph[k][: -len("," + loud)] + f",{_FMT2}[cut]"]
+        chain = [head + ins + ["-filter_complex", ";".join(cuts), "-map", "[cut]", "-f", "f32le", "-c:a", "pcm_f32le", "pipe:1"],
+                 head + ["-f", "f32le", "-ar", "48000", "-ac", "2", "-i", "pipe:0", "-filter_complex",
+                         ";".join([f"[0:a]{loud}"] + graph[k + 1:])] + outs]
+    else:
+        chain = [head + ins + ["-filter_complex", ";".join(graph)] + outs]
     stamp = [(str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
-    bus_key = hashlib.sha1(json.dumps([graph, stamp, 2], sort_keys=True).encode()).hexdigest()[:20]
+    bus_key = hashlib.sha1(json.dumps([graph, stamp, 3], sort_keys=True).encode()).hexdigest()[:20]
     d = SPEC["duck"]
     # the narration level scales the narration's part of the level (and the soundbites keep theirs)
     key_in = f"[0:a]pan=mono|c0={level:.6f}*c0+c1" if two else f"[0:a]volume={level:.6f}"
@@ -1174,60 +1198,155 @@ def _duck_job(project):
         f"[one2][k2]{renderer.MUSIC_DUCK},aresample=1000,{fmt.replace('48000', '1000')}[gm]",
         "[gf][gm]amerge=inputs=2[g]",
     ]
-    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-i", "{BUS}", "-filter_complex", ";".join(curve), "-map", "[g]",
-           "-f", "f32le", "-acodec", "pcm_f32le", "-"]
+    raw_in = ["-f", "s16le", "-ar", "48000", "-ac", "2" if two else "1", "-i", "pipe:0"]
+    curve_pipe = ["ffmpeg", "-v", "error", "-nostdin"] + raw_in + ["-filter_complex", ";".join(curve), "-map", "[g]",
+                                                                    "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1"]
+    parts = []  # the same two compressors, one process each (the bus on disk)
+    for k, one, comp, out in (("k1", "one", curve[2], "[gf]"), ("k2", "one2", curve[3], "[gm]")):
+        g = [curve[0].replace(",asplit=2[k1][k2]", f"[{k}]"), curve[1].replace(",asplit=2[one][one2]", f"[{one}]"), comp]
+        parts.append(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", "{BUS}", "-filter_complex", ";".join(g), "-map", out,
+                      "-f", "f32le", "-acodec", "pcm_f32le", "{OUT}"])
     key = hashlib.sha1(json.dumps([bus_key, curve, DUCK_RATE], sort_keys=True).encode()).hexdigest()[:20]
-    return {"bus": bus, "bus_key": bus_key, "curve": cmd}, key
+    return {"chain": chain, "bus_key": bus_key, "curve_pipe": curve_pipe, "curve": parts}, key
 
 
 BUS_KEEP = 4  # voice-bus analyses kept on disk (the latest used; a 25-minute one is ~50-100 MB)
 _BUS_BUSY: dict = {}  # bus key -> threading.Event, set when that analysis is made (or given up)
 
 
-def _register(pid, key, proc):
-    """Make `proc` the project's running analysis and stop an obsolete one. False (and `proc`
+def _popen(cmd, **kw):
+    """An FFmpeg process of the analysis, at low priority: the editor, playback and an export first
+    (nice 10 on Linux/macOS; BELOW_NORMAL_PRIORITY_CLASS on Windows)."""
+    if os.name == "posix":
+        kw["preexec_fn"] = _low_priority
+    elif os.name == "nt":  # pragma: no cover - Windows
+        kw["creationflags"] = BELOW_NORMAL_PRIORITY_CLASS
+    return subprocess.Popen(cmd, stderr=subprocess.DEVNULL, **kw)
+
+
+def _kill(procs):
+    for proc in procs:
+        try:
+            proc.kill()
+        except OSError:  # pragma: no cover - already gone
+            pass
+
+
+def _register(pid, key, procs):
+    """Make `procs` the project's running analysis and stop an obsolete one. False (and `procs`
     stopped) when this job is itself obsolete."""
     with _DUCK_LOCK:
         if _DUCK_LATEST.get(pid, key) != key:
-            proc.kill()
+            _kill(procs)
             return False
         old = _DUCK_PROC.get(pid)
-        if old and old[0] != key and old[1] is not proc:
-            old[1].kill()
-        _DUCK_PROC[pid] = (key, proc)
+        if old and old[0] != key and old[1] is not procs:
+            _kill(old[1])
+        _DUCK_PROC[pid] = (key, procs)
         return True
 
 
-def _run(cmd, pid, key):
-    """Run one FFmpeg step of the analysis: (stdout or None if it did not finish, superseded)."""
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            preexec_fn=_low_priority if os.name == "posix" else None)
-    if not _register(pid, key, proc):
-        proc.communicate()
-        return None, True
-    try:
-        raw, _ = proc.communicate(timeout=1800)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.communicate()
-        raise
+def _finish(pid, key, procs, cmds):
+    """After the processes ended: superseded? Raises when one failed and the job is still current."""
     with _DUCK_LOCK:
         superseded = _DUCK_LATEST.get(pid, key) != key
-        if _DUCK_PROC.get(pid, (None, None))[1] is proc:
+        if _DUCK_PROC.get(pid, (None, None))[1] is procs:
             _DUCK_PROC.pop(pid, None)
-    if proc.returncode and not superseded:
-        raise subprocess.CalledProcessError(proc.returncode, cmd)
-    return (raw if not proc.returncode else None), superseded
+    failed = [k for k, proc in enumerate(procs) if proc.returncode]
+    if failed and not superseded:
+        raise subprocess.CalledProcessError(procs[failed[0]].returncode, cmds[failed[0]])
+    return bool(failed), superseded
 
 
-def _bus(job, folder, pid, key):
-    """The voice-bus analysis of `job` on disk (made now, or by the job already making it): its
-    path, or None when this job became obsolete meanwhile."""
+def _pipeline(cmds, pid, key):
+    """Run FFmpeg commands as the project's analysis, each one's stdout into the next one's stdin:
+    (the last one's stdout, or None if they did not all finish; superseded)."""
+    procs = []
+    try:
+        for cmd in cmds:
+            proc = _popen(cmd, stdin=procs[-1].stdout if procs else subprocess.DEVNULL, stdout=subprocess.PIPE)
+            if procs:
+                procs[-1].stdout.close()  # the next process owns it now (and sees the end of it)
+            procs.append(proc)
+    except OSError:
+        _kill(procs)
+        for proc in procs:
+            proc.wait()
+        raise
+    if not _register(pid, key, procs):
+        procs[-1].communicate()
+        for proc in procs:
+            proc.wait()
+        return None, True
+    try:
+        raw, _ = procs[-1].communicate(timeout=1800)
+        for proc in procs[:-1]:
+            proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        _kill(procs)
+        for proc in procs:
+            proc.wait()
+        raise
+    failed, superseded = _finish(pid, key, procs, cmds)
+    return (None if failed else raw), superseded
+
+
+def _run(cmd, pid, key):
+    """Run one FFmpeg command of the analysis: (stdout or None if it did not finish, superseded)."""
+    return _pipeline([cmd], pid, key)
+
+
+def _parallel(cmds, pid, key):
+    """Run FFmpeg commands side by side as the project's analysis: (all finished, superseded)."""
+    procs = []
+    try:
+        for cmd in cmds:
+            procs.append(_popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL))
+    except OSError:
+        _kill(procs)
+        for proc in procs:
+            proc.wait()
+        raise
+    if not _register(pid, key, procs):
+        for proc in procs:
+            proc.wait()
+        return False, True
+    try:
+        for proc in procs:
+            proc.wait(timeout=1800)
+    except subprocess.TimeoutExpired:
+        _kill(procs)
+        for proc in procs:
+            proc.wait()
+        raise
+    failed, superseded = _finish(pid, key, procs, cmds)
+    return not failed, superseded
+
+
+def _curves_from_bus(job, bus, folder, pid, key):
+    """The two gains from a bus on disk, the compressors side by side: (fx, music) or None (superseded)."""
+    outs = [folder / f"{key}.{col}.{threading.get_ident()}.f32tmp" for col in (0, 1)]
+    try:
+        cmds = [[str(bus) if c == "{BUS}" else str(out) if c == "{OUT}" else c for c in cmd]
+                for cmd, out in zip(job["curve"], outs)]
+        done, superseded = _parallel(cmds, pid, key)
+        if superseded or not done:
+            return None
+        return tuple(np.fromfile(out, dtype="<f4") for out in outs)
+    finally:
+        for out in outs:
+            out.unlink(missing_ok=True)
+
+
+def _analyse(job, folder, pid, key):
+    """The two gains of `job`: (fx, music), or None when this job became obsolete meanwhile. A new
+    timeline: its bus made (and kept) with the curves streamed from it; a bus on disk (or being made
+    by the job for the same timeline): just the compressors on it."""
     path = folder / f"bus-{job['bus_key']}.flac"
     while True:
         if path.exists():
             os.utime(path)  # recently used: kept
-            return path
+            return _curves_from_bus(job, path, folder, pid, key)
         with _DUCK_LOCK:
             ev = _BUS_BUSY.get(job["bus_key"])
             mine = ev is None
@@ -1243,13 +1362,13 @@ def _bus(job, folder, pid, key):
                     if _DUCK_LATEST.get(pid, key) != key:
                         return None
             continue
-        superseded = False
         try:
             folder.mkdir(parents=True, exist_ok=True)
             tmp = folder / f"bus-{job['bus_key']}.{threading.get_ident()}.tmp"
             try:
-                done, superseded = _run([str(tmp) if c == "{BUS}" else c for c in job["bus"]], pid, key)
-                if done is not None and tmp.exists():
+                cmds = [[str(tmp) if c == "{BUS}" else c for c in cmd] for cmd in job["chain"]] + [job["curve_pipe"]]
+                raw, superseded = _pipeline(cmds, pid, key)
+                if raw is not None and tmp.exists():
                     tmp.replace(path)  # finished (even if obsolete now: kept for an undo)
             finally:
                 tmp.unlink(missing_ok=True)
@@ -1260,8 +1379,11 @@ def _bus(job, folder, pid, key):
             with _DUCK_LOCK:
                 _BUS_BUSY.pop(job["bus_key"], None)
             ev.set()
-        if superseded:
+        if superseded or raw is None:
             return None
+        both = np.frombuffer(raw, dtype="<f4")
+        both = both[: len(both) // 2 * 2].reshape(-1, 2)
+        return both[:, 0], both[:, 1]
 
 
 def duck_curve(project, data, wait=False):
@@ -1288,7 +1410,7 @@ def duck_curve(project, data, wait=False):
             _DUCK_LATEST[pid] = key
             old = _DUCK_PROC.get(pid)
             if old and old[0] != key:
-                old[1].kill()
+                _kill(old[1])
         return {"status": "ready", "rate": DUCK_RATE, "key": key, "gain": base64.b64encode(path.read_bytes()).decode(),
                 "music": base64.b64encode(mpath.read_bytes()).decode()}
 
@@ -1296,22 +1418,23 @@ def duck_curve(project, data, wait=False):
         superseded = False
         try:
             if isinstance(job, dict):
-                bus = _bus(job, folder, pid, key)
-                if bus is None:
-                    superseded = True
+                gains = _analyse(job, folder, pid, key)
+                if gains is None:
+                    with _DUCK_LOCK:
+                        superseded = _DUCK_LATEST.get(pid, key) != key
+                    if not superseded:
+                        raise ValueError("the analysis did not finish")
                     return
-                cmd = [str(bus) if c == "{BUS}" else c for c in job["curve"]]
-            else:
-                cmd = job  # one command writing the curve (tests)
-            raw, superseded = _run(cmd, pid, key)
-            if superseded:
-                return
-            both = np.frombuffer(raw, dtype="<f4")
-            both = both[: len(both) // 2 * 2].reshape(-1, 2)
+            else:  # one command writing the curve (tests)
+                raw, superseded = _run(job, pid, key)
+                if superseded:
+                    return
+                both = np.frombuffer(raw, dtype="<f4")
+                both = both[: len(both) // 2 * 2].reshape(-1, 2)
+                gains = (both[:, 0], both[:, 1])
             step = 1000 // DUCK_RATE
             folder.mkdir(parents=True, exist_ok=True)
-            for col, dest in ((0, path), (1, mpath)):
-                g = both[:, col]
+            for g, dest in zip(gains, (path, mpath)):
                 g = g[: len(g) // step * step].reshape(-1, step).mean(axis=1) if len(g) >= step else g
                 tmp = dest.with_suffix(".tmp")
                 tmp.write_bytes(np.clip(np.round(g * 255), 0, 255).astype(np.uint8).tobytes())

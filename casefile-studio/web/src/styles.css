@@ -6904,6 +6904,18 @@ body.resizing-row * {
   background: #e6ecff;
   box-shadow: 0 0 0 1px #e6ecff80;
 }
+.sfx-mark:focus { outline: none; }
+.sfx-mark:focus-visible { box-shadow: 0 0 0 2px #e6ecff; }
+/* v0.4.60 where a sound picked in the library goes (double-click on the lane) */
+.sfx-pin {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed #ffd27a;
+  pointer-events: none;
+  z-index: 3;
+}
 .sfx-mark.transitions { background: #c9a86b; }
 .sfx-mark.moments { background: #c97b6b; }
 .sfx-mark.typing { background: #7fb39a; opacity: 0.8; }

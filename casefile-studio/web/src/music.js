@@ -351,6 +351,10 @@ export class MusicPreview {
     const jumped = expect === null || Math.abs(expect - t) > 0.25;
     const moved = jumped || Math.abs(expect - t) > 0.05;
     if (moved) this.anchor = { t, at: now };
+    // v0.4.60 a steady small offset (under 50 ms) is followed too, a tenth per tick (~0.2 s at 60
+    // ticks/s): the music was left wherever the last re-anchor put it, up to 50 ms from the narration
+    // after a seek, pause or edit. The average is followed, not each frame's jitter, so no seek.
+    else this.anchor.t += (t - expect) * 0.1;
     const te = this.anchor.t + (now - this.anchor.at); // timeline time on the audio clock
     if (n && (jumped || this.duckUntil - now < 1.5)) this._scheduleDuck(te, now, jumped);
     for (let slot = 0; slot < 2; slot++) {

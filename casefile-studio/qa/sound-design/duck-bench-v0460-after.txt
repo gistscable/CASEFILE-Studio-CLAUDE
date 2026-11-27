@@ -1,0 +1,143 @@
+sliced
+  first_analysis                        78.36 s  cpu  100.28 s  ready
+  narration_volume_changed               7.74 s  cpu   13.79 s  ready
+  music_and_effects_volume_changed       0.00 s  cpu    0.00 s  ready
+  effects_ducking_switched_off           0.00 s  cpu    0.00 s  ready
+  one_scene_edited_mid                  81.34 s  cpu  103.05 s  ready
+  back_to_first_timeline_undo            0.00 s  cpu    0.00 s  ready
+guide
+  first_analysis                        10.97 s  cpu   19.28 s  ready
+  narration_volume_changed               6.83 s  cpu   12.86 s  ready
+  music_and_effects_volume_changed       0.00 s  cpu    0.00 s  ready
+  effects_ducking_switched_off           0.00 s  cpu    0.00 s  ready
+  one_scene_edited_mid                  11.19 s  cpu   19.64 s  ready
+  back_to_first_timeline_undo            0.00 s  cpu    0.00 s  ready
+inserts
+  first_analysis                        19.26 s  cpu   30.76 s  ready
+  narration_volume_changed               7.04 s  cpu   13.15 s  ready
+  music_and_effects_volume_changed       0.00 s  cpu    0.00 s  ready
+  effects_ducking_switched_off           0.00 s  cpu    0.00 s  ready
+  one_scene_edited_mid                  19.37 s  cpu   30.86 s  ready
+  back_to_first_timeline_undo            0.00 s  cpu    0.00 s  ready
+{
+ "minutes": 25,
+ "scenes": 150,
+ "cpu_count": 2,
+ "sliced": {
+  "first_analysis": {
+   "wall_s": 78.36,
+   "cpu_s": 100.28,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "narration_volume_changed": {
+   "wall_s": 7.74,
+   "cpu_s": 13.79,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "music_and_effects_volume_changed": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "effects_ducking_switched_off": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "one_scene_edited_mid": {
+   "wall_s": 81.34,
+   "cpu_s": 103.05,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "back_to_first_timeline_undo": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "same_curve_after_undo": true
+ },
+ "guide": {
+  "first_analysis": {
+   "wall_s": 10.97,
+   "cpu_s": 19.28,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "narration_volume_changed": {
+   "wall_s": 6.83,
+   "cpu_s": 12.86,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "music_and_effects_volume_changed": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "effects_ducking_switched_off": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "one_scene_edited_mid": {
+   "wall_s": 11.19,
+   "cpu_s": 19.64,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "back_to_first_timeline_undo": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 129
+  },
+  "same_curve_after_undo": true
+ },
+ "inserts": {
+  "first_analysis": {
+   "wall_s": 19.26,
+   "cpu_s": 30.76,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "narration_volume_changed": {
+   "wall_s": 7.04,
+   "cpu_s": 13.15,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "music_and_effects_volume_changed": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "effects_ducking_switched_off": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "one_scene_edited_mid": {
+   "wall_s": 19.37,
+   "cpu_s": 30.86,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "back_to_first_timeline_undo": {
+   "wall_s": 0.0,
+   "cpu_s": 0.0,
+   "status": "ready",
+   "child_peak_rss_mb": 1080
+  },
+  "same_curve_after_undo": true
+ }
+}

@@ -1,0 +1,297 @@
+{
+ "base": "http://127.0.0.1:8000",
+ "project": "2dfbabf4c90e4261",
+ "timeline_sfx": {
+  "add: double-click the lane at 14 s, pick a sound": {
+   "pinned_at": "35%",
+   "button": "at 0:14.0",
+   "anchor": "sc:0000000000000002:4.000",
+   "on_lane": {
+    "left": "35%",
+    "on": true
+   },
+   "pin_cleared": true,
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 3.23,
+   "saves": 1,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  },
+  "select: click the sound on the lane": {
+   "selected": true,
+   "inspector_shows_it": true,
+   "playhead_jumped": false,
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 0.82,
+   "saves": 0,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  },
+  "move: drag it 2 s later on the lane": {
+   "offset_saved": 2,
+   "lane_left": [
+    "35%",
+    "40%"
+   ],
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 1.88,
+   "saves": 1,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  },
+  "heard: the moved sound, narration position at its onset": {
+   "expected": 16,
+   "at": 16.001,
+   "peak": 0.0538
+  },
+  "audition: the Sound button in the inspector": {
+   "audition_heard": true,
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 0.79,
+   "saves": 0,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  },
+  "volume: the sound's own slider": {
+   "from": 0,
+   "saved_gain": -18.5,
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 1.64,
+   "saves": 1,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  },
+  "delete: the Delete key on the selected sound": {
+   "removed_from_saved_project": true,
+   "lane_marks_left": 0,
+   "still_playing": true,
+   "narration_paused_or_reseeked": 0,
+   "narration_moved_on": 1.76,
+   "saves": 1,
+   "saved_only_sound": true,
+   "scene_clips_unchanged": true
+  }
+ },
+ "sync": {
+  "steady_offsets_ms": {
+   "effects_minus_narration": -5.9,
+   "music_minus_narration": -24.8
+  },
+  "operations": [
+   {
+    "op": "seek to 12.3 s, play",
+    "playing": true,
+    "at": 15.07,
+    "effects_drift_ms": -0.4,
+    "music_drift_ms": 12.4
+   },
+   {
+    "op": "seek to 4.1 s, play",
+    "playing": true,
+    "at": 6.84,
+    "effects_drift_ms": 1.4,
+    "music_drift_ms": null
+   },
+   {
+    "op": "seek to 17.8 s, play",
+    "playing": true,
+    "at": 20.57,
+    "effects_drift_ms": 0.6,
+    "music_drift_ms": 19.1
+   },
+   {
+    "op": "seek to 10.2 s, play",
+    "playing": true,
+    "at": 12.97,
+    "effects_drift_ms": 2.2,
+    "music_drift_ms": 22.5
+   },
+   {
+    "op": "seek to 25.5 s, play",
+    "playing": true,
+    "at": 28.26,
+    "effects_drift_ms": -0.6,
+    "music_drift_ms": 15.4
+   },
+   {
+    "op": "seek to 14.9 s, play",
+    "playing": true,
+    "at": 17.68,
+    "effects_drift_ms": 2,
+    "music_drift_ms": 18.7
+   },
+   {
+    "op": "seek to 2.2 s, play",
+    "playing": true,
+    "at": 4.95,
+    "effects_drift_ms": 0.4,
+    "music_drift_ms": null
+   },
+   {
+    "op": "seek to 19.1 s, play",
+    "playing": true,
+    "at": 21.84,
+    "effects_drift_ms": -0.2,
+    "music_drift_ms": 19.6
+   },
+   {
+    "op": "seek to 11 s, play",
+    "playing": true,
+    "at": 13.77,
+    "effects_drift_ms": 0.4,
+    "music_drift_ms": 23.2
+   },
+   {
+    "op": "seek to 15.5 s, play",
+    "playing": true,
+    "at": 18.28,
+    "effects_drift_ms": 0.8,
+    "music_drift_ms": 31.7
+   },
+   {
+    "op": "seek to 31.2 s, play",
+    "playing": true,
+    "at": 33.97,
+    "effects_drift_ms": 1.4,
+    "music_drift_ms": 21.5
+   },
+   {
+    "op": "seek to 13.3 s, play",
+    "playing": true,
+    "at": 16.11,
+    "effects_drift_ms": 0.9,
+    "music_drift_ms": 20.5
+   },
+   {
+    "op": "drag the playhead 11 -> 16 s, play",
+    "playing": true,
+    "at": 18.78,
+    "effects_drift_ms": 0.2,
+    "music_drift_ms": 0.7
+   },
+   {
+    "op": "drag the playhead 16 -> 12 s, play",
+    "playing": true,
+    "at": 14.76,
+    "effects_drift_ms": 0.1,
+    "music_drift_ms": 27.2
+   },
+   {
+    "op": "drag the playhead 13 -> 18 s, play",
+    "playing": true,
+    "at": 20.76,
+    "effects_drift_ms": 2.7,
+    "music_drift_ms": 19.9
+   },
+   {
+    "op": "jump while playing 1 (\"In context\", to 28 s)",
+    "playing": true,
+    "at": 30.77,
+    "effects_drift_ms": 1,
+    "music_drift_ms": -4.1
+   },
+   {
+    "op": "jump while playing 2 (\"In context\", to 28 s)",
+    "playing": true,
+    "at": 30.77,
+    "effects_drift_ms": 2.4,
+    "music_drift_ms": 3.9
+   },
+   {
+    "op": "jump while playing 3 (\"In context\", to 28 s)",
+    "playing": true,
+    "at": 30.74,
+    "effects_drift_ms": 0.7,
+    "music_drift_ms": -1.8
+   },
+   {
+    "op": "jump while playing 4 (\"In context\", to 28 s)",
+    "playing": true,
+    "at": 30.79,
+    "effects_drift_ms": 1.9,
+    "music_drift_ms": -4
+   },
+   {
+    "op": "pause 1 / play again",
+    "playing": true,
+    "at": 15.29,
+    "effects_drift_ms": 2.3,
+    "music_drift_ms": -3.5
+   },
+   {
+    "op": "pause 2 / play again",
+    "playing": true,
+    "at": 17.28,
+    "effects_drift_ms": -0.7,
+    "music_drift_ms": -3.1
+   },
+   {
+    "op": "pause 3 / play again",
+    "playing": true,
+    "at": 19.27,
+    "effects_drift_ms": 0.5,
+    "music_drift_ms": 19.5
+   },
+   {
+    "op": "pause 4 / play again",
+    "playing": true,
+    "at": 21.27,
+    "effects_drift_ms": 1.6,
+    "music_drift_ms": 2.7
+   },
+   {
+    "op": "pause 5 / play again",
+    "playing": true,
+    "at": 23.26,
+    "effects_drift_ms": -0.7,
+    "music_drift_ms": 5.8
+   },
+   {
+    "op": "seek while paused, then play",
+    "playing": true,
+    "at": 16.47,
+    "effects_drift_ms": 0,
+    "music_drift_ms": 31.3
+   },
+   {
+    "op": "edit: effects volume slider (playing)",
+    "playing": true,
+    "at": 18.91,
+    "effects_drift_ms": 1.5,
+    "music_drift_ms": 20
+   },
+   {
+    "op": "edit: music level slider (playing)",
+    "playing": true,
+    "at": 21.3,
+    "effects_drift_ms": -0.1,
+    "music_drift_ms": -14
+   },
+   {
+    "op": "edit: a sound dragged on the lane (playing)",
+    "playing": true,
+    "at": 24.29,
+    "effects_drift_ms": 0.4,
+    "music_drift_ms": 13.8
+   }
+  ],
+  "summary": {
+   "operations": 28,
+   "always_playing": true,
+   "effects_max_drift_ms": 2.7,
+   "music_max_drift_ms": 31.7,
+   "music_measured_in": 26,
+   "moved_sound_heard_at": {
+    "expected": 29,
+    "at": 29.003,
+    "peak": 0.012
+   }
+  }
+ },
+ "page_errors": []
+}

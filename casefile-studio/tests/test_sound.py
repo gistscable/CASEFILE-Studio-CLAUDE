@@ -696,7 +696,7 @@ def test_preview_ducking_runs_one_job_per_project_and_drops_obsolete_ones(tmp_pa
         if "p1" in sound._DUCK_PROC:
             break
         time.sleep(0.05)
-    slow = sound._DUCK_PROC["p1"][1]
+    slow = sound._DUCK_PROC["p1"][1][0]
     t = time.time()
     r = sound.duck_curve({"id": "p1", "v": "B"}, tmp_path, wait=True)  # the timeline was edited
     assert r["status"] == "ready" and len(r["gain"]) > 0
@@ -834,9 +834,11 @@ def test_ducking_analysis_reuses_the_timeline_for_volume_changes_and_matches_one
               {"id": "mus", "kind": "audio", "path": str(bite), "has_audio": True}]
     sc = [{"id": f"s{k}", "duration": 5.0, "audio_start": 5.0 * k, "audio_duration": 5.0} for k in range(6)]
     runs = []
-    real = sound._run
-    monkeypatch.setattr(sound, "_run", lambda cmd, pid, key: (runs.append("bus" if "{BUS}" not in cmd and cmd[-1].endswith(".tmp") else "curve"),
-                                                            real(cmd, pid, key))[1])
+    real_pipe, real_par = sound._pipeline, sound._parallel
+    # v0.4.60: a new timeline = its bus with the curve streamed from it (one pipeline); a bus on disk = the
+    # two compressors side by side
+    monkeypatch.setattr(sound, "_pipeline", lambda cmds, pid, key: (runs.append("bus"), real_pipe(cmds, pid, key))[1])
+    monkeypatch.setattr(sound, "_parallel", lambda cmds, pid, key: (runs.append("curve"), real_par(cmds, pid, key))[1])
 
     def single_pass(p):  # v0.4.58: one FFmpeg run, the voice bus and both compressors together
         job, _ = sound._duck_job(p)
@@ -876,13 +878,193 @@ def test_ducking_analysis_reuses_the_timeline_for_volume_changes_and_matches_one
                 assert n >= len(got) - 3 * sound.DUCK_RATE  # (v0.4.58 lost the last ~3 s of a loudnorm bus)
                 assert np.abs(got[:n] - r[:n]).max() <= 1, (kind, level, col)
                 assert got.min() < 200  # it really dips
-        assert runs == ["bus", "curve", "curve", "curve"], (kind, runs)  # the timeline was analysed once
+        assert runs == ["bus", "curve", "curve"], (kind, runs)  # the timeline was analysed once
         # the ducking switched off for the effects only: the cached curve (music still ducks)
         runs.clear()
         assert sound.duck_curve(dict(p, sound={"enabled": True, "duck": False}), data, wait=True)["status"] == "ready" and runs == []
         # the timeline edited: a new bus; back to the first (undo): nothing to make
         edited = dict(p, scenes=[dict(scenes[0], duration=6.0)] + scenes[1:])
-        assert sound.duck_curve(edited, data, wait=True)["status"] == "ready" and runs == ["bus", "curve"]
+        assert sound.duck_curve(edited, data, wait=True)["status"] == "ready" and runs == ["bus"]
         runs.clear()
         assert sound.duck_curve(p, data, wait=True)["status"] == "ready" and runs == []
     assert len(list((data / "cache" / "sfx" / "duck").glob("bus-*.flac"))) <= sound.BUS_KEEP
+
+
+def _tree_layout(n, seed):
+    """A long scene-sliced timeline with everything the export's slicing meets: scenes continuing each
+    other, gaps, overlaps, held (shortened) narration, scenes without audio_start, slices past the end
+    of the recording, durations off the 1/24 grid, and (seed odd) a reordered timeline."""
+    import random
+    rnd = random.Random(seed)
+    sc, cur = [], 1 / 3
+    for i in range(n):
+        d = rnd.choice([round(rnd.uniform(0.3, 2.5) * 24) / 24, round(rnd.uniform(0.3, 2.5), 3), rnd.uniform(0.3, 2.5)])
+        s = {"id": f"s{i}", "duration": d}
+        m = rnd.random()
+        if m < 0.6:
+            s.update(audio_start=cur, audio_duration=d)
+        elif m < 0.7:
+            s.update(audio_start=max(0.0, cur + rnd.uniform(-0.4, 0.4)), audio_duration=d)
+        elif m < 0.8:
+            s.update(audio_start=cur, audio_duration=d * 0.6)
+        elif m < 0.9:
+            pass
+        else:
+            s.update(audio_start=rnd.uniform(0, 70), audio_duration=d)
+        cur += s.get("audio_duration", d)
+        sc.append(s)
+    if seed % 2:
+        rnd.shuffle(sc)
+    return sc
+
+
+def test_ducking_analysis_slices_the_narration_in_a_tree_with_the_exports_samples(tmp_path):
+    """v0.4.60 A 150-scene timeline's analysis spent ~20 s handing every frame of the recording to
+    every scene's trim (asplit=150). It now splits in two levels with coarse trims seconds wide of
+    any cut — the export's own trims see the same frames, so the samples are identical, including
+    FFmpeg's 1-sample timestamp rounding (asetpts=N/SR/TB) that rules out merging scene trims."""
+    import hashlib
+    srcs = []
+    for name, sr in (("v.mp3", 44100), ("v.wav", 22050)):
+        f = tmp_path / name
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc='0.3*sin(2*PI*(200+9*t)*t)':s={sr}:d=60",
+                        "-ac", "1", str(f)], check=True)
+        srcs.append(f)
+    for seed, n in ((1, 40), (2, 60), (5, 17)):
+        scenes = _tree_layout(n, seed)
+        total = sum(round(float(s["duration"]) * 24) / 24 for s in scenes)
+        plain = renderer.voice_graph({}, scenes, total, 0, {})
+        tree = renderer.voice_graph({}, scenes, total, 0, {}, tree=True)
+        assert sum(g.startswith("[vg") for g in tree) == math.ceil(n / math.ceil(math.sqrt(n)))  # really split in two levels
+        assert plain[1:] == tree[-n - 1:]  # the scenes' own trims (and the concat / loudnorm) are the export's, unchanged
+        for src in srcs:
+            outs = []
+            for g in (plain, tree):
+                g = list(g)
+                if seed != 1:  # the loudnorm is deterministic: one layout through it is enough
+                    g[-1] = g[-1].replace(",loudnorm=I=-16:TP=-1.5:LRA=11", "")
+                raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(src), "-filter_complex", ";".join(g), "-map", "[voice]",
+                                      "-f", "f32le", "-"], capture_output=True, check=True).stdout
+                outs.append((len(raw), hashlib.sha1(raw).hexdigest()))
+            assert outs[0] == outs[1] and outs[0][0] > 0, (seed, src.name)
+    assert renderer.voice_graph({}, scenes[:16], 30.0, 0, {}, tree=True) == renderer.voice_graph({}, scenes[:16], 30.0, 0, {})
+
+
+def test_ducking_pipeline_is_the_single_pass_bus_and_curve_to_the_sample(tmp_path, monkeypatch):
+    """v0.4.60 A new timeline's bus runs as two piped processes (the scene cuts beside the loudnorm) with
+    the compressors reading its samples as it is written; a bus on disk runs the two compressors side
+    by side. All of it is the v0.4.59 single-process bus and curve, sample for sample."""
+    import base64
+    voice = tmp_path / "voice.mp3"
+    gate = "0.3*sin(2*PI*220*t)*max(0\\,sin(2*PI*0.4*t))"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc={gate}:s=44100:d=50", str(voice)], check=True)
+    monkeypatch.setattr(renderer, "resolve_asset", lambda p: Path(p))
+    data = tmp_path / "data"
+    assets = [{"id": "nar", "kind": "audio", "path": str(voice), "has_audio": True},
+              {"id": "mus", "kind": "audio", "path": str(voice), "has_audio": True}]
+    scenes = _tree_layout(24, 4)
+    p = {"id": "5d0000000000a001", "scenes": scenes, "assets": assets, "narration_id": "nar", "music_id": "mus",
+         "sound": {"enabled": True}, "music": {}, "narration_volume": 0.8}
+    job, key = sound._duck_job(p)
+    assert len(job["chain"]) == 2 and "loudnorm" in job["chain"][1][job["chain"][1].index("-filter_complex") + 1]
+    first = sound.duck_curve(p, data, wait=True)
+    assert first["status"] == "ready"
+    folder = data / "cache" / "sfx" / "duck"
+    bus = folder / f"bus-{job['bus_key']}.flac"
+    # v0.4.59: the whole bus in one process, the export's plain slicing
+    total = sum(round(float(s["duration"]) * 24) / 24 for s in scenes)
+    g = renderer.voice_graph(dict(p, narration_volume=1.0), scenes, total, 0, {}, stems=True)
+    g += [f"[voice]aresample=48000,{sound.VOICE_LEVEL},aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=mono[bus]"]
+    old = tmp_path / "old.flac"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(voice), "-filter_complex", ";".join(g), "-map", "[bus]", "-c:a", "flac",
+                    "-sample_fmt", "s16", "-compression_level", "0", str(old)], check=True)
+    pcm = [subprocess.run(["ffmpeg", "-v", "error", "-i", str(f), "-f", "s16le", "-"], capture_output=True, check=True).stdout
+           for f in (bus, old)]
+    assert pcm[0] == pcm[1] and abs(len(pcm[0]) // 2 - total * 48000) < 48  # (each scene rounded to its samples)
+    # the same curve from the bus on disk (the compressors side by side) and from the v0.4.59 command
+    for f in folder.glob("*.u8"):
+        f.unlink()
+    again = sound.duck_curve(p, data, wait=True)
+    assert again["gain"] == first["gain"] and again["music"] == first["music"]
+    fc = job["curve_pipe"][job["curve_pipe"].index("-filter_complex") + 1]
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(old), "-filter_complex", fc, "-map", "[g]", "-f", "f32le", "-"],
+                         capture_output=True, check=True).stdout
+    both = np.frombuffer(raw, "<f4").reshape(-1, 2)
+    for col, name in ((0, "gain"), (1, "music")):
+        g5 = both[: len(both) // 5 * 5, col].reshape(-1, 5).mean(axis=1)
+        ref = np.clip(np.round(g5 * 255), 0, 255).astype(np.uint8).tobytes()
+        assert base64.b64decode(first[name]) == ref and min(ref) < 200, name
+
+
+def test_rapid_timeline_edits_only_analyse_the_latest_state(tmp_path, monkeypatch):
+    """v0.4.60 Twelve timeline edits in quick succession (each a new voice bus): never more than one
+    analysis running for the project, every superseded one stopped (not failed, not queued), and only
+    the last state's curve made."""
+    import sys
+    import threading
+    import time
+
+    ones = "import sys,time; time.sleep({}); sys.stdout.buffer.write(b'\\x00\\x00\\x80?' * 2000)"
+    started, alive_max = [], [0]
+    real = sound._popen
+
+    def popen(cmd, **kw):
+        proc = real(cmd, **kw)
+        started.append(proc)
+        return proc
+
+    monkeypatch.setattr(sound, "_popen", popen)
+    monkeypatch.setattr(sound, "_duck_job", lambda p: ([sys.executable, "-c", ones.format(p["t"])], f"edit{p['v']}"))
+    stop = threading.Event()
+
+    def watch():
+        while not stop.is_set():
+            alive_max[0] = max(alive_max[0], sum(proc.poll() is None for proc in list(started)))
+            time.sleep(0.005)
+
+    w = threading.Thread(target=watch)
+    w.start()
+    try:
+        for v in range(11):
+            assert sound.duck_curve({"id": "rapid", "v": v, "t": 20}, tmp_path)["status"] == "working"
+            time.sleep(0.15)
+        last = sound.duck_curve({"id": "rapid", "v": 11, "t": 0.2}, tmp_path, wait=True)
+        assert last["status"] == "ready"
+        deadline = time.time() + 10
+        while time.time() < deadline and any(proc.poll() is None for proc in started):
+            time.sleep(0.05)
+    finally:
+        stop.set()
+        w.join()
+    assert all(proc.poll() is not None for proc in started)  # nothing left running
+    assert alive_max[0] <= 2  # the new one starts as the obsolete one is stopped: never a queue
+    assert len(started) <= 12
+    folder = tmp_path / "cache" / "sfx" / "duck"
+    assert sorted(f.name for f in folder.glob("*.u8")) == ["edit11.m.u8", "edit11.u8"]
+    assert not any(f"edit{v}" in sound._DUCK_FAILED for v in range(12))
+    assert not any(k.startswith("edit") for k in sound._DUCK_BUSY)
+
+
+def test_a_scene_sliced_past_the_end_of_the_narration_no_longer_cuts_the_rest_of_it(tmp_path):
+    """v0.4.60 A scene whose narration slice lies wholly past the end of the recording (e.g. a scene
+    from beyond the narration's end moved earlier) gave FFmpeg an empty slice; its padding had no
+    timestamps, the concat broke ("Invalid data found when processing input") and the voice stopped
+    there with exit code 0 — the export's voice pass padded the rest of the narration with silence.
+    Each slice is now re-timed from its own samples (renderer.RESTAMP)."""
+    voice = tmp_path / "v.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc='0.3*sin(2*PI*220*t)':s=44100:d=30", str(voice)],
+                   check=True)
+    sc = [{"duration": 3.0, "audio_start": 3.0 * k, "audio_duration": 3.0} for k in range(10)]
+    sc.insert(4, {"duration": 2.0, "audio_start": 40.0, "audio_duration": 2.0})  # past the end, mid-timeline
+    total = 32.0
+    for loud in (False, True):
+        g = renderer.voice_graph({}, sc, total, 0, {})
+        if not loud:
+            g[-1] = g[-1].replace(",loudnorm=I=-16:TP=-1.5:LRA=11", "")
+        r = subprocess.run(["ffmpeg", "-v", "error", "-i", str(voice), "-filter_complex", ";".join(g) + ";[voice]aresample=48000,"
+                            "aformat=sample_fmts=flt:channel_layouts=mono[o]", "-map", "[o]", "-f", "f32le", "-"], capture_output=True)
+        assert not r.stderr, r.stderr
+        a = np.frombuffer(r.stdout, "<f4")
+        assert abs(len(a) - total * 48000) <= 2
+        rms = [float(np.sqrt(np.mean(a[t * 48000:(t + 1) * 48000] ** 2))) for t in range(32)]
+        assert all(x > 0.01 for x in rms[:12] + rms[14:]) and max(rms[12:14]) < 1e-3, (loud, [round(x, 3) for x in rms])

@@ -694,7 +694,42 @@ def narration_volume(project):
     return 1.0 if v != v else round(min(2.0, max(0.0, v)), 3)
 
 
-def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False):
+# v0.4.60 Each scene's slice re-timed from its own sample count before the concat. A slice wholly past
+# the end of the recording (e.g. a scene reordered from beyond the narration's end) is empty: apad then
+# pads it with frames that have no timestamp, the concat's timeline breaks ("Invalid data found when
+# processing input") and FFmpeg stops the voice there with exit code 0 — the rest of the narration
+# was lost (silence in the MP4). Only timestamps change: every other slice's samples are identical.
+RESTAMP = "asetpts=N/SR/TB"
+TREE_MARGIN = 2.0  # seconds kept around a group's scenes by its coarse trim: many whole frames
+
+
+def _split_tree(head, cuts, tree):
+    """The filters handing the narration [head] to each scene's trim as [vs0], [vs1], ...
+    Plain (the export): one asplit to every scene. Each scene's atrim then receives every frame
+    up to its end, so a 150-scene timeline moves the recording ~75 times through the graph (about
+    20 s of a 25-minute analysis), and every frame waits in up to 150 queues.
+    `tree` (v0.4.60, the analysis): the scenes in groups of ~sqrt(n), in timeline order; each group
+    gets a coarse atrim covering its scenes' slices plus TREE_MARGIN on both sides, then splits to
+    its scenes. The coarse trim only drops frames seconds away from any scene cut, and atrim cuts
+    by each frame's own pts and length (a partly dropped frame keeps pts + length), so every scene
+    trim sees exactly the frames, timestamps and samples it sees in the plain graph — including the
+    1-sample pts rounding of asetpts=N/SR/TB that makes the cut points depend on frame boundaries,
+    which is why scene slices are not merged into fewer trims instead."""
+    n = len(cuts)
+    if not tree or n <= 16:
+        return [f"{head},asplit={n}" + "".join(f"[vs{i}]" for i in range(n))]
+    size = math.ceil(math.sqrt(n))
+    groups = [list(range(k, min(n, k + size))) for k in range(0, n, size)]
+    out = [f"{head},asplit={len(groups)}" + "".join(f"[vg{j}]" for j in range(len(groups)))]
+    for j, members in enumerate(groups):
+        lo = min(cuts[i][0] for i in members) - TREE_MARGIN
+        hi = max(cuts[i][1] for i in members) + TREE_MARGIN
+        trim = f"atrim=start={lo:.3f}:end={hi:.3f}" if lo > 0 else f"atrim=end={hi:.3f}"
+        out.append(f"[vg{j}]{trim},asplit={len(members)}" + "".join(f"[vs{i}]" for i in members))
+    return out
+
+
+def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False, tree=False):
     """v0.4.57 The FFmpeg filters that make the voice bus [voice] (narration, and Mode O soundbites),
     exactly as the export mixes it. The editor preview's effects ducking is computed from this same
     graph (sound.duck_curve), so what you hear while editing is what the export does.
@@ -703,7 +738,10 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False)
     v0.4.59 `stems` (the editor's ducking analysis only, never the export): when the narration
     pauses for soundbites, [voice] is the narration alone and [voicei] the soundbites alone (each
     silent where the other plays — they never overlap), so a narration-volume change needs no new
-    analysis of the timeline (sound.duck_curve)."""
+    analysis of the timeline (sound.duck_curve).
+    v0.4.60 `tree` (the editor's ducking analysis only, never the export): the scene-sliced
+    narration is split in two levels (see _split_tree) instead of 150 ways: the same scene trims on
+    the same frames, the same samples out, without every scene's trim seeing the whole recording."""
     af = []
     if voice_index is None:
         return af
@@ -765,7 +803,7 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False)
                 af.append(
                     f"[{insert_inputs[i]}:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
                     f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},afade=t=in:d={fade},"
-                    f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}[vi{i}]"
+                    f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length},{RESTAMP}[vi{i}]"
                 )
                 order.append(f"[vi{i}]")
         if stems:
@@ -795,8 +833,7 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False)
     elif voice_index is not None:
         # Slice the master voice by scene before concatenating, so scene reorder
         # and trimming affect the narration as well as the picture.
-        labels = "".join(f"[vs{i}]" for i in range(len(scenes)))
-        af.append(f"[{voice_index}:a]asetpts=N/SR/TB,asplit={len(scenes)}{labels}")
+        cuts = []
         cursor = 0.0
         for i, scene in enumerate(scenes):
             start = max(0, float(scene.get("audio_start", cursor)))
@@ -808,10 +845,12 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False)
                 ),
             )
             duration = round(float(scene["duration"]) * FPS) / FPS
+            cuts.append((start, start + length))
             af.append(
-                f"[vs{i}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={duration}[va{i}]"
+                f"[vs{i}]atrim=start={start}:end={start + length},asetpts=PTS-STARTPTS,apad,atrim=duration={duration},{RESTAMP}[va{i}]"
             )
             cursor += float(scene["duration"])
+        af[:0] = _split_tree(f"[{voice_index}:a]asetpts=N/SR/TB", cuts, tree)
         joined = "".join(f"[va{i}]" for i in range(len(scenes)))
         af.append(
             f"{joined}concat=n={len(scenes)}:v=0:a=1,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,loudnorm=I=-16:TP=-1.5:LRA=11{nv_after}[voice]"

@@ -1140,3 +1140,29 @@ only, no new dependencies. **Not finally approved.** Write-up with all numbers: 
 the background); preview timing depends on the browser's media clock; lost chosen-scene ids are kept until
 "Forget them".
 
+
+## Pre-approval corrections (v0.4.60)
+
+Conditional approval of v0.4.59 → speed, sync and timeline-SFX checks. Full write-up and numbers:
+`casefile-studio/SOUND-DESIGN.md` § v0.4.60. Not finally approved.
+
+* **Ducking analysis** (`sound.py`): `_duck_job` returns `{"chain", "bus_key", "curve_pipe", "curve"}`;
+  `_analyse` runs a new timeline as one pipeline (bus → FLAC on disk + s16le → both compressors) and a
+  stored bus as two compressor processes side by side (`{BUS}` / `{OUT}` placeholders). Runner:
+  `_popen` (nice 10 / BELOW_NORMAL_PRIORITY_CLASS), `_register` (one job per project, kills the obsolete
+  one), `_finish`, `_pipeline`, `_parallel`. `_BUS_BUSY` makes a second job for the same timeline wait.
+* **`renderer.voice_graph(tree=True)`** (analysis only, never the export): `_split_tree` groups the scene
+  trims (~√n groups, ±`TREE_MARGIN` 2 s). Byte-identical to the plain graph; do not "simplify" it into
+  merged trims (1-sample differences).
+* **`RESTAMP` (export + analysis)**: `asetpts=N/SR/TB` after each scene slice and soundbite. Fixes a
+  silent truncation (FFmpeg exits 0 after "Invalid data found when processing input") when a slice lies
+  wholly past the end of its recording. Never rely on FFmpeg's exit code alone for completeness.
+* **Timeline Sound FX** (`main.jsx` lane): double-click pins `sfxPin` (passed to SoundPanel as `pin`, its
+  "+ at" adds there); selecting a mark no longer calls `setPlaying(false)`; Delete/Backspace on a focused
+  mark removes it. The ruler still pauses (deliberate).
+* **Music sync** (`music.js` `tick`): under 50 ms the anchor slews 10 %/tick toward the preview clock.
+* **Known, not changed:** each soundbite `loudnorm` ≈ 110 MB in the voice-bus process (export pre-pass and
+  analysis). Exact fix proposed (per-soundbite normalisation pass, cached as f32) pending the user's
+  decision. loudnorm (70–80 s / 25 min) and the compressors (~6 s each) are the floor of an exact analysis.
+* QA: `qa/sound-design/duck_bench.py [--quick]` (now with a /proc RSS sampler), `browser_timeline_qa.mjs`
+  (run from a folder with puppeteer-core), `tail_check_long.py [cases] [--code DIR]`.
