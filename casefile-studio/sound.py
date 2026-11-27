@@ -153,13 +153,19 @@ def _motion_events(project):
     out = {}
     W, H = motion.preview_size(project)  # the editor lays them out at this size too (shared cache)
     for it in motion.exported(project):
-        key = motion.item_hash(it, W, H)
+        cine = it.get("template") == "cinematic"
+        if cine:  # v0.4.62: the story-aware graphic's own designed cues (cinematic.cues), from the same drawing as its frames
+            import cinematic
+            files = _cinematic_files(project, it)
+            key = "cine:" + cinematic.item_hash(it, W, H, files)
+        else:
+            key = motion.item_hash(it, W, H)
         with _EVENTS_LOCK:
             evs = _EVENTS.get(key)
         if evs is None:
             try:
-                evs = motion.sound_events(motion._layout(it, W, H, None))
-            except (OSError, ValueError, KeyError):  # pragma: no cover - a broken item is skipped
+                evs = cinematic.cues(it, files) if cine else motion.sound_events(motion._layout(it, W, H, None))
+            except (OSError, ValueError, KeyError, TypeError):  # pragma: no cover - a broken item is skipped
                 continue
             with _EVENTS_LOCK:
                 if len(_EVENTS) > 300:
@@ -167,6 +173,54 @@ def _motion_events(project):
                 _EVENTS[key] = evs
         out[it["id"]] = (it, evs)
     return out
+
+
+def _cinematic_files(project, it):
+    try:
+        from renderer import asset_path
+    except ImportError:  # pragma: no cover
+        return {}
+    import cinematic
+    return cinematic.photo_files(project, it, asset_path)
+
+
+# v0.4.62 the kind of moment each designed cue of a cinematic graphic is (its sound id's family decides)
+_CINE_KIND = {"impact-tr": ("moments", 0.86), "bass-hit": ("moments", 0.84), "thump-deep": ("moments", 0.85), "riser": ("moments", 0.8),
+              "whoosh": ("motion", 0.75), "rwhoosh": ("motion", 0.4), "sweep": ("motion", 0.6), "paper": ("documents", 0.75),
+              "doc": ("documents", 0.7), "scan": ("diagrams", 0.62), "pulse-low": ("moments", 0.74), "notify": ("diagrams", 0.68),
+              "tick": ("diagrams", 0.68), "click": ("motion", 0.7), "type-strike": ("motion", 0.72), "key-soft": ("typing", 0.8)}
+
+
+def _cine_events(add, gid, it, cues, name):
+    """v0.4.62 A cinematic graphic's designed sound: each cue is its exact library sound at its designed level
+    (the set was designed and approved together, so one graphic's cues may sound together: `layer`); the keys
+    of a typed label are one typed event. Anchors are stable (`mg:{gid}:{role}:{k}`) so your edits stay."""
+    start = round(it["start"] * FPS) / FPS
+    counts = {}
+    keys, key_gain = [], []
+    for c in sorted(cues, key=lambda c: c["t"]):
+        sid = c["sfx"]
+        t = start + math.ceil(c["t"] * FPS - 1e-6) / FPS
+        if sid.startswith("key-soft"):
+            if keys and t - keys[-1][-1][0] < 0.3:
+                keys[-1].append([round(t, 4), False])
+            else:
+                keys.append([[round(t, 4), False]])
+                key_gain.append(float(c["gain_db"]))
+            continue
+        fam = re.sub(r"-?\d+$", "", sid)
+        kind, prio = next((v for k, v in _CINE_KIND.items() if fam.startswith(k)), ("motion", 0.6))
+        role = re.sub(r"[^a-z]+", "-", (c.get("why") or "cue").lower()).strip("-") or "cue"
+        k = counts.get(role, 0)
+        counts[role] = k + 1
+        meta = sfxlib.BY_ID.get(sid)
+        if not meta:
+            continue
+        add(f"mg:{gid}:{role}:{k}", kind, t, prio, [(meta[1], sid)], f"{c.get('why') or 'cue'} (designed with the graphic)",
+            f"{(c.get('why') or 'cue').capitalize()} — {name}", gain=float(c["gain_db"]), layer=f"mg:{gid}", sid=sid)
+    for j, run in enumerate(keys):  # each key at its designed level (the approved demos' mix)
+        add(f"mg:{gid}:type:{j}", "typing", run[0][0], 0.8, ["keyboard"], "keys, as the label is typed", f"Typing — {name}",
+            group=f"mg:{gid}:type", gain=key_gain[j], typed=run, layer=f"mg:{gid}")
 
 
 def _sentences(project):
@@ -437,16 +491,20 @@ def events(project, mg=None, sents=None, ctx=None):
     offsets, total = _offsets(scenes)
     out = []
 
-    def add(anchor, kind, t, prio, cats, reason, label, group=None, gain=0.0, typed=None):
+    def add(anchor, kind, t, prio, cats, reason, label, group=None, gain=0.0, typed=None, layer=None, sid=None):
         if 0 <= t <= total + 0.5:
             out.append({"anchor": anchor, "kind": kind, "t": round(t, 4), "prio": prio, "cats": cats, "reason": reason,
-                        "label": label, "group": group or anchor, "gain": gain, "typed": typed})
+                        "label": label, "group": group or anchor, "gain": gain, "typed": typed, **({"layer": layer} if layer else {}),
+                        **({"sid": sid} if sid else {})})
 
     # --- motion graphics and their diagrams
     mg = _motion_events(project) if mg is None else mg
     for gid, (it, evs) in mg.items():
         tpl = it["template"]
         start = round(it["start"] * FPS) / FPS  # the graphic's first frame (motion.prepare does the same)
+        if tpl == "cinematic":
+            _cine_events(add, gid, it, evs, f"{it.get('category') or 'cinematic'} graphic at {int(start // 60)}:{int(start % 60):02d}")
+            continue
 
         def on_frame(local):  # the first frame on which something at `local` is drawn
             return math.ceil(local * FPS - 1e-6) / FPS
@@ -693,13 +751,25 @@ def plan(project, settings=None, keep=(), held=()):
     threshold = lo - (lo - hi) * st["density"]
     per_min = SPEC["per_minute"][0] + SPEC["per_minute"][1] * st["density"]
     silenced, chosen = [], []
+    # v0.4.62 a cinematic graphic is one designed piece: over a sensitive sentence or picture anywhere in it, the
+    # whole graphic is treated as sensitive (reveals softened, hits left out), never half loud and half quiet
+    hot = {}
+    for e in evs:
+        if e.get("layer") and e["layer"] not in hot and e["prio"] >= threshold:  # a cue that would play
+            w = _quiet(e["t"], zones)
+            if w in (SENSITIVE_TEXT, PICTURE):
+                hot[e["layer"]] = w
     for e in evs:
         why = _quiet(e["t"], zones)
+        if e.get("layer") in hot and why in (None, SENSITIVE_TEXT, PICTURE):
+            why = hot[e["layer"]]
         if why in (SENSITIVE_TEXT, PICTURE) and e["kind"] in ("motion", "diagrams", "typing") and e["prio"] >= 0.6 and \
-                any(c in ("click", "click-muted", "tick", "pop", "typewriter") for c in e["cats"]):
+                any((c[0] if (e.get("layer") and isinstance(c, (list, tuple))) else c) in
+                    (("click", "click-muted", "tick", "pop", "typewriter") + (("keyboard", "scan", "notification") if e.get("layer") else ()))
+                    for c in e["cats"]):
             # a graphic already on screen over a sensitive sentence (or drawn over such a picture): its reveals stay, softened
             # (muted clicks, quieter keys), so the graphic sounds the same from line to line
-            e = {**e, "cats": ["keyboard"] if e["typed"] else ["click-muted"], "gain": e["gain"] - 5.0,
+            e = {**e, "cats": ["keyboard"] if e["typed"] else ["click-muted"], "gain": e["gain"] - 5.0, "sid": None,
                  "reason": e["reason"] + f"; softened: {why}"}
         elif why and e["kind"] != "cta":
             silenced.append({"t": e["t"], "label": e["label"], "why": f"Silence: {why}."})
@@ -710,7 +780,7 @@ def plan(project, settings=None, keep=(), held=()):
     # one graphic sounds the same from line to line: softened in one place, softened throughout
     soft = {e["group"] for e in chosen if "softened" in e["reason"]}
     chosen = [e if (e["group"] not in soft or "softened" in e["reason"]) else
-              {**e, "cats": ["keyboard"] if e["typed"] else ["click-muted"], "gain": e["gain"] - 5.0,
+              {**e, "cats": ["keyboard"] if e["typed"] else ["click-muted"], "gain": e["gain"] - 5.0, "sid": None,
                "reason": e["reason"] + "; softened with the rest of this graphic"} for e in chosen]
     # spacing and overlaps, most important first
     chosen.sort(key=lambda e: -e["prio"])
@@ -725,14 +795,17 @@ def plan(project, settings=None, keep=(), held=()):
         if e["typed"]:
             kept.append(e)
             continue
-        near = [k for k in kept if not k["typed"] and abs(k["t"] - e["t"]) < SPEC["spacing"]["any"]]
+        near = [k for k in kept if not k["typed"] and abs(k["t"] - e["t"]) < SPEC["spacing"]["any"]
+                and not (e.get("layer") and k.get("layer") == e["layer"])]  # v0.4.62 a graphic's designed set sounds together
         if near:
             continue  # one sound at a time: the more important one is already there
         cat0 = e["cats"][0][0] if isinstance(e["cats"][0], (list, tuple)) else e["cats"][0]
         gap = SPEC["spacing"].get(cat0, 0.25)
-        if gap > 0.5 and e["kind"] != "cta" and any(k.get("_cat") == cat0 and abs(k["t"] - e["t"]) < gap for k in kept):
+        if gap > 0.5 and e["kind"] != "cta" and any(k.get("_cat") == cat0 and abs(k["t"] - e["t"]) < gap
+                                                     and not (e.get("layer") and k.get("layer") == e["layer"]) for k in kept):
             continue  # the same kind of sound too soon again
-        window = [k for k in kept if not k["typed"] and k["kind"] != "cta" and not k.get("_removed") and abs(k["t"] - e["t"]) < 30]
+        window = [k for k in kept if not k["typed"] and k["kind"] != "cta" and not k.get("_removed") and abs(k["t"] - e["t"]) < 30
+                  and not (e.get("layer") and k.get("layer") == e["layer"])]
         if e["kind"] != "cta" and len(window) >= per_min:
             continue  # density: at most this many a minute
         e["_cat"] = cat0
@@ -744,6 +817,8 @@ def plan(project, settings=None, keep=(), held=()):
         if e["typed"]:
             fam = "keyboard" if (e["cats"] == ["keyboard"] or st["intensity"] < 0.3) else "typewriter"
             sid = _candidates(fam, st["intensity"])[0]
+        elif e.get("sid"):  # v0.4.62 a cinematic graphic's designed cue: exactly the sound it was designed with
+            sid = e["sid"]
         elif e["group"] in group_sound:
             g = group_sound[e["group"]]
             g["n"] += 1

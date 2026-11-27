@@ -1,7 +1,7 @@
-# cinegfx — story-aware cinematic graphics (demo stage)
+# cinegfx — story-aware cinematic graphics
 
 This is a new engine, separate from `motion.py`, which it never imports. It is native Python (Pillow + numpy) plus FFmpeg. There are no paid APIs and no new dependencies.
-**Status:** six demos are awaiting approval. The engine is **not wired into the app** yet.
+**Status:** integrated in v0.4.62 (Motion → Cinematic). `../cinematic.py` is the only bridge to the app; see AGENT-HANDOFF.md.
 
 ## Layers
 
@@ -34,17 +34,21 @@ class Football(Collection):
 register(Football())
 ```
 
-The core finds the new module automatically (`load_collections()`). Nothing else changes. `test_engine.py::test_new_niche_registers_without_touching_core` checks this.
+The core finds the new module automatically (`load_collections()`). Nothing else changes. `tests/test_cinegfx_engine.py::test_new_niche_registers_without_touching_core` checks this.
 
 ## Selection rules (`core.select`)
 
 1. Every window of every chapter is offered to every category.
-2. Candidates are taken best-first, subject to these limits:
+2. The plan is chosen as a whole (branch and bound, best total value), not best-first, subject to these limits:
    - windows never overlap;
-   - beats are at least 2 sentences apart;
-   - at most 2 beats per chapter;
+   - beats are at least 2 sentences apart, except that two strong matches (≥ 0.85) of different categories may follow each
+     other directly as one sequence. Never more than 3 in a row (v0.4.62: on the full Javits script this keeps all 6 categories;
+     the earlier spacing rule dropped digital and turning);
+   - at most 2 beats per chapter, never the same category twice in one chapter;
    - each re-use of a category decays its score (×0.7), so compositions don't repeat;
+   - each graphic costs 0.55 (it covers the picture), so two weak graphics never displace one strong one;
    - beats below 0.6 are dropped, so a graphic appears only where the script carries real structure (dated events, opposed claims, charges + court…).
+3. In the app, the later graphic of a back-to-back pair covers the earlier one (see `cinematic.handoffs`).
 
 ## Speed on a MacBook Air M1 (8-core)
 

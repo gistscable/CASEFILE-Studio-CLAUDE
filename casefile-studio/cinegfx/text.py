@@ -70,6 +70,11 @@ def split_sentences(text: str) -> list[tuple[int, int]]:
                 if ch == "." and (prev in ABBREV or (len(prev) == 1 and prev.isalpha())) and (not nxt or not nxt.isupper() or prev in {"no", "st"}):
                     i += 1
                     continue
+                # an initial before a name ("Judge J. Logan Murphy", "Thaddeus M. Bullard") or "U.S. Marshals"
+                raw = word[0] if word else ""
+                if ch == "." and nxt.isupper() and (re.fullmatch(r"[A-Z]", raw) or raw.lower() in {"u.s", "u.k"}):
+                    i += 1
+                    continue
                 if nxt and not (nxt.isupper() or nxt.isdigit() or nxt in "\"“'‘"):
                     i += 1
                     continue

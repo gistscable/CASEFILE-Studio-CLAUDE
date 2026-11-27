@@ -33,6 +33,42 @@ def headline(s: str) -> str:
     return T.cap_first(s)
 
 
+INCIDENT_NOUN = [(r"\bstabb(?:ed|ing)\b", "stabbing"), (r"\b(?:shot|shooting)\b", "shooting"), (r"\b(?:killed|killing|murder(?:ed)?)\b", "killing"),
+                 (r"\bdied\b", "death")]
+
+
+def incident_noun(story) -> str:
+    """What the story's incident was called ("shooting", "stabbing" ...), from the sentence that dates it."""
+    for s in story.sentences:
+        if s.dates and re.search(r"\b(shot|shooting|killed|murder|stabbed|died)\b", s.text, re.I):
+            for pat, noun in INCIDENT_NOUN:
+                if re.search(pat, s.text, re.I):
+                    return noun
+    return "incident"
+
+
+NYC = re.compile(r"\b(?:NYPD|New York|Bronx|Manhattan|Brooklyn|Queens|MTA)\b")
+MTA_COLORS = {"1": "#EE352E", "2": "#EE352E", "3": "#EE352E", "4": "#00933C", "5": "#00933C", "6": "#00933C", "7": "#B933AD",
+              "A": "#0039A6", "C": "#0039A6", "E": "#0039A6", "B": "#FF6319", "D": "#FF6319", "F": "#FF6319", "M": "#FF6319",
+              "G": "#6CBE45", "J": "#996633", "Z": "#996633", "L": "#A7A9AC", "N": "#FCCC0A", "Q": "#FCCC0A", "R": "#FCCC0A", "W": "#FCCC0A"}
+
+
+def named_in(story, text: str, exclude=()):
+    """People named in `text` as actors (not only in a possessive like "Javits's mother"), in order."""
+    out = []
+    for p in story.people.values():
+        if p.name in exclude:
+            continue
+        for alias in [p.name] + sorted(p.aliases, key=len, reverse=True):
+            for m in re.finditer(rf"\b{re.escape(alias)}\b(?!['’]s)", text):
+                out.append((m.start(), p.name))
+                break
+            else:
+                continue
+            break
+    return [n for _, n in sorted(out)]
+
+
 def content_words(s: str):
     return {w for w in (x.lower().rstrip("s") for x in T.tokens(s)) if w not in STOP and len(w) > 2}
 
@@ -89,8 +125,9 @@ def detect_findings(story, a, b):
             briefing = s.dates[0].date
             break
     score = 0.45 + 0.12 * len(items) + (0.1 if quotes else 0)
+    agency = "NYPD" if any(lead in s.people and "NYPD" in s.text for s in story.sentences) else "POLICE"
     payload = {"source": lead, "role": story.role_of(lead), "items": items[:5], "quote": quotes[0] if quotes else None,
-               "briefing": briefing.isoformat() if briefing else None, "chapter": story.chapters[story.sentences[a].chapter].title,
+               "briefing": briefing.isoformat() if briefing else None, "agency": agency, "chapter": story.chapters[story.sentences[a].chapter].title,
                "chapter_no": story.chapters[story.sentences[a].chapter].number}
     return score, payload, [f"{len(items)} investigator findings with explicit status from {lead}"]
 
@@ -139,8 +176,9 @@ class FindingsGraphic(Graphic):
             D.text(c, name, th.display, 64, th.ink, px0 + 40 - 30 * (1 - en), py0 + ph - 170, en * e_out)
             D.text(c, (p["role"] or "").upper(), th.label, 22, th.accent, px0 + 42, py0 + ph - 88, en * e_out, tracking=0.14)
             cr = self.assets.credit(self.photo_key)
-            D.rect(c, px0, py0, px0 + D.measure(cr, "mono", 14)[0] + 28, py0 + 34, "#000000", 0.55 * en * e_out)
-            D.text(c, cr, "mono", 14, "#FFFFFF", px0 + 14, py0 + 9, 0.85 * en * e_out)
+            if cr:
+                D.rect(c, px0, py0, px0 + D.measure(cr, "mono", 14)[0] + 28, py0 + 34, "#000000", 0.55 * en * e_out)
+                D.text(c, cr, "mono", 14, "#FFFFFF", px0 + 14, py0 + 9, 0.85 * en * e_out)
         # --- heading
         x0 = 856
         ek = A.ease(t, 0.12, A.FAST)
@@ -151,7 +189,7 @@ class FindingsGraphic(Graphic):
         D.text(c, f"WHAT {surname} SAID", th.display, 92, th.ink, x0, 140, e_out, clip=(x0, 140, x0 + 960 * eh, 280))
         if p.get("briefing"):
             b = dt.date.fromisoformat(p["briefing"])
-            D.text(c, f"NYPD BRIEFING · {long_date(b).upper()}", "mono", 20, th.accent, x0 + 2, 268, A.ease(t, 0.45, A.FAST) * e_out)
+            D.text(c, f"{p.get('agency') or 'POLICE'} BRIEFING · {long_date(b).upper()}", "mono", 20, th.accent, x0 + 2, 268, A.ease(t, 0.45, A.FAST) * e_out)
         D.rect(c, x0, 312, x0 + 968 * A.ease(t, 0.3, 0.5), 315, th.ink, 0.25 * e_out)
         # --- finding rows
         y = 340
@@ -247,7 +285,7 @@ def _events(story, a, b):
         for i in range(len(starts)):
             ca, cb = starts[i], ends[i]
             clause = s.text[ca:cb]
-            ds = [d for d in s.dates if ca <= d.start < cb]
+            ds = [d for d in s.dates if ca <= d.start < cb and not d.back]
             if not ds:
                 continue
             main = ds[0]
@@ -272,16 +310,58 @@ def _events(story, a, b):
                 if rel:
                     sub = ""
             label = re.sub(r"^(?:The|the)\s+", "", label) if len(label.split()) > 2 and main.relative else label
+            m = re.search(r"\b(vigil|memorial|funeral)\b", label, re.I)
             evs.append({"date": main.date.isoformat(), "label": headline(label), "sub": sub.strip(" ,."), "phrase_date": main.text,
-                        "phrase_clause": clause.strip(" ,;")[:40], "rel": rel, "sent": s.i})
+                        "phrase_clause": clause.strip(" ,;")[:40], "rel": rel, "sent": s.i,
+                        "people": named_in(story, label, exclude={story.subject}), "tag": m.group(1).lower() if m else ""})
+    return evs
+
+
+CLOCK = re.compile(r"\b(?:between\s+)?(\d{1,2}):(\d{2})(?:\s*(a\.m\.|p\.m\.|am|pm))?(?:\s+and\s+(\d{1,2}):(\d{2})(?:\s*(a\.m\.|p\.m\.|am|pm))?)?")
+
+
+def _clock_events(story, a, b):
+    """One day, minute by minute: sentences that give an exact clock time ("At 3:33 p.m., ...", "between 2:41 and
+    3:27 p.m."), on the day the chapter has dated. Approximate times ("shortly after 3:30") are not events."""
+    ch = story.sentences[a].chapter
+    day = None
+    for s in story.sentences[:b]:
+        if s.chapter == ch:
+            day = next((d for d in s.dates if not d.back), None) or day
+    if not day:
+        return []
+    evs, half = [], ""
+    for s in story.sentences[a:b]:
+        m = CLOCK.search(s.text)
+        if not m or re.search(r"\b(?:shortly|about|around|approximately|just)\s+(?:after|before)?\s*$", s.text[:m.start()]):
+            continue
+        h1 = (m.group(3) or m.group(6) or half or "").lower()
+        half = h1 or half
+        ampm = "AM" if h1.startswith("a") else "PM" if h1.startswith("p") else ""
+        t1 = f"{int(m.group(1))}:{m.group(2)}"
+        clock = t1 + (f"–{int(m.group(4))}:{m.group(5)}" if m.group(4) else "")
+        # the clause around the time, without the time and the attribution
+        label = (s.text[:m.start()] + s.text[m.end():]).strip()
+        label = re.sub(r"^(?:At|at|By|Around)\s*,?\s*", "", label)
+        label = re.sub(r",?\s*(?:police|prosecutors|investigators|detectives|officials)\s+said,?", "", label)
+        label = re.sub(r"^(?:According to [^,]+,\s*)", "", label)
+        label = re.sub(r"\s+(?:toward|towards|near)\b.*$", "", label.strip(" ,.;"))
+        label = re.sub(r"\s{2,}", " ", label).strip(" ,.;")
+        evs.append({"date": day.date.isoformat(), "clock": clock, "ampm": ampm, "label": headline(label), "sub": "", "phrase_date": m.group(0).replace("between ", ""),
+                    "phrase_clause": s.text.strip(" ,;")[:40], "rel": None, "sent": s.i, "people": [], "tag": ""})
     return evs
 
 
 def detect_timeline(story, a, b):
     evs = _events(story, a, b)
     dates = {e["date"] for e in evs}
-    if len(dates) < 3:
-        return None
+    if len(dates) < 3 or b - a > 3:
+        evs = _clock_events(story, a, b)
+        if len({e["clock"] for e in evs}) < 3 or story.sentences[a].i not in [e["sent"] for e in evs]:
+            return None
+        ch = story.chapters[story.sentences[a].chapter]
+        return 0.6 + 0.1 * len(evs), {"events": evs, "chapter": ch.title, "chapter_no": ch.number, "incident": None, "clock": True}, \
+            [f"{len(evs)} clock times on {evs[0]['date']}"]
     ch = story.chapters[story.sentences[a].chapter]
     return 0.5 + 0.12 * len(dates), {"events": evs, "chapter": ch.title, "chapter_no": ch.number,
                                       "incident": story.incident_date().isoformat() if story.incident_date() else None}, [f"{len(dates)} dated events"]
@@ -305,8 +385,15 @@ class TimelineGraphic(Graphic):
             self.events.append(ev)
         # positions: a broken axis — the anchor event (incident) at left, then the run of events evenly
         self.xs = [640 + i * (1690 - 640) / max(1, len(self.events) - 1) for i in range(len(self.events))]
-        self.crump_key, _ = self.assets.find(person="Ben Crump")
-        self.vigil_key, _ = self.assets.find(tag="vigil")
+        # a card shows a photo of a person it names (assigned by the producer), or of the vigil / memorial it is
+        # about when it is the last card; never the subject's own photo on someone else's card
+        self.card_photo = {}
+        for i, e in enumerate(self.events):
+            key = next((k for k in (self.assets.find(person=n)[0] for n in e.get("people") or []) if k), None)
+            if not key and e.get("tag") and i == len(self.events) - 1:
+                key, _ = self.assets.find(tag=e["tag"])
+            if key:
+                self.card_photo[i] = (key, (0.55, 0.32) if e.get("people") else (0.62, 0.6))
         self.cue(0.05, "whoosh-dir-r", -7, "rail")
         for i, e in enumerate(self.events):
             self.cue(e["t"], f"click-muted-{i % 3 + 1}", -6, "event card")
@@ -325,7 +412,12 @@ class TimelineGraphic(Graphic):
         D.text(c, p["chapter"].upper(), th.display, 72, th.ink, 120, 124, e_out, clip=(120, 120, 120 + 1700 * eh, 240))
         first = dt.date.fromisoformat(p["incident"]) if p.get("incident") else dt.date.fromisoformat(self.events[0]["date"])
         lastd = dt.date.fromisoformat(self.events[-1]["date"])
-        D.text(c, f"{short_date(first)} — {short_date(lastd)}, {lastd.year}".upper(), "mono", 22, th.muted, 1800, 108, ek * e_out, anchor="r")
+        if p.get("clock"):  # one day: the date once, then the clock span
+            e0, e1 = self.events[0], self.events[-1]
+            span = f"{e0['clock'].split('–')[0]} {e0.get('ampm', '')} — {e1['clock'].split('–')[-1]} {e1.get('ampm', '')}".replace("  ", " ")
+            D.text(c, f"{short_date(lastd)}, {lastd.year} · {span}".upper().strip(), "mono", 22, th.muted, 1800, 108, ek * e_out, anchor="r")
+        else:
+            D.text(c, f"{short_date(first)} — {short_date(lastd)}, {lastd.year}".upper(), "mono", 22, th.muted, 1800, 108, ek * e_out, anchor="r")
         # rail
         ry = 560
         er = A.ease(t, 0.05, 0.6, A.out_quint)
@@ -372,17 +464,21 @@ class TimelineGraphic(Graphic):
             # big date above the rail, rises into place when spoken
             if ed > 0:
                 dy = ry - 120 + 30 * (1 - A.out_expo(ed))
-                D.text(c, short_date(d), th.display, 92, th.ink, x, dy - 20, e_out, anchor="c", clip=(x - 200, ry - 150, x + 200, ry - 12))
+                big = e.get("clock") or short_date(d)
+                size = D.fit_size(big, th.display, 390, 92, 48) if e.get("clock") else 92
+                D.text(c, big, th.display, size, th.ink, x, dy - 20 + (92 - size) * 0.5, e_out, anchor="c", clip=(x - 200, ry - 150, x + 200, ry - 12))
+                if e.get("ampm"):
+                    D.text(c, e["ampm"], th.label, 20, th.accent, x, ry - 150 - 8, min(1, ed * 2) * e_out, anchor="c", tracking=0.2)
             # card below the rail
             cy = ry + 40
             card_w = 330
             cx0 = x - card_w / 2
             D.rect(c, cx0, cy, cx0 + card_w * ee, cy + 4, th.accent if e.get("rel") else th.ink, e_out)
             yy = cy + 24
-            photo_key = self.crump_key if "Crump" in e["label"] else (self.vigil_key if re.search(r"vigil", e["label"], re.I) and i == len(self.events) - 1 else None)
+            photo_key, focus = self.card_photo.get(i, (None, None))
             if photo_key:
                 ph = 150
-                img = D.photo(self.assets.path(photo_key), card_w, ph, focus=(0.55, 0.32) if photo_key == self.crump_key else (0.62, 0.6),
+                img = D.photo(self.assets.path(photo_key), card_w, ph, focus=focus,
                               zoom=1 + 0.05 * A.prog(t, e["t"], 4.0), sat=0.95)
                 D.blit(c, img, cx0, yy, e_out, clip=(cx0, yy, cx0 + card_w, yy + ph * A.ease(t, e["t"] + 0.05, 0.35)))
                 D.text(c, self.assets.credit(photo_key), "mono", 12, th.muted, cx0, yy + ph + 6, ee * e_out)
@@ -397,11 +493,31 @@ class TimelineGraphic(Graphic):
 
 # ============================================================ 3. CONTRADICTORY STATEMENTS
 
-def _side(story, claim):
-    role = story.role_of(claim.source)
+def _kind(story, claim):
+    """Who an account is from: "defense", "family" or "official" (police, prosecutors, officials)."""
+    role = story.role_of(claim.source) or ""
+    if claim.source == "the defense" or re.search(r"defen[cs]e", role, re.I):
+        return "defense"
     if role in FAMILY_ROLES or claim.source.lower().startswith(("his ", "her ", "the family")):
         return "family"
     return "official"
+
+
+def _side(story, claim):
+    """The column an account goes in: the official one, or the other side (the family's, or the defense's)."""
+    return "official" if _kind(story, claim) == "official" else "family"
+
+
+# accounts that oppose each other without a negation: a deliberate killing against self-defense or an accident
+OPPOSED = [(r"\bdeliberate(?:ly)?\b|\bplanned\b|\bintentional(?:ly)?\b|\bpremeditated\b", r"\bself-defen[cs]e\b|\baccident(?:al(?:ly)?)?\b")]
+
+
+def _opposed(c1, c2):
+    for a, b in OPPOSED:
+        if (re.search(a, c1.content, re.I) and re.search(b, c2.content, re.I) and not re.search(b, c1.content, re.I)) or \
+                (re.search(b, c1.content, re.I) and re.search(a, c2.content, re.I) and not re.search(b, c2.content, re.I)):
+            return True
+    return False
 
 
 def detect_contradiction(story, a, b):
@@ -409,9 +525,14 @@ def detect_contradiction(story, a, b):
     best = None
     for i, (s1, c1) in enumerate(claims):
         for s2, c2 in claims[i + 1:]:
-            if c1.source == c2.source or c1.negated == c2.negated:
+            if c1.source == c2.source:
                 continue
-            ov = content_words(c1.content) & content_words(c2.content)
+            if c1.negated == c2.negated:
+                if _side(story, c1) == _side(story, c2) or not _opposed(c1, c2):
+                    continue
+                ov = (content_words(c1.content) & content_words(c2.content)) | {"deliberate|self-defense"}
+            else:
+                ov = content_words(c1.content) & content_words(c2.content)
             if ov and (not best or len(ov) > best[0]):
                 best = (len(ov), c1, c2, ov)
     if not best:
@@ -425,9 +546,22 @@ def detect_contradiction(story, a, b):
             sides[side].append(c)
     if not sides["family"] or not sides["official"]:
         return None
+    defense = any(_kind(story, c) == "defense" for c in sides["family"])
+    if defense and any(_kind(story, c) == "family" for c in sides["family"]):
+        sides["family"] = [c for c in sides["family"] if _kind(story, c) == "defense"]
+    if defense:
+        # prosecution against defense: only the prosecution's accounts (not, say, what police said they found);
+        # and the window starts with the dispute itself
+        pros = [c for c in sides["official"] if re.search(r"prosecut|attorney", story.role_of(c.source) or c.source, re.I)]
+        if pros:
+            sides["official"] = pros
+        used = sides["official"] + sides["family"]
+        if not any(c in used for c in story.sentences[a].claims):
+            return None
+    prosecution = defense and all(re.search(r"prosecut|attorney", (story.role_of(c.source) or c.source), re.I) for c in sides["official"])
     # context: what does "that incident" refer to? the earliest quoted account of it
     context = None
-    for s in story.sentences[:a]:
+    for s in ([] if defense else story.sentences[:a]):
         if re.search(r"fight|fighting|suspended|incident", s.text) and "“" in s.text and s.claims:
             q = re.search(r"“([^”]+)”", s.text)
             if q:
@@ -439,13 +573,20 @@ def detect_contradiction(story, a, b):
         who = c.source.upper()
         if role in FAMILY_ROLES:
             who = f"{story.subject.split()[0]}’s {role}".upper()
+        elif defense and role and c.source in story.people:
+            who = f"{c.source} · {role}".upper()
+        text = headline(c.content)
+        if defense:
+            text = re.sub(r"\band that\s+", "and ", text)
         cite = re.search(r",\s*citing ([^,]+),", story.sentences[[s.i for s, cc in claims if cc is c][0]].text)
-        return {"who": who, "via": c.via, "cite": cite.group(1) if cite else "", "text": headline(c.content), "negated": c.negated,
+        return {"who": who, "via": c.via, "cite": cite.group(1) if cite else "", "text": text, "negated": c.negated,
                 "phrase": c.content[:30]}
 
     ch = story.chapters[story.sentences[a].chapter]
     payload = {"family": [pack(c) for c in sides["family"]], "official": [pack(c) for c in sides["official"]],
                "topic": sorted(ov), "context": context, "chapter": ch.title}
+    if defense:
+        payload["labels"] = {"family": "THE DEFENSE", "official": "THE PROSECUTION" if prosecution else "OFFICIAL ACCOUNTS"}
     return 0.62 + 0.08 * len(ov) + 0.05 * (len(sides["official"]) + len(sides["family"]) - 2), payload, [f"opposed claims share {sorted(ov)}"]
 
 
@@ -463,7 +604,8 @@ class ContradictionGraphic(Graphic):
         self.cards.sort(key=lambda k: k["t"])
         fam = [k for k in self.cards if k["side"] == "family"]
         self.t_neq = fam[0]["tw0"] if fam else self.duration / 2
-        self.crump_key, _ = self.assets.find(person="Ben Crump")
+        # the person who relayed a statement, if the producer assigned a photo of them: a small round portrait
+        self.via_key = {k["via"]: self.assets.find(person=k["via"])[0] for k in self.cards if k.get("via")}
         self.cue(0.0, "whoosh-short-1", -8, "halves in")
         self.cue(0.12, "whoosh-short-2", -10, "halves in")
         for k in self.cards:
@@ -496,8 +638,9 @@ class ContradictionGraphic(Graphic):
         D.rect(c, 1920 - 960 * A.ease(t, 0.1, 0.4, A.out_quint), 0, 1920, D.H, cool, e_out)
         es = A.ease(t, 0.3, 0.5)
         D.rect(c, 958, 0, 962, D.H * es, th.ink, 0.35 * e_out)
-        D.text(c, "THE FAMILY’S ACCOUNT", th.label, 22, th.accent2, 110, 110, A.ease(t, 0.3, A.FAST) * e_out, tracking=0.2)
-        D.text(c, "OFFICIAL ACCOUNTS", th.label, 22, th.accent, 1050, 110, A.ease(t, 0.35, A.FAST) * e_out, tracking=0.2)
+        labels = p.get("labels") or {}
+        D.text(c, labels.get("family", "THE FAMILY’S ACCOUNT"), th.label, 22, th.accent2, 110, 110, A.ease(t, 0.3, A.FAST) * e_out, tracking=0.2)
+        D.text(c, labels.get("official", "OFFICIAL ACCOUNTS"), th.label, 22, th.accent, 1050, 110, A.ease(t, 0.35, A.FAST) * e_out, tracking=0.2)
         D.rect(c, 110, 150, 110 + 740 * es, 152, th.accent2, 0.6 * e_out)
         D.rect(c, 1050, 150, 1050 + 760 * es, 152, th.accent, 0.6 * e_out)
         ys = {"family": 220, "official": 220}
@@ -516,8 +659,8 @@ class ContradictionGraphic(Graphic):
             if k.get("cite"):
                 who = f"{k['who']} · CITING {k['cite'].upper()}"
             ax = x0
-            if k.get("via") and self.crump_key and k["via"] == "Ben Crump":
-                av = D.photo(self.assets.path(self.crump_key), 64, 64, focus=(0.55, 0.3), headroom=1.0)
+            if k.get("via") and self.via_key.get(k["via"]):
+                av = D.photo(self.assets.path(self.via_key[k["via"]]), 64, 64, focus=(0.55, 0.3), headroom=1.0)
                 mask = D.disc(64, (255, 255, 255, 255))
                 av.putalpha(mask.split()[3])
                 D.blit(c, av, x0, y - 14, ek * e_out)
@@ -567,27 +710,53 @@ class ContradictionGraphic(Graphic):
 
 # ============================================================ 4. LEGAL OUTCOME
 
+CRIMES = r"(?:(?:first|second|third)-degree\s+)?(?:attempted\s+)?(?:murder|manslaughter|homicide|assault|robbery|kidnapping|arson|burglary)"
+WORD_AGES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+                                        "sixteen seventeen eighteen nineteen twenty".split())}
+
+
 def detect_legal(story, a, b):
     sents = story.sentences[a:b]
     txt = " ".join(s.text for s in sents)
-    m = re.search(r"charges? of ([^.]+?)(?:,\s*police said|\.|;)", txt) or re.search(r"charged with ([^.,;]+)", txt)
+    # charges attached to someone ("faced charges of ...", "was / had been / is charged with ..."), not a general
+    # statement about the law ("most 17-year-olds charged with felonies begin in Youth Part")
+    m = re.search(r"\b(?:faces?|faced|facing)\s+(?:\w+\s+)?charges? of ([^.]+?)(?:,\s*(?:police|prosecutors) said|\.|;)", txt) or \
+        re.search(r"\b(?:was|were|is|are|been|being)\s+(?:arrested\s+and\s+)?charged with ([^.,;]+)", txt) or \
+        re.search(r"\bannounced\s+(?:an?\s+)?(?:additional\s+|new\s+)?((?:[\w-]+\s){0,2}?[\w-]+)\s+charges?\b", txt) or \
+        re.search(rf"\bguilty of ({CRIMES})", txt) or re.search(rf"\b(?:in|for) the ({CRIMES})(?:\s+case)?\b", txt)
     if not m:
         return None
     charges = [x.strip() for x in re.split(r",\s*|\s+and\s+(?=[a-z])", m.group(1)) if x.strip()]
+    if not charges or any(len(c.split()) > 7 or re.search(r"\b(?:begin|begins|can|may|will|would|is|are|was|were)\b", c) for c in charges) \
+            or all(re.fullmatch(r"(?:felon(?:y|ies)|crimes?|offen[cs]es?|charges?|misdemeanou?rs?)", c.lower()) for c in charges):
+        return None
     court = next((pl for s in sents for pl in s.places if re.search(r"Court", pl)), None)
     judge = next((n for s in sents for n in s.people if story.role_of(n) in ("Judge", "Justice")), None)
     outcome = re.search(r"\b(remanded without bail|held without bail|released on bail|convicted|acquitted|sentenced to [^.]+)", txt)
-    date = next((d for s in sents for d in s.dates), None)
+    verdict = None
+    if not outcome:  # "found Moore guilty", "sentenced Moore to fifty-five years in prison": the outcome without the name
+        g = re.search(r"\bfound\s+(?:\w+\s+){1,2}?(guilty|not guilty)\b", txt)
+        sn = re.search(r"\bsentenced\s+(?:\w+\s+){1,2}?to\s+([^.,;]+?)(?:\s+for\b|[.,;])", txt)
+        verdict = ("found " + g.group(1)) if g else ("sentenced to " + sn.group(1)) if sn else None
+    date = next((d for s in sents for d in s.dates if not d.back), None)
     hearing = re.search(r"\b(arraigned|indicted|sentenced|convicted|acquitted)\b", txt)
+    if not hearing and verdict and verdict.startswith("found"):
+        hearing = re.search(r"\b(verdict|jury)\b", "verdict")
     attrib = re.search(r",\s*(police said|prosecutors said)", txt)
-    n = sum(bool(x) for x in (court, judge, outcome, date))
+    n = sum(bool(x) for x in (court, judge, outcome or verdict, date))
     if n < 2:
         return None
-    payload = {"charges": charges, "court": court, "judge": judge, "outcome": outcome.group(1) if outcome else None,
+    age = re.search(r"\b(\d{1,2})-year-old\b", txt)  # the defendant by age only: a name is never taken (juveniles)
+    if not age:
+        wa = re.search(r"\b(" + "|".join(WORD_AGES) + r")-year-old\b", txt, re.I)
+        if wa:
+            age = re.search(r"(.*)", f"{WORD_AGES[wa.group(1).lower()]}-year-old")
+    out = outcome.group(1) if outcome else verdict
+    payload = {"charges": charges, "court": court, "judge": judge, "outcome": out,
                "date": date.date.isoformat() if date else None, "date_phrase": date.text if date else None,
                "hearing": hearing.group(1) if hearing else None, "attrib": attrib.group(1) if attrib else None,
-               "defendant": "17-year-old" if "17-year-old" in txt else "defendant"}
-    return 0.5 + 0.1 * n + 0.04 * len(charges), payload, [f"charges {charges}; court={court}; judge={judge}; outcome={payload['outcome']}"]
+               "defendant": age.group(0) if age else "defendant"}
+    return 0.5 + 0.1 * n + 0.04 * len(charges), payload, [f"charges {charges}; court={court}; judge={judge}; outcome={out}"]
 
 
 class LegalGraphic(Graphic):
@@ -626,7 +795,8 @@ class LegalGraphic(Graphic):
         # header band
         eb = A.ease(t, 0.0, 0.4, A.out_quint)
         D.rect(c, 0, 0, D.W, 150 * eb, th.accent, e_out)
-        D.text(c, (p.get("court") or "COURT").upper(), th.display, 64, th.bg, 120, 40, A.ease(t, 0.2, A.FAST) * e_out, clip=(0, 0, D.W, 150 * eb))
+        head = (p.get("court") or "COURT").upper() if (self.court_key or not p.get("court")) else "COURT RECORD"  # no photo: the plate names it
+        D.text(c, head, th.display, 64, th.bg, 120, 40, A.ease(t, 0.2, A.FAST) * e_out, clip=(0, 0, D.W, 150 * eb))
         if p.get("date"):
             d = dt.date.fromisoformat(p["date"])
             lbl = f"{(p.get('hearing') or 'hearing').upper().replace('ARRAIGNED', 'ARRAIGNMENT')} · {long_date(d).upper()}"
@@ -640,8 +810,20 @@ class LegalGraphic(Graphic):
             img = D.photo(self.assets.path(self.court_key), s, s, focus=(0.5, 0.45), zoom=A.drift(t, self.duration, 0.05), headroom=1.06)
             D.blit(c, img, x0 + 10, y0 + 10, e_out, clip=(x0 + 10, y0 + 10, x0 + 10 + s * ep, y0 + 10 + s))
             src = self.assets.items[self.court_key]
-            D.text(c, src["subject"].split(",")[0].upper(), "mono", 16, th.ink, x0, y0 + s + 46, ep * e_out)
+            D.text(c, str(src.get("subject") or p.get("court") or "").split(",")[0].upper(), "mono", 16, th.ink, x0, y0 + s + 46, ep * e_out)
             D.text(c, self.assets.credit(self.court_key), "mono", 14, th.muted, x0, y0 + s + 72, ep * e_out)
+        elif p.get("court"):
+            # no photo of the court: a printed plate of what the narration says about it (nothing invented)
+            ep = A.ease(t, 0.15, 0.45)
+            x0, w = 120, 540
+            court = p["court"].upper()
+            size = D.fit_size(court, th.display, w, 84, 40, lines=3)
+            D.text(c, "COURT", th.label, 20, th.accent, x0, 250, ep * e_out, tracking=0.2)
+            y = 296
+            for ln in D.wrap(court, th.display, size, w)[:3]:
+                D.text(c, ln, th.display, size, th.ink, x0, y, e_out, clip=(x0, y - 12, x0 + (w + 8) * ep, y + size * 1.4))
+                y += int(size * 1.08)
+            D.rect(c, x0, y + 34, x0 + w * ep, y + 36, th.ink, 0.4 * e_out)
         # docket
         x0 = 790
         ed = A.ease(t, 0.25, A.FAST)
@@ -729,7 +911,12 @@ EVIDENCE = [
     (r"surveillance video|video|footage", "SURVEILLANCE VIDEO"), (r"backpack", "BACKPACK"), (r"shell casings?", "SHELL CASINGS"),
     (r"phone records?|phone", "PHONE"), (r"MetroCard|turnstile", "TURNSTILE"), (r"DNA", "DNA"), (r"cameras?", "CAMERAS"),
     (r"license plate", "LICENSE PLATE"), (r"GPS|location data", "LOCATION DATA"),
+    (r"records of (?:[\w’']+\s){0,3}?communicat\w+|communications? records?", "COMMUNICATION RECORDS"),
+    (r"social media (?:messages?|posts?)", "SOCIAL MEDIA MESSAGES"), (r"search history", "SEARCH HISTORY"), (r"\bnotes\b", "NOTES"),
+    (r"(?<!media )\bmessages\b", "MESSAGES"),
 ]
+ROUTELESS_MIN = 3   # an evidence log with no route: at least this many distinct kinds of evidence
+UNRELEASED = r"had not been (?:publicly )?released|not been made public|was not (?:publicly )?disclosed"
 MOVES = r"(went through|boarded|jumped|tracked into|fled to|drove to|ran to|took)"
 
 
@@ -741,13 +928,22 @@ def detect_digital(story, a, b):
         for pat, label in EVIDENCE:
             m = re.search(pat, s.text, re.I)
             if m and label not in [i["label"] for i in items] and label != "TURNSTILE":
+                if label == "PHONE" and re.search(r"cellphone records", s.text, re.I):
+                    label = "CELLPHONE RECORDS"
+                    if label in [i["label"] for i in items]:
+                        continue
+                if label == "SOCIAL MEDIA MESSAGES" and m.group(0).lower().endswith(("post", "posts")):
+                    label = "SOCIAL MEDIA POSTS"
                 items.append({"label": label, "phrase": m.group(0), "sent": s.i})
     route = []
     for s in sents:
         for m in re.finditer(rf"{MOVES}\s+(?:a\s+|the\s+)?((?:No\.\s*\d+|[^,;.])+?)(?=,|;|\.| and were| and |$)", s.text):
             route.append({"verb": m.group(1), "what": m.group(2).strip(), "phrase": m.group(0)[:28]})
-    if len(items) < 2 or len(route) < 2:
-        return None
+    if len(route) < 2:
+        if len(items) < ROUTELESS_MIN:
+            return None
+        route = []  # an evidence log on its own; a single move is not a route
+    items = items[:8]
     # origin from story context: where were they before?
     origin = None
     for s in story.sentences[:b]:
@@ -758,9 +954,12 @@ def detect_digital(story, a, b):
         m = re.search(r"near ((?:East|West) [\w ]+? and [\w ]+?),", s.text)
         if m and not loc:
             loc = m.group(1)
-        m = re.search(r"around (\d{1,2}:\d{2})", s.text)
+        m = re.search(r"around (\d{1,2}:\d{2})(\s*(?:a\.m\.|am)|\s*(?:p\.m\.|pm))?(?:\s+(?:that|in the)\s+(morning|afternoon|evening|night))?", s.text)
         if m and not time:
-            time = m.group(1)
+            half = (m.group(2) or "").strip().lower()
+            part = m.group(3) or ""
+            ampm = "AM" if half.startswith("a") or part == "morning" else "PM" if half.startswith("p") or part in ("afternoon", "evening", "night") else ""
+            time = (m.group(1) + (" " + ampm if ampm else "")).strip()
     inc = story.incident_date()
     briefing = None
     for s in story.sentences:
@@ -776,6 +975,16 @@ def detect_digital(story, a, b):
             status["SURVEILLANCE VIDEO"] = ("REPORTED · " + ", ".join(outlets).upper(), "reported obtaining")
         if re.search(r"returned to collect shell casings", s.text):
             status["SHELL CASINGS"] = ("COLLECTED BY THE THREE", "returned to collect")
+        um = re.search(UNRELEASED, s.text)
+        if um:  # "one social media message contained a detail ... that had not been publicly released"
+            for pat, label in EVIDENCE:
+                if re.search(pat, s.text, re.I) and label not in status:
+                    status[label] = ("DETAIL NOT RELEASED", um.group(0))
+                    break
+        dm = re.search(r"\bdefen[cs]e disputed\b", s.text)
+        if dm and re.search(r"digital|messages|posts", s.text):
+            for label in ("SOCIAL MEDIA MESSAGES", "SOCIAL MEDIA POSTS", "MESSAGES"):
+                status.setdefault(label, ("DISPUTED BY THE DEFENSE", "disputed"))
     for it in items:
         it["status"], it["status_phrase"] = status.get(it["label"], ("", ""))
         s = story.sentences[it["sent"]]
@@ -786,9 +995,15 @@ def detect_digital(story, a, b):
             cl = next((c.content for c in s.claims if it["phrase"].lower() in c.content.lower()), "")
             cl = re.split(r",\s*(?:went|jumped|boarded)\b", cl)[0]
             it["detail"] = headline(cl)
+            if any(o is not it and o.get("detail") == it["detail"] and o["sent"] == it["sent"] for o in items):
+                it["detail"] = ""  # one sentence listing several kinds of evidence: its words go under the first only
+    place = next((r["what"] for r in route if re.search(r"\b(?:station|Station|Street|Avenue|Park|Square|Bridge)\b", r["what"])), None)
+    nyc = bool(NYC.search(" ".join(s.text for s in story.sentences)))
+    by_police = bool(re.search(r"\bpolice\b", txt, re.I)) or any(INVESTIGATORS.search(story.role_of(c.source) or c.source) for s in sents for c in s.claims)
     payload = {"items": items, "route": route, "origin": origin, "origin_loc": loc, "time": time, "date": inc.isoformat() if inc else None,
-               "briefing": briefing}
-    return 0.55 + 0.08 * len(items) + 0.06 * len(route), payload, [f"evidence {[i['label'] for i in items]} + route of {len(route)} moves"]
+               "briefing": briefing, "place": place, "nyc": nyc, "by": "POLICE" if by_police else "", "incident": incident_noun(story)}
+    score = 0.55 + 0.08 * len(items) + 0.06 * len(route) + (0.04 * sum(bool(i["status"]) for i in items) if not route else 0)
+    return score, payload, [f"evidence {[i['label'] for i in items]} + route of {len(route)} moves"]
 
 
 class DigitalGraphic(Graphic):
@@ -807,7 +1022,7 @@ class DigitalGraphic(Graphic):
             if t0 is not None:
                 self.route.append(dict(r, t=t0))
         self.t_route0 = (self.route[0]["t"] - 2.4) if self.route else 2.0
-        self.station_key, _ = self.assets.find(place="Freeman Street station")
+        self.station_key, _ = self.assets.find(place=p["place"]) if p.get("place") else (None, None)
         self.cue(0.0, "scan-1", -10, "hud boot")
         for it in self.items:
             n = len(it["label"])
@@ -825,7 +1040,7 @@ class DigitalGraphic(Graphic):
 
     def _t_station(self):
         for r in self.route:
-            if "station" in r["what"].lower():
+            if r["what"] == self.p.get("place"):
                 return r["t"]
         return self.t_route0 + 1
 
@@ -839,25 +1054,28 @@ class DigitalGraphic(Graphic):
         D.text(c, "EVIDENCE ANALYSIS", "mono", 24, th.accent, 60, 18, eh * e_out)
         if p.get("briefing"):
             b = dt.date.fromisoformat(p["briefing"])
-            D.text(c, f"SOURCE: POLICE ACCOUNT · BRIEFING {short_date(b)}, {b.year}", "mono", 18, th.muted, 1860, 22, eh * e_out, anchor="r")
+            src = "SOURCE: POLICE ACCOUNT · " if p.get("by", "POLICE") else ""
+            D.text(c, f"{src}BRIEFING {short_date(b)}, {b.year}", "mono", 18, th.muted, 1860, 22, eh * e_out, anchor="r")
         D.rect(c, 0, 64, D.W * A.ease(t, 0.05, 0.5), 66, th.accent, 0.8 * e_out)
         tc = max(0.0, t)
         D.text(c, f"T+{int(tc // 60):02d}:{tc % 60:05.2f}", "mono", 18, th.accent, 1860, 1030, 0.7 * eh * e_out, anchor="r")
-        # evidence log
-        x0 = 80
-        D.text(c, "EVIDENCE LOG", "mono", 20, th.muted, x0, 112, A.ease(t, 0.2, A.FAST) * e_out)
-        y = 160
+        # evidence log (with no route, it fills both columns)
+        D.text(c, "EVIDENCE LOG", "mono", 20, th.muted, 80, 112, A.ease(t, 0.2, A.FAST) * e_out)
         for i, it in enumerate(self.items):
+            col, row = (0, i) if self.route else divmod(i, 4)
+            x0, y = 80 + 920 * col, 160 + 230 * row
             ei = A.ease(t, it["t"] - 0.05, A.FAST)
             if ei <= 0:
-                y += 230
                 continue
             D.blit(c, D.rounded(760, 200, 4, th.c("bg2"), th.c("accent", 70), 2), x0, y, ei * e_out)
             D.rect(c, x0, y, x0 + 6, y + 200, th.accent, ei * e_out)
             D.text(c, f"E{i + 1:02d}", "mono", 18, th.muted, x0 + 30, y + 22, ei * e_out)
             D.text(c, A.typed(it["label"], t, it["t"], 40), th.heading, 40, th.ink, x0 + 30, y + 46, e_out)
             if it.get("detail"):
-                for j, line in enumerate(D.wrap(it["detail"], th.body, 22, 690)[:1]):
+                dl = D.wrap(it["detail"], th.body, 22, 690)[:1]
+                if not self.route and dl and dl[0] != it["detail"]:
+                    dl = [dl[0].rstrip(",;: ")]  # a cut line never ends on a dangling comma
+                for j, line in enumerate(dl):
                     D.text(c, line, th.body, 22, th.muted, x0 + 30, y + 104 + j * 30, A.ease(t, it["t"] + 0.4, A.FAST) * e_out)
             if it.get("status"):
                 es = A.prog(t, it["ts"], A.SNAP)
@@ -868,12 +1086,13 @@ class DigitalGraphic(Graphic):
                     tag = D.rounded(w + 28, 34, 3, D.col(colr, 40), D.col(colr), 2)
                     D.blit(c, tag, x0 + 730 - tag.width, y + 148, min(1, es * 3) * e_out)
                     D.text(c, it["status"], "mono", 18, colr, x0 + 730 - tag.width + 14, y + 155, min(1, es * 3) * e_out)
-            y += 230
+        if not self.route:
+            return
         # route panel
         rx0 = 960
         er = A.ease(t, self.t_route0, A.FAST)
         if er > 0:
-            D.text(c, "ROUTE · AS DESCRIBED BY POLICE", "mono", 20, th.muted, rx0, 112, er * e_out)
+            D.text(c, "ROUTE · AS DESCRIBED BY POLICE" if p.get("by", "POLICE") else "ROUTE · AS DESCRIBED", "mono", 20, th.muted, rx0, 112, er * e_out)
             D.text(c, "SCHEMATIC — NOT TO SCALE", "mono", 16, th.muted, 1860, 114, er * e_out * 0.8, anchor="r")
         nodes = self._nodes()
         # draw the path progressively: each step reaches its node when narrated
@@ -884,7 +1103,7 @@ class DigitalGraphic(Graphic):
             if pr <= 0:
                 continue
             q = (a["xy"][0] + (b["xy"][0] - a["xy"][0]) * pr, a["xy"][1] + (b["xy"][1] - a["xy"][1]) * pr)
-            colr = "#00933C" if a.get("train") else th.accent
+            colr = (a.get("line") or th.accent2) if a.get("train") else th.accent
             D.polyline(c, [a["xy"], q], colr, 8, e_out)
         for n in nodes:
             en = A.prog(t, n["t"] + (0.25 if n is not nodes[0] else 0), A.SNAP)
@@ -900,7 +1119,7 @@ class DigitalGraphic(Graphic):
                 rd = int(44 + 40 * pu)
                 D.blit(c, D.disc(rd, (0, 0, 0, 0), th.c("accent2", int(200 * (1 - pu))), 3), x - rd / 2, yy - rd / 2, e_out)
             if n.get("train"):
-                D.blit(c, D.disc(56, D.col("#00933C")), x - 28 + 60, yy - 28, min(1, en * 2) * e_out)
+                D.blit(c, D.disc(56, D.col(n.get("line") or th.accent2)), x - 28 + 60, yy - 28, min(1, en * 2) * e_out)
                 D.text(c, n.get("route_no") or "", "lib-sans", 40, "#FFFFFF", x + 60, yy - 24, min(1, en * 2) * e_out, anchor="c")
             lx = x + (110 if n.get("train") else 40)
             D.text(c, n["label"], th.heading, 34, th.ink, lx, yy - 26, e_out, clip=(lx, yy - 40, lx + 600 * A.out_expo(min(1, en * 1.4)), yy + 30))
@@ -918,7 +1137,7 @@ class DigitalGraphic(Graphic):
                 sl = A.prog(t, ts + 0.1, 0.8)
                 if 0 < sl < 1:
                     D.rect(c, x, y0 + h * sl, x + w, y0 + h * sl + 2, th.accent, e_out)
-                D.text(c, "FREEMAN ST STATION", "mono", 14, th.ink, x, y0 + h + 10, ep * e_out)
+                D.text(c, self.p["place"].upper().replace(" STREET ", " ST ").replace("STREET STATION", "ST STATION"), "mono", 14, th.ink, x, y0 + h + 10, ep * e_out)
                 D.text(c, self.assets.credit(self.station_key), "mono", 12, th.muted, x, y0 + h + 30, ep * e_out)
 
     def _nodes(self):
@@ -926,8 +1145,8 @@ class DigitalGraphic(Graphic):
             return self._n
         p = self.p
         nodes = []
-        sub = " · ".join(x for x in [p.get("origin_loc", "") and "SHOOTING NEAR " + p["origin_loc"].upper().replace("EAST ", "E ").replace("STREET", "ST").replace("PLACE", "PL").replace(" AND ", " & "),
-                                      (f"{short_date(dt.date.fromisoformat(p['date']))} · ~{p['time']} AM" if p.get("date") and p.get("time") else "")] if x)
+        sub = " · ".join(x for x in [p.get("origin_loc", "") and (p.get("incident") or "incident").upper() + " NEAR " + p["origin_loc"].upper().replace("EAST ", "E ").replace("STREET", "ST").replace("PLACE", "PL").replace(" AND ", " & "),
+                                      (f"{short_date(dt.date.fromisoformat(p['date']))} · ~{p['time']}" if p.get("date") and p.get("time") else "")] if x)
         nodes.append({"label": (p.get("origin") or "START").upper(), "sub": sub, "t": self.t_route0, "xy": (1010, 220)})
         coords = [(1010, 440), (1010, 640), (1260, 860), (1520, 860)]
         k = 0
@@ -943,6 +1162,7 @@ class DigitalGraphic(Graphic):
                 n["train"] = True
                 num = re.search(r"No\.\s*(\d+)", what)
                 n["route_no"] = num.group(1) if num else ""
+                n["line"] = MTA_COLORS.get(n["route_no"]) if p.get("nyc") else None  # the real line colour, only for New York
                 n["label"] = re.sub(r"\s*No\.\s*\d+\s*train", "", what, flags=re.I).upper() or "TRAIN"
                 n["sub"] = (f"NO. {n['route_no']} TRAIN" if num else "TRAIN")
             if r["verb"] == "tracked into":
@@ -965,7 +1185,9 @@ def detect_turning(story, a, b):
     if b - a != 2:
         return None
     q, ans = story.sentences[a], story.sentences[a + 1]
-    if not q.question or not ans.dates or not re.search(TURN_VERBS, ans.text):
+    if not q.question:
+        return _turning_elapsed(story, q, ans)
+    if not ans.dates or not re.search(TURN_VERBS, ans.text):
         return None
     if story.sentences[a].chapter != story.sentences[a + 1].chapter and False:
         return None
@@ -979,10 +1201,37 @@ def detect_turning(story, a, b):
         if mm:
             age = int(mm.group(1))
             break
-    payload = {"subject": story.subject, "age": age, "question": q.text, "date": ans.dates[0].date.isoformat(), "date_phrase": ans.dates[0].text, "days": days,
+    payload = {"subject": story.subject, "age": age, "question": q.text, "incident": incident_noun(story), "date": ans.dates[0].date.isoformat(), "date_phrase": ans.dates[0].text, "days": days,
                "who": m.group(2) if m else "", "event": m.group(3) if m else "", "charge": m.group(4) if m and m.group(4) else "",
                "event_phrase": "had been arrested" if m else ans.text.split()[2]}
     return (0.75 if strong else 0.55) + (0.1 if days else 0), payload, [f"question answered by dated event ({days} days after incident)"]
+
+
+def _turning_elapsed(story, ev, el):
+    """No question: a dated decisive event, then the narration's own count of how long it took
+    ("... arrested fifteen-year-old Jahmir Moore ..." / "It had been 231 days since April 17.")."""
+    dates = [d for d in ev.dates if not d.back]
+    strong = re.search(r"\b(arrested|charged|convicted|acquitted|indicted)\b", ev.text)
+    m = re.search(r"\b(?:[Ii]t had been|[Ii]t took|[Ii]t was)\s+(\d+)\s+days\b", el.text)
+    inc = story.incident_date()
+    if not dates or not strong or not m or not inc:
+        return None
+    days = (dates[0].date - inc).days
+    if days != int(m.group(1)):
+        return None  # the narration counts differently: never show a number it does not say
+    who = re.search(rf"\b{strong.group(1)}\s+(?:a\s+|the\s+)?(\d{{1,2}}|" + "|".join(WORD_AGES) + r")-year-old\b", ev.text, re.I)
+    age = None
+    for s in story.sentences:
+        mm = re.search(rf"{re.escape(story.subject)} was (\d+)\b", s.text) if story.subject else None
+        if mm:
+            age = int(mm.group(1))
+            break
+    n = who.group(1) if who else ""
+    n = str(WORD_AGES.get(n.lower(), n)) if n else ""
+    payload = {"subject": story.subject, "age": age, "question": "", "incident": incident_noun(story), "date": dates[0].date.isoformat(),
+               "date_phrase": dates[0].text, "days": days, "who": f"{n}-year-old" if n else "", "event": strong.group(1), "charge": "",
+               "event_phrase": strong.group(1), "elapsed_phrase": m.group(0)}
+    return 0.85, payload, [f"dated {strong.group(1)}, {days} days after the incident, as the narration counts"]
 
 
 class TurningGraphic(Graphic):
@@ -993,13 +1242,13 @@ class TurningGraphic(Graphic):
         for w in self.tl.words:
             if w.a < len(q) + 2 and T.norm(w.text) and self.tl.text[: w.b].strip() in q:
                 self.qwords.append(w)
-        self.t_q_end = self.qwords[-1].end if self.qwords else 1.5
+        self.t_q_end = self.qwords[-1].end if self.qwords else (1.5 if q else 0.0)
         pz = self.tl.next_pause_after(self.t_q_end - 0.05)
         self.t_cut = self.at(p["date_phrase"], default=(pz[1] if pz else self.t_q_end + 0.4))
         self.t_event = self.at(p["event_phrase"], default=self.t_cut + 2)
         self.t_arrest = self.at(p["event"], default=self.t_event) if p.get("event") else self.t_event
         self.t_charge = self.at(p["charge"], default=self.t_arrest + 0.8) if p.get("charge") else None
-        self.photo_key, _ = self.assets.find(person="Javits Frimpong")
+        self.photo_key, _ = self.assets.find(person=p["subject"]) if p.get("subject") else (None, None)
         for i, w in enumerate(self.qwords):
             self.cue(w.start, "tick-2" if i < len(self.qwords) - 1 else "click-mech-3", -12 if i < len(self.qwords) - 1 else -6, "question word")
         self.cue(self.t_cut, "riser-2", -8, "tension into the answer")
@@ -1023,9 +1272,10 @@ class TurningGraphic(Graphic):
                 D.blit(c, img, 820, 0, e, clip=(820 + 1100 * (1 - e), 0, 1920, 1080))
                 D.blit(c, D.gradient(420, 1080, (0, 0, 0, 255), (0, 0, 0, 0), vertical=False), 820, 0)
                 cr = self.assets.credit(self.photo_key)
-                cw = D.measure(cr, "mono", 14)[0]
-                D.rect(c, 1890 - cw - 14, 1030, 1904, 1064, "#000000", 0.6 * e)
-                D.text(c, cr, "mono", 14, "#FFFFFF", 1890, 1039, 0.85 * e, anchor="r")
+                if cr:
+                    cw = D.measure(cr, "mono", 14)[0]
+                    D.rect(c, 1890 - cw - 14, 1030, 1904, 1064, "#000000", 0.6 * e)
+                    D.text(c, cr, "mono", 14, "#FFFFFF", 1890, 1039, 0.85 * e, anchor="r")
             lines = _break_question(p["question"].upper())
             k, y = 0, 300
             for line in lines:
@@ -1064,7 +1314,7 @@ class TurningGraphic(Graphic):
         D.text(c, str(d.year), "mono", 28, th.muted, 132, 130, A.ease(tc, 0.1, A.FAST) * e_out)
         if p.get("days"):
             ed = A.ease(tc, 0.7, A.FAST)
-            D.text(c, f"{p['days']} DAYS AFTER THE SHOOTING", th.label, 30, th.accent, 128, 468, ed * e_out, tracking=0.16,
+            D.text(c, f"{p['days']} DAYS AFTER THE {(p.get('incident') or 'incident').upper()}", th.label, 30, th.accent, 128, 468, ed * e_out, tracking=0.16,
                    clip=(120, 450, 120 + 1000 * ed, 520))
         ea = A.ease(t, self.t_arrest - 0.05, A.FAST)
         if ea > 0:
@@ -1129,18 +1379,66 @@ THEMES = {
 }
 
 
+# ============================================================ photo slots (what each graphic can show)
+# A slot is filled only with a photo the producer has in the project (matched by file name, or chosen by
+# hand), with the credit they type. Nothing is generated, searched for or substituted.
+
+def _person(name, label=None):
+    return {"key": "person:" + name, "kind": "person", "value": name, "label": label or f"Photo of {name}"}
+
+
+def slots_findings(p):
+    return [_person(p["source"], f"Photo of {p['source']} (who gave the findings)")] if p.get("source") else []
+
+
+def slots_timeline(p):
+    out, seen = [], set()
+    for e in p.get("events") or []:
+        for n in e.get("people") or []:
+            if n not in seen:
+                seen.add(n)
+                out.append(_person(n, f"Photo of {n} (on the {short_date(dt.date.fromisoformat(e['date']))} card)"))
+    last = (p.get("events") or [{}])[-1]
+    if last.get("tag"):
+        out.append({"key": "tag:" + last["tag"], "kind": "tag", "value": last["tag"], "label": f"Photo of the {last['tag']} (last card; no faces of mourners)"})
+    return out
+
+
+def slots_contradiction(p):
+    vias = list(dict.fromkeys(k["via"] for side in ("family", "official") for k in p.get(side) or [] if k.get("via")))
+    return [_person(v, f"Small portrait of {v} (who relayed a statement)") for v in vias]
+
+
+def slots_legal(p):
+    return [{"key": "place:" + p["court"], "kind": "place", "value": p["court"], "label": f"The court building ({p['court']})"}] if p.get("court") else []
+
+
+def slots_digital(p):
+    return [{"key": "place:" + p["place"], "kind": "place", "value": p["place"], "label": f"Location photo ({p['place']})"}] if p.get("place") else []
+
+
+def slots_turning(p):
+    return [_person(p["subject"], f"Photo of {p['subject']} (black and white)")] if p.get("subject") else []
+
+
 class TrueCrime(Collection):
     key = "truecrime"
     label = "True crime"
 
     def __init__(self):
         super().__init__()
-        self.add(Category("findings", "Investigative Findings", THEMES["findings"], detect_findings, FindingsGraphic, max_window=4, min_window=2))
-        self.add(Category("timeline", "Chronological Timeline", THEMES["timeline"], detect_timeline, TimelineGraphic, max_window=3))
-        self.add(Category("contradiction", "Contradictory Statements", THEMES["contradiction"], detect_contradiction, ContradictionGraphic, max_window=3, min_window=2))
-        self.add(Category("legal", "Legal Outcome", THEMES["legal"], detect_legal, LegalGraphic, max_window=2))
-        self.add(Category("digital", "Digital Evidence Analysis", THEMES["digital"], detect_digital, DigitalGraphic, max_window=3))
-        self.add(Category("turning", "Case Turning Point", THEMES["turning"], detect_turning, TurningGraphic, max_window=2, min_window=2, cross_chapter=True))
+        self.add(Category("findings", "Investigative Findings", THEMES["findings"], detect_findings, FindingsGraphic, max_window=4, min_window=2,
+                          slots=slots_findings, about="What an investigator said, each point with its status (possible, ruled out, not announced)."))
+        self.add(Category("timeline", "Chronological Timeline", THEMES["timeline"], detect_timeline, TimelineGraphic, max_window=5,
+                          slots=slots_timeline, about="Three or more dated events (or exact times on one day) on a rail, each landing as it is spoken."))
+        self.add(Category("contradiction", "Contradictory Statements", THEMES["contradiction"], detect_contradiction, ContradictionGraphic,
+                          max_window=3, min_window=2, slots=slots_contradiction, about="Two attributed accounts that oppose each other, side by side."))
+        self.add(Category("legal", "Legal Outcome", THEMES["legal"], detect_legal, LegalGraphic, max_window=3,
+                          slots=slots_legal, about="Charges, court, judge and the outcome, as a docket with a stamp."))
+        self.add(Category("digital", "Digital Evidence Analysis", THEMES["digital"], detect_digital, DigitalGraphic, max_window=3,
+                          slots=slots_digital, about="An evidence log (three or more kinds of evidence), with the route when police described one."))
+        self.add(Category("turning", "Case Turning Point", THEMES["turning"], detect_turning, TurningGraphic, max_window=2, min_window=2,
+                          cross_chapter=True, slots=slots_turning, about="A question (or the narration's own count of days), then the dated event that changes the case."))
 
 
 register(TrueCrime())

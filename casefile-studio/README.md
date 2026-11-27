@@ -4,6 +4,8 @@
 
 > **Audio breaks (Mode O):** the narration can pause while a producer-cleared clip plays with its own sound, then resume at the same word. See [AUDIO-BREAKS.md](AUDIO-BREAKS.md).
 
+> **Cinematic graphics (v0.4.62, Motion → Cinematic):** story-aware graphics placed from the narration where they are meaningful: findings, timeline, contradiction, legal outcome, digital evidence and turning point. They use only the script's own words and your own photos, with the same frames in the preview and the export. Engine: [cinegfx/README.md](cinegfx/README.md).
+>
 > **Sound design (optional, off by default):** restrained editorial sound effects planned from the motion graphics, transitions, chapters and subscribe animation, silent over soundbites and sensitive passages, ducked under the voice. Inspector → Sound. See [SOUND-DESIGN.md](SOUND-DESIGN.md).
 ## A source-led documentary production workspace
 

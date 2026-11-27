@@ -84,6 +84,9 @@ def _color(v, default):
 
 
 def normalise_item(it, n=0, image_assets=None):
+    if isinstance(it, dict) and it.get("template") == "cinematic":  # v0.4.62: the story-aware engine (cinematic.py)
+        import cinematic
+        return cinematic.normalise_item(it, n, image_assets)
     if not isinstance(it, dict) or it.get("template") not in TEMPLATES:
         return None
     start = round(_num(it.get("start"), 0.0, 86400.0, 0.0), 3)
@@ -148,6 +151,9 @@ def normalise(value, image_assets=None):
             seen.add(x["id"])
             items.append(x)
     items.sort(key=lambda x: x["start"])
+    if any(x["template"] == "cinematic" for x in items):  # v0.4.62 back-to-back cinematic graphics hand over
+        import cinematic
+        cinematic.handoffs(items)
     return {"enabled": value.get("enabled") is True, "items": items}
 
 
@@ -1685,7 +1691,11 @@ def footage_at(project, t):
 
 def background_path(project, item, data, asset_path):
     """The picture behind a graphic: one of your photos, or a still from your own footage at
-    `still_at` (taken once with FFmpeg and cached). None: the charcoal (nothing is made up)."""
+    `still_at` (taken once with FFmpeg and cached). None: the charcoal (nothing is made up).
+    v0.4.62: a cinematic graphic's photos instead ({slot: {file, credit, month}})."""
+    if item.get("template") == "cinematic":
+        import cinematic
+        return cinematic.photo_files(project, item, asset_path)
     bg = item.get("background")
     if bg == "photo":
         a = next((x for x in project.get("assets") or [] if x["id"] == item.get("photo_id") and x.get("kind") == "image"), None)
@@ -1764,6 +1774,9 @@ def _layout(item, W, H, photo_path):
 def preview_plan(data, project, item, photo_path=None):
     """{hash, width, height, fps, frames: [unique index per frame], unique} for the editor; the
     item is kept so its frames can be drawn when asked for."""
+    if item.get("template") == "cinematic":
+        import cinematic
+        return cinematic.preview_plan(data, project, item, photo_path)
     W, H = preview_size(project)
     h = item_hash(item, W, H, photo_path)
     folder = cache_root(data) / h
@@ -1789,6 +1802,10 @@ def preview_frame(data, h, k):
     if out.exists():
         return out
     spec = json.loads((folder / "item.json").read_text())
+    if spec.get("engine") == "cinematic":
+        import cinematic
+        with _DRAWING:
+            return out if out.exists() else cinematic.preview_frame(folder, spec, k, out)
     lay = _layout(spec["item"], spec["W"], spec["H"], spec["photo"] or None)
     frames, unique = plan(lay)
     if not 0 <= int(k) < unique:
@@ -1908,6 +1925,9 @@ def encode(lay, out, workers=2, cancelled=lambda: False):
 
 def describe(it):
     """A graphic named for a message: its template, title and time in the video."""
+    if it.get("template") == "cinematic":
+        import cinematic
+        return cinematic.describe(it)
     s = max(0, int(it.get("start") or 0))
     title = str(it.get("title") or "").strip()
     name = f"{it.get('template', 'motion')} graphic" + (f" \u201c{title}\u201d" if title else "")
@@ -1930,6 +1950,15 @@ def prepare(project, width, height, data, folder, background=None, workers=None,
     for it in items:
         if cancelled():
             raise RuntimeError("Cancelled by you. No output was published.")
+        if it["template"] == "cinematic":  # v0.4.62
+            import cinematic
+            try:
+                layers.append(cinematic.prepare_one(it, background(it) if background else {}, width, height, data, cancelled))
+            except (ValueError, OSError, KeyError, TypeError, ZeroDivisionError, RuntimeError) as e:
+                if failed is None or cancelled():
+                    raise
+                failed.append((it, e))
+            continue
         try:
             pp = background(it) if (background and it["background"] in ("photo", "still")) else None
             h = item_hash(it, width, height, pp)

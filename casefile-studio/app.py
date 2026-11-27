@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.61", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.62", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1086,17 +1086,48 @@ def motion_narration(id: str):
             "exact": bool(((p.get("episode") or {}).get("timings") or {}).get("words"))}
 
 
+@app.get("/api/motion/catalog")
+def motion_catalog():
+    """v0.4.62 The story-aware (cinematic) graphics: the collections (niches) and their categories."""
+    import cinematic
+    return cinematic.catalog()
+
+
+@app.post("/api/projects/{id}/motion/options")
+async def motion_options(id: str, request: Request):
+    """v0.4.62 Which cinematic categories the passage between `start` and `end` supports, best first."""
+    import cinematic
+    body = await request.json()
+    p = project_or_404(id)
+    try:
+        start, end = float(body["start"]), float(body["end"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(422, "Choose a passage of the narration.")
+    opts, win = cinematic.options(p, start, end, body.get("collection") or cinematic.DEFAULT_COLLECTION)
+    return {"options": [{k: v for k, v in o.items() if k != "beat"} for o in opts], "sentences": list(win) if win else None}
+
+
 @app.post("/api/projects/{id}/motion/draft")
 async def motion_draft(id: str, request: Request):
     """A graphic made from the narration between `start` and `end` (not saved: the editor adds it)."""
     body = await request.json()
     p = project_or_404(id)
-    if body.get("template") not in motiongfx.TEMPLATES:
+    if body.get("template") != "cinematic" and body.get("template") not in motiongfx.TEMPLATES:
         raise HTTPException(422, "Choose a template.")
     try:
         start, end = float(body["start"]), float(body["end"])
     except (KeyError, TypeError, ValueError):
         raise HTTPException(422, "Choose a passage of the narration.")
+    if body["template"] == "cinematic":  # v0.4.62: the story-aware engine reads the passage and picks (or checks) the category
+        import cinematic
+        prev = next((x for x in motiongfx.normalise(p.get("motion"))["items"] if body.get("id") and x["id"] == body["id"]), None)
+        try:
+            item, opts = cinematic.draft(p, start, end, body.get("collection") or cinematic.DEFAULT_COLLECTION,
+                                         body.get("category") or "auto", item_id=body.get("id") or None, prev=prev,
+                                         window=body.get("window") if isinstance(body.get("window"), list) else None)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"item": item, "options": opts}
     item = motiongfx.draft(p, body["template"], start, end, item_id=body.get("id") or None)
     if not item:
         raise HTTPException(422, "There is no narration in this passage.")
@@ -1107,15 +1138,30 @@ async def motion_draft(id: str, request: Request):
 
 
 @app.post("/api/projects/{id}/motion/suggest")
-def motion_suggest(id: str):
+async def motion_suggest(id: str, request: Request):
     """Read the whole narration and propose graphics (replaces the earlier suggestions you have not
-    approved or edited; can be undone)."""
+    approved or edited; can be undone). v0.4.62: {"engine": "cinematic", "collection": ...} places the
+    story-aware graphics instead (replacing only earlier cinematic suggestions)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    cine = body.get("engine") == "cinematic"
     with LOCK:
         p = project_or_404(id)
         checkpoint(p)
         cur = motiongfx.normalise(p.get("motion"))
-        keep = [x for x in cur["items"] if x["status"] != "suggested"]
-        new = motiongfx.suggest(p, keep)
+        is_cine = lambda x: x["template"] == "cinematic"
+        keep = [x for x in cur["items"] if x["status"] != "suggested" or is_cine(x) != cine]
+        if cine:
+            import cinematic
+            try:
+                new = cinematic.suggest(p, keep, body.get("collection") or cinematic.DEFAULT_COLLECTION)
+            except ValueError as e:
+                raise HTTPException(422, str(e))
+        else:
+            new = motiongfx.suggest(p, keep)
         p["motion"] = motiongfx.normalise({"enabled": cur["enabled"], "items": keep + new})
         p = save_project(p)
     return {"project": p, "added": len(new)}

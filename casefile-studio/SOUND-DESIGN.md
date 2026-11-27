@@ -788,3 +788,17 @@ The long cases all stay complete on v0.4.61:
 - guide 31:03: 3060 / 3060, soundbites 76 / 76.
 
 In every case, 0 windows played the wrong part of the recording.
+
+## v0.4.62 — the cinematic graphics' own sound
+
+A story-aware (cinematic) graphic comes with its designed sound: the cues the demos were approved with, each on its visual event.
+- **Exact sounds:** each cue plays its exact library sound at its designed level. Your Intensity setting moves it, as it moves every
+  sound (no change at the default). Nothing swaps it for a sibling variation.
+- **One piece:** a graphic's own cues are one layer, so the spacing rule does not thin them out against each other. Spacing,
+  density and protected zones still apply against everything else.
+- **Typed labels** are one typed run at the designed key level, quieter than the classic graphics' keys, as designed.
+- **Sensitive passages:** if any cue that would play falls on a sensitive sentence or a victim picture, the whole graphic is treated
+  as sensitive. Its reveals are softened to muted clicks and quieter keys, and its hits are dropped. A graphic is never half loud and half quiet.
+- **Back to back:** when the next graphic covers it, its cues after that point are not played.
+- Unapproved graphics make no sound.
+

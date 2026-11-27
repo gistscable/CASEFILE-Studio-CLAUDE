@@ -498,6 +498,47 @@ def available_cpus() -> int:
         return max(1, os.cpu_count() or 1)
 
 
+# v0.4.62 the H.264 encoder for the scene clips. libx264 (software, CRF 20) is the default everywhere; on a Mac,
+# CASEFILE_VIDEO_ENCODER=videotoolbox uses Apple's hardware encoder (faster, lighter on the CPU, a fixed generous
+# bitrate instead of constant quality). It is used only after a tiny test encode succeeds on this machine;
+# otherwise the export uses libx264 and says why. One encoder per export (the scene clips are joined by copy).
+VIDEOTOOLBOX = "h264_videotoolbox"
+_ENCODER_PROBE: dict[str, tuple[bool, str]] = {}
+
+
+def _encoder_works(name: str) -> tuple[bool, str]:
+    if name not in _ENCODER_PROBE:
+        try:
+            r = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-f", "lavfi", "-i", "color=c=gray:s=320x180:r=24:d=0.25",
+                                "-pix_fmt", "yuv420p", "-c:v", name, "-b:v", "1M", "-f", "null", "-"],
+                               capture_output=True, text=True, timeout=30)
+            _ENCODER_PROBE[name] = (r.returncode == 0, (r.stderr or "").strip()[-200:])
+        except (OSError, subprocess.SubprocessError) as e:
+            _ENCODER_PROBE[name] = (False, str(e)[:200])
+    return _ENCODER_PROBE[name]
+
+
+def video_encoder() -> tuple[str, str | None]:
+    """(encoder, warning or None) for this export, from CASEFILE_VIDEO_ENCODER."""
+    want = (os.environ.get("CASEFILE_VIDEO_ENCODER") or "").strip().lower()
+    if want in ("", "libx264", "x264", "software"):
+        return "libx264", None
+    if want not in ("videotoolbox", VIDEOTOOLBOX):
+        return "libx264", f"CASEFILE_VIDEO_ENCODER={want!r} is not known (use videotoolbox or libx264); exported with libx264."
+    ok, why = _encoder_works(VIDEOTOOLBOX)
+    if not ok:
+        return "libx264", f"The Apple VideoToolbox encoder is not available here ({why or 'test encode failed'}); exported with libx264."
+    return VIDEOTOOLBOX, None
+
+
+def video_codec_args(encoder: str, width: int, height: int, threads: str) -> list[str]:
+    if encoder == VIDEOTOOLBOX:
+        mbps = max(2, round(width * height * FPS * 0.25 / 1e6))  # 1080p: 12 Mb/s (above libx264 CRF 20 for this content)
+        return ["-c:v", VIDEOTOOLBOX, "-b:v", f"{mbps}M", "-maxrate", f"{round(mbps * 1.5)}M", "-bufsize", f"{mbps * 2}M",
+                "-profile:v", "high"]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", threads]
+
+
 def machine(arch: str | None = None, cpuinfo: str | None = None) -> dict:
     """v0.4.48: what the render runs on. `emulated` is True when this is an
     Intel (x86-64) build running on another chip (e.g. an amd64 Docker image on
@@ -630,6 +671,7 @@ def timing_report(t: dict) -> str:
     lines = [
         "CASEFILE render report",
         f"Machine: {t.get('arch')}, {t.get('cpus')} CPUs, {t.get('workers')} scene(s) at a time"
+        + (f", encoder {t['encoder']}" if t.get("encoder") else "")
         + (" — RUNNING TRANSLATED (Intel code on another chip)" if t.get("emulated") else ""),
         f"Video: {mmss(t.get('video_seconds', 0))} at {t.get('resolution')}, {len(rows)} scenes",
         f"Total: {mmss(t.get('total', 0))} ({float(t.get('total', 0)) / max(0.01, float(t.get('video_seconds', 0) or 0.01)):.2f} x the video's length)",
@@ -1086,6 +1128,9 @@ def render(
             chain_of.append(chain_of[i - 1] if blends[i] > 0 else i)
         workers = render_workers(len(set(chain_of)))
         enc_threads = str(max(2, min(8, available_cpus() // workers)))
+        encoder, enc_warning = video_encoder()
+        if enc_warning:
+            warnings.append(enc_warning)
         scene_steps: list[list[list[str]]] = []
         progress(5, f"Preparing {len(scenes)} scenes")
         for i, scene in enumerate(scenes):
@@ -1394,14 +1439,7 @@ def render(
                 str(frames),
                 "-r",
                 str(FPS),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "20",
-                "-threads",
-                enc_threads,
+                *video_codec_args(encoder, width, height, enc_threads),
                 "-video_track_timescale",
                 "12288",
                 str(outclip),
@@ -1622,6 +1660,7 @@ def render(
         "timing": {
             **machine(),
             "workers": workers,
+            "encoder": encoder,
             "total": round(time.monotonic() - began, 1),
             "prepare": round(prepared - began, 1),
             "scenes": round(scenes_done - prepared, 1),

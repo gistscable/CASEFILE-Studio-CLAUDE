@@ -26,6 +26,20 @@ PORT=8001 PATH="$PWD/.venv/bin:$PATH" ./run.sh    # another port
 Stop with Ctrl+C. After `git pull`, just stop and start it again; there is no build step.
 Data lives in `casefile-studio/data/`.
 
+### Faster exports on a Mac (optional, v0.4.62)
+
+Use Apple's hardware H.264 encoder for the scene clips:
+
+```bash
+CASEFILE_VIDEO_ENCODER=videotoolbox PATH="$PWD/.venv/bin:$PATH" ./run.sh
+```
+
+- **How it works:** the app first makes a tiny test encode. If VideoToolbox is not available (for example in Docker, which is Linux), the export uses
+  libx264 as before and its warnings say so. The render report shows which encoder was used.
+- **Trade-off:** VideoToolbox is faster and lighter on the CPU. It encodes at a fixed, generous bitrate (12 Mb/s at 1080p), not
+  libx264's constant quality (CRF 20), so the files are usually larger. Leave the variable unset to keep libx264, the default everywhere.
+- **Cinematic graphics** draw their frames on every core but one (at most 6). Set `CASEFILE_CINEMATIC_WORKERS=N` to change that.
+
 ### Bring over projects made in Docker (once)
 
 Docker kept its data in the `casefile-data` volume, which the native app cannot see. Copy it
