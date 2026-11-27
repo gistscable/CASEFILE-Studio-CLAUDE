@@ -39,6 +39,17 @@ test("back to back, the preview stacks the graphics as the export does (later on
   assert.equal(graphicAt(motion, 11, null).item.id, "a");
 });
 
+// v0.4.65 automatic presentation: the switch survives the editor's normalise (and stays off unless ticked)
+test("normaliseMotion keeps the automatic presentation switch, and only when it is on", () => {
+  assert.equal(normaliseMotion({ enabled: true, items: [], present: true }).present, true);
+  assert.equal("present" in normaliseMotion({ enabled: true, items: [] }), false);
+  assert.equal("present" in normaliseMotion({ enabled: true, items: [], present: false }), false);
+  assert.equal("present" in normaliseMotion({ enabled: true, items: [], present: "yes" }), false); // only a real true
+  const m = normaliseMotion({ enabled: true, items: [cine({ status: "approved" })], present: true, look: { vary: true, seed: "p1" } });
+  assert.equal(m.present, true);
+  assert.deepEqual(normaliseMotion(m), m); // normalising again changes nothing
+});
+
 // v0.4.63 the look of the cinematic graphics
 test("the project look survives the editor's normalise, keeping only the choices made", () => {
   assert.equal("look" in normaliseMotion({ enabled: true, items: [] }), false);

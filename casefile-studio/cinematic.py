@@ -47,7 +47,7 @@ from cinegfx import story as S
 from cinegfx import text as T
 from cinegfx.timing import Timeline, Word
 
-ENGINE = 4          # bump when the drawing or the item format changes: cached frames are made again
+ENGINE = 5          # bump when the drawing or the item format changes: cached frames are made again
 FPS = motion.FPS    # the app's motion layer rate (frames are sampled from the graphic at this rate)
 LEAD = 0.45         # the graphic comes up this long before the first narrated word of its passage
 TAIL = 0.25         # ... and its narration ends this long before the graphic's own exit

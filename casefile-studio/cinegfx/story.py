@@ -16,6 +16,7 @@ ROLE_TITLES = [
     "Assistant State Attorney", "State Attorney", "Attorney General", "Deputy Chief", "Police Chief", "Chief", "Major", "Lieutenant",
     "Special Agent", "Agent", "Deputy", "Inspector", "Superintendent", "Medical Examiner", "Coroner", "Defense attorney", "defense attorney",
     "Prosecutor",
+    "Circuit Judge", "District Judge", "Magistrate Judge", "Magistrate", "Trooper", "Undersheriff",  # v0.4.66
     "Mayor", "President", "Governor", "Senator", "Judge", "Justice", "attorney", "lawyer", "Detective", "Officer",
     "Sergeant", "Captain", "Sheriff", "Coach", "coach", "manager", "Manager", "promoter", "referee", "Referee",
     "captain", "principal", "prosecutor",
