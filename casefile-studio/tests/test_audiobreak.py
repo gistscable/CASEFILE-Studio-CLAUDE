@@ -345,3 +345,63 @@ def test_uncleared_break_blocks_the_final_export_but_not_a_draft():
     episode.build(p, True)
     after = editorial.inspect(p, check_files=False)
     assert not [i for i in after["issues"] if i["code"].startswith("episode_audio_break")]
+
+
+def test_cached_soundbites_give_the_voice_bus_exactly_the_in_graph_samples(tmp_path, monkeypatch):
+    """v0.4.61 Each soundbite is normalised once in its own FFmpeg pass and kept as 32-bit float; the
+    voice bus made from those files is byte-identical to the one with every soundbite's loudnorm in the
+    graph (v0.4.60), for compressed (AAC in MP4) and PCM clips, odd trims and lengths off the frame grid.
+    A cached file is reused, and a changed trim or clip makes a new one."""
+    import hashlib
+    import random
+    from pathlib import Path
+
+    monkeypatch.setattr(renderer, "DATA", tmp_path / "data")
+    ff = lambda *a: subprocess.run(["ffmpeg", "-v", "error", "-y", *a], check=True)
+    voice, mp4, wav = tmp_path / "voice.mp3", tmp_path / "bite.mp4", tmp_path / "bite.wav"
+    ff("-f", "lavfi", "-i", "aevalsrc='0.3*sin(2*PI*220*t)*max(0\\,sin(2*PI*0.4*t))':s=44100:d=40", str(voice))
+    ff("-f", "lavfi", "-i", "color=c=gray:s=64x48:r=25:d=24", "-f", "lavfi", "-i",
+       "aevalsrc='0.2*sin(2*PI*330*t)+0.05*random(0)|0.1*sin(2*PI*500*t)':s=44100:d=24",
+       "-shortest", "-c:v", "libx264", "-c:a", "aac", str(mp4))
+    ff("-f", "lavfi", "-i", "aevalsrc='0.4*sin(2*PI*700*t)*sin(2*PI*0.7*t)':s=48000:d=20", "-ac", "2", str(wav))
+    rnd = random.Random(7)
+    scenes = []
+    for k in range(9):
+        if k in (1, 4, 7):
+            scenes.append({"duration": rnd.uniform(2, 7), "insert_audio": True, "clip": mp4 if k != 4 else wav,
+                           "trim_start": rnd.uniform(0, 10)})
+        else:
+            scenes.append({"duration": rnd.uniform(1, 5)})
+    proj = {"episode": {"guide": True}}
+    total = sum(round(s["duration"] * 24) / 24 for s in scenes)
+    clips = {i: s["clip"] for i, s in enumerate(scenes) if s.get("insert_audio")}
+    ins = {i: 1 + k for k, i in enumerate(sorted(clips))}
+
+    def bus(prepared, paths):
+        g = renderer.voice_graph(proj, scenes, total, 0, ins, prepared=prepared)
+        cmd = ["ffmpeg", "-v", "error", "-i", str(voice)]
+        for i in sorted(ins):
+            cmd += ["-i", str(paths[i])]
+        cmd += ["-filter_complex", ";".join(g) + ";[voice]aformat=sample_fmts=flt[vbus]", "-map", "[vbus]", "-f", "f32le", "-"]
+        return subprocess.run(cmd, capture_output=True, check=True).stdout
+
+    graph = ";".join(renderer.voice_graph(proj, scenes, total, 0, ins, prepared=True))
+    assert "loudnorm" not in graph  # no soundbite normalised in the bus any more
+    ref = bus(False, clips)
+    made = renderer.prepare_soundbites(scenes, clips, lambda: False)
+    assert sorted(made) == sorted(clips) and all(Path(p).suffix == ".wav" for p in made.values())
+    out = bus(True, made)
+    assert len(out) == len(ref)
+    assert hashlib.sha1(out).digest() == hashlib.sha1(ref).digest()
+    # cached: nothing made again
+    calls = []
+    real = renderer.run
+    monkeypatch.setattr(renderer, "run", lambda cmd, c: (calls.append(cmd), real(cmd, c))[1])
+    assert renderer.prepare_soundbites(scenes, clips, lambda: False) == made and calls == []
+    # a new trim: that one soundbite again
+    scenes[4] = dict(scenes[4], trim_start=scenes[4]["trim_start"] + 0.5)
+    again = renderer.prepare_soundbites(scenes, clips, lambda: False)
+    assert len(calls) == 1 and again[4] != made[4] and again[1] == made[1]
+    # pruning keeps the files in use
+    renderer.prune_soundbites(keep=again.values(), limit_mb=0)
+    assert all(Path(p).exists() for p in again.values()) and not Path(made[4]).exists()
