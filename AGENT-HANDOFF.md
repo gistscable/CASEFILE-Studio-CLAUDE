@@ -1336,3 +1336,21 @@ selection identical). The words on screen are still the script's own; what is no
   "MURDER" is said last, at ~11.5 s). JS test: `normaliseMotion` keeps `present` only when it is a real `true` (`motion.test.mjs`).
 - **Seen, not changed:** a *partial* (placed, scale 0.86) graphic encodes at ~12 fps: `cinematic._placed` Lanczos-resizes the whole
   1920×1080 layer every frame (the drawing itself is ~10 ms). Cropping the layer to its drawn box before the resize would cut it.
+
+## storyroom-kit 0.1.0 (separate folder, Casefile unchanged)
+
+User: "Storyroom. a folder inside this one … Just keep separate and also zip it for me here." `storyroom-kit/` at the
+repo root (+ `storyroom-kit.zip`, the same folder zipped) is Casefile's cinematic engine on its own for the friend's
+Storyroom editor: script + narration timings (SRT / word JSON / audio / estimated) → `plan.json` → per graphic a
+transparent video (ProRes 4444 default; qtrle, VP9 WebM, PNG), its cue WAV, a preview MP4, and `render.json`,
+`placements.csv`, `timeline.edl`. CLI `storyroom-gfx plan|render|run|stills|list|check`.
+- **Nothing in `casefile-studio/` changed**; the kit never imports Casefile and Casefile never imports the kit.
+- **Engine copy:** `storyroom_kit/cinegfx/`, `sfxlib.py`, fonts, copied by `storyroom-kit/tools/sync_engine.py`
+  with 3 layout lines patched (font folder, dm-sans path, sfxlib import). After changing `casefile-studio/cinegfx/`,
+  run `python storyroom-kit/tools/sync_engine.py --write`, then the kit's tests, and rebuild the zip.
+- **`storyroom_kit/graphics.py`** is `cinematic.py`'s item/look/drawing code without the app (same names and
+  arithmetic). Default 24 fps like Casefile (`--fps` 25/30/… allowed).
+- **Tests** (`cd storyroom-kit && pytest`, 29; standalone: 21 pass, the 8 parity checks skip): `test_parity` (in-repo only) checks byte-identical frames against
+  `cinematic.frame` for 5 looks and 2 sizes, the same suggestions as `cinematic.suggest`, the Javits demos with
+  photos, and the copy; `test_reference` checks the six Javits demos against Casefile-drawn stills (no photos: the
+  press photos are not shipped).
