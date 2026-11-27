@@ -160,6 +160,8 @@ def normalise(value, image_assets=None):
                 x["style"] = cinematic.style_of(x, look)
         cinematic.handoffs(items)  # v0.4.62 back-to-back cinematic graphics hand over
     out = {"enabled": value.get("enabled") is True, "items": items}
+    if value.get("present") is True:  # v0.4.65 automatic presentation proposals (off unless ticked)
+        out["present"] = True
     if look:
         out["look"] = look
     return out

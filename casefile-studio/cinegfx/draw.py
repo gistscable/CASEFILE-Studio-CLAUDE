@@ -45,6 +45,10 @@ def col(c, a=None):
     return c
 
 
+# v0.4.65 measuring, wrapping and fitting are pure functions of their arguments, cached: a layout that is worked out
+# while drawing (legal fitted its case lines on every frame: 88% of its frame time) costs it once, not 24 times a second.
+# The results are the same numbers, so every frame is pixel-identical.
+@lru_cache(maxsize=16384)
 def measure(text: str, key: str, size: int, tracking: float = 0.0):
     f = font(key, size)
     if not tracking:
@@ -73,6 +77,11 @@ def sprite(text: str, key: str, size: int, color: tuple, tracking: float = 0.0) 
 
 
 def wrap(text: str, key: str, size: int, maxw: int, tracking: float = 0.0):
+    return list(_wrap(text, key, size, maxw, tracking))  # a fresh list: callers may change theirs
+
+
+@lru_cache(maxsize=4096)
+def _wrap(text: str, key: str, size: int, maxw: int, tracking: float = 0.0):
     words, lines, cur = text.split(), [], ""
     for w in words:
         trial = (cur + " " + w).strip()
@@ -83,9 +92,10 @@ def wrap(text: str, key: str, size: int, maxw: int, tracking: float = 0.0):
             cur = w
     if cur:
         lines.append(cur)
-    return lines
+    return tuple(lines)
 
 
+@lru_cache(maxsize=4096)
 def fit_size(text: str, key: str, maxw: int, start: int, minimum: int = 18, tracking: float = 0.0, lines: int = 1):
     """Largest size <= start at which `text` fits in `lines` lines of `maxw`."""
     s = start

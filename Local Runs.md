@@ -86,3 +86,19 @@ If `nproc` is small (1–2), raise the CPUs in Docker Desktop → Settings → R
 v0.4.48 the export renders several scenes at once (about one per two CPUs, at most 6;
 `-e CASEFILE_RENDER_JOBS=1` brings back one at a time), and the progress message says when the app
 is running as translated Intel code or with only 1–2 CPUs.
+
+## Motion check on your MacBook Air M1 (v0.4.65)
+
+One command runs the cinematic graphics engine automatically on one of your real projects and times every step.
+It works on a copy in memory and never changes the project. Run it from `casefile-studio/` with the app's own Python,
+with the project's footage and narration in `data/media/` so the review clips show them:
+
+```bash
+cd casefile-studio
+.venv/bin/python qa/motion_check.py --list                          # your projects and their ids
+.venv/bin/python qa/motion_check.py --project <id> --apply          # suggest, present (applied), draw, review clips
+open qa/motion-check/<id>/report.md                                 # every decision and timing
+```
+
+`--no-mp4` times the engine only. `--workers N` sets how many cores draw the frames (default: cores − 1, at most 6).
+Send me `report.md`: it has the machine, every graphic's placement, words, presentation and sound cues, and each step's seconds.

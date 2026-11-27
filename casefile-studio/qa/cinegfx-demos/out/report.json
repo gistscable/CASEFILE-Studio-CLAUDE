@@ -1,6 +1,17 @@
 {
  "selection_full_script": [
   {
+   "category": "digital",
+   "sentences": [
+    23,
+    26
+   ],
+   "score": 1.03,
+   "why": [
+    "evidence ['SURVEILLANCE VIDEO', 'BACKPACK', 'SHELL CASINGS'] + route of 4 moves"
+   ]
+  },
+  {
    "category": "findings",
    "sentences": [
     26,
@@ -20,6 +31,17 @@
    "score": 1.1,
    "why": [
     "5 dated events"
+   ]
+  },
+  {
+   "category": "turning",
+   "sentences": [
+    47,
+    49
+   ],
+   "score": 0.85,
+   "why": [
+    "question answered by dated event (13 days after incident)"
    ]
   },
   {
@@ -60,7 +82,7 @@
     "4 investigator findings with explicit status from Joseph Kenny"
    ],
    "mp4": "1-findings.mp4",
-   "render_s": 97.54,
+   "render_s": 46.73,
    "frames": 577,
    "fps": 30,
    "workers": 1,
@@ -148,7 +170,7 @@
     "4 dated events"
    ],
    "mp4": "2-timeline.mp4",
-   "render_s": 35.99,
+   "render_s": 25.07,
    "frames": 566,
    "fps": 30,
    "workers": 1,
@@ -242,7 +264,7 @@
     "opposed claims share ['incident']"
    ],
    "mp4": "3-contradiction.mp4",
-   "render_s": 54.06,
+   "render_s": 26.75,
    "frames": 603,
    "fps": 30,
    "workers": 1,
@@ -312,7 +334,7 @@
     "charges ['murder', 'manslaughter', 'criminal possession of a weapon']; court=Bronx Criminal Court; judge=Scott Krompinger; outcome=remanded without bail"
    ],
    "mp4": "4-legal.mp4",
-   "render_s": 31.77,
+   "render_s": 31.5,
    "frames": 449,
    "fps": 30,
    "workers": 1,
@@ -394,7 +416,7 @@
     "evidence ['SURVEILLANCE VIDEO', 'BACKPACK', 'SHELL CASINGS'] + route of 4 moves"
    ],
    "mp4": "5-digital.mp4",
-   "render_s": 50.08,
+   "render_s": 38.41,
    "frames": 765,
    "fps": 30,
    "workers": 1,
@@ -602,7 +624,7 @@
     "question answered by dated event (13 days after incident)"
    ],
    "mp4": "6-turning.mp4",
-   "render_s": 23.27,
+   "render_s": 19.4,
    "frames": 253,
    "fps": 30,
    "workers": 1,

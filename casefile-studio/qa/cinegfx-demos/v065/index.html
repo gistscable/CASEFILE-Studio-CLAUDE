@@ -1,0 +1,54 @@
+<!doctype html><meta charset="utf-8"><title>Cinematic graphics v0.4.65</title>
+<style>body{background:#0e0f12;color:#e8e8e8;font:15px/1.5 system-ui;margin:0 auto;max-width:1240px;padding:24px}a{color:#f2b33d}
+video,img{width:100%;border-radius:6px;background:#000}.card{background:#17181c;border-radius:8px;padding:14px;margin:14px 0}
+h3 small{opacity:.6;font-weight:400}.m{font-size:13px;opacity:.8}table{border-collapse:collapse}td,th{border:1px solid #333;padding:4px 10px}
+.two{display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start}</style>
+<p><a href="../">&larr; all demos</a></p>
+<h1>v0.4.65 — refinements, automatic presentation, a real project</h1>
+<h2>1. Visual refinements (before | after)</h2>
+<p>Same speed, smoother moves: every reveal keeps its 0.28 s, but less of the move happens in the first frame, so you see it move instead of jumping into place.
+Conflicting accounts: statements take the largest size that fits (up to 56 px from 44) and the block is centred, which leaves less empty space.
+Digital: detail text and labels are brighter (contrast 5.3:1 → 9.6:1), with slightly larger detail lines. Photos: the timeline thumbnails ease to a stop, and the station photo pushes in as the place is named.
+The other designs are pixel-identical once settled.</p>
+<div class="card"><video controls preload="metadata" src="compare-3-contradiction.mp4"></video></div>
+<div class="card"><video controls preload="metadata" src="compare-5-digital.mp4"></video></div>
+<div class="card"><video controls preload="metadata" src="compare-1-findings.mp4"></video><p class="m">Findings: the design is unchanged; only how smoothly things move has changed.</p></div>
+<div class="card"><img src="before-after.jpg"></div>
+<h2>2. Automatic presentation (optional, off by default)</h2>
+<div class="two"><div><p>A new tick box in Motion: <b>Propose how each graphic is presented</b>. When it is ticked, every cinematic graphic gets a proposal: full screen, over the footage, or partial (smaller, to one side of the footage).
+Each proposal comes with its reasons, taken from the design, the shots under the graphic, and your production script's chapters and shot notes. Nothing changes until you tick the proposals you want and press Apply.
+Each applied proposal becomes that graphic's own look, so you can change it in Look, and Undo puts everything back. When the box is unticked, the app behaves exactly as before.</p></div>
+<img src="presentation-panel.png"></div>
+<h2>3. Run automatically on a real project: “Bismilah” (the Jevario Buie episode)</h2>
+<p>The engine read your project's 158 scenes, narration, footage guide and production script, placed 5 graphics, and proposed how to present them (2 changes, applied here). It drew each graphic through the export code with its sound cues.
+<b>Limitation:</b> the project's footage and narration audio (about 1.16 GB) are not in this sandbox. So the clips play over black where the graphic sits over footage, and you hear only the sound cues, without narration.
+On your Mac, <code>qa/motion_check.py</code> renders the same clips over your footage, with your narration, and times every step.</p>
+<table><tr><th>Step</th><th>Seconds (2-core sandbox)</th></tr>
+<tr><td>Read the story and place the graphics</td><td>0.4</td></tr><tr><td>Propose the presentation</td><td>0.003</td></tr>
+<tr><td>Draw all 5 export layers (87.42 s of graphics)</td><td>35.53 (was 66.5 before the text-layout cache)</td></tr></table>
+<div class="card"><video controls preload="metadata" src="real/01-contradiction.mp4"></video>
+<h3>1. Conflicting accounts <small>(contradiction, 154.6–168.5 s)</small></h3>
+<p><b>Why here:</b> opposed claims share [&#x27;acted&#x27;, &#x27;moore&#x27;, &#x27;shooting&#x27;]</p>
+<p><b>Presentation:</b> own → <b>own</b></p><ul><li>Contradictory Statements: two account columns fill the screen.</li><li>Its layout needs its own screen, so it stays full screen.</li></ul>
+<p class="m"><b>Sound cues:</b> 0.00s whoosh-short-1, 0.12s whoosh-short-2, 0.40s click-mech-2, 8.44s click-mech-2, 9.64s impact-tr-1, 9.64s bass-hit-1, 13.57s rwhoosh-3</p>
+<p class="m">Drawn in 5.31 s (62.9 fps, 2.62× real time) on this 2-core sandbox. Shown over its own background.</p></div><div class="card"><video controls preload="metadata" src="real/02-timeline.mp4"></video>
+<h3>2. Apr 17 · 2:41–3:36 PM <small>(timeline, 193.6–224.2 s)</small></h3>
+<p><b>Why here:</b> 3 clock times on 2024-04-17</p>
+<p><b>Presentation:</b> own → <b>footage</b></p><ul><li>Chronological Timeline: a rail of dated cards across the whole width.</li><li>Full screen would hide all of the scripted shot C29 (“Use the December 5 police announcement as case context; it is not footage of…”), so it goes over that footage.</li><li>The footage shows through, darkened.</li></ul>
+<p class="m"><b>Sound cues:</b> 0.05s whoosh-dir-r, 0.45s click-muted-1, 6.17s tick-1, 17.09s click-muted-2, 17.42s tick-1, 25.59s click-muted-3, 25.88s tick-1, 30.20s rwhoosh-2</p>
+<p class="m">Drawn in 10.21 s (71.8 fps, 2.99× real time) on this 2-core sandbox. Shown over black (the footage file is not on this machine).</p></div><div class="card"><video controls preload="metadata" src="real/03-digital.mp4"></video>
+<h3>3. Evidence log · 5 items <small>(digital, 406.8–420.5 s)</small></h3>
+<p><b>Why here:</b> evidence [&#x27;SURVEILLANCE VIDEO&#x27;, &#x27;COMMUNICATION RECORDS&#x27;, &#x27;SOCIAL MEDIA MESSAGES&#x27;, &#x27;SEARCH HISTORY&#x27;, &#x27;NOTES&#x27;] + route of 0 moves</p>
+<p><b>Presentation:</b> own → <b>own</b></p><ul><li>Digital Evidence Analysis: small evidence-log text needs its own dark screen.</li><li>Its layout needs its own screen, so it stays full screen.</li></ul>
+<p class="m"><b>Sound cues:</b> 0.00s scan-1, 3.29s key-soft-1, 3.34s key-soft-3, 3.39s key-soft-5, 3.44s key-soft-1, 3.49s key-soft-3, 3.54s key-soft-5, 3.59s key-soft-1, 3.64s key-soft-3, 3.69s key-soft-5, 6.28s key-soft-1, 6.33s key-soft-3, 6.38s key-soft-5, 6.43s key-soft-1, 6.48s key-soft-3, 6.53s key-soft-5, 6.58s key-soft-1, 6.63s key-soft-3, 6.68s key-soft-5, 6.73s key-soft-1, 6.78s key-soft-3, 9.72s key-soft-1, 9.77s key-soft-3, 9.82s key-soft-5, 9.87s key-soft-1, 9.92s key-soft-3, 9.97s key-soft-5, 10.02s key-soft-1, 10.07s key-soft-3, 10.12s key-soft-5, 10.17s key-soft-1, 10.22s key-soft-3, 11.82s key-soft-1, 11.87s key-soft-3, 11.92s key-soft-5, 11.97s key-soft-1, 12.02s key-soft-3, 12.07s key-soft-5, 12.12s key-soft-1, 11.22s key-soft-1, 11.27s key-soft-3, 11.32s key-soft-5, 13.35s rwhoosh-1</p>
+<p class="m">Drawn in 7.22 s (45.6 fps, 1.9× real time) on this 2-core sandbox. Shown over its own background.</p></div><div class="card"><video controls preload="metadata" src="real/04-turning.mp4"></video>
+<h3>4. 15-year-old arrested · dec 4 <small>(turning, 453.8–470.1 s)</small></h3>
+<p><b>Why here:</b> dated arrested, 231 days after the incident, as the narration counts</p>
+<p><b>Presentation:</b> own → <b>own</b></p><ul><li>Case Turning Point: a full-screen statement marks the turn in the story.</li><li>It opens Chapter 7 — Arrest And Adult Prosecution: full screen marks the new chapter.</li></ul>
+<p class="m"><b>Sound cues:</b> 0.50s riser-2, 0.50s impact-tr-2, 0.50s bass-hit-2, 0.75s tick-seq-1, 6.92s click-mech-1, 16.00s rwhoosh-2</p>
+<p class="m">Drawn in 6.48 s (60.5 fps, 2.52× real time) on this 2-core sandbox. Shown over its own background.</p></div><div class="card"><video controls preload="metadata" src="real/05-legal.mp4"></video>
+<h3>5. Held without bail · Hillsborough County Circuit Court <small>(legal, 647.8–660.8 s)</small></h3>
+<p><b>Why here:</b> charges [&#x27;murder&#x27;]; court=Hillsborough County Circuit Court; judge=J. Logan Murphy; outcome=held without bail</p>
+<p><b>Presentation:</b> own → <b>footage</b></p><ul><li>Legal Outcome: a court record reads clearly over darkened footage.</li><li>The footage shows through, darkened.</li></ul>
+<p class="m"><b>Sound cues:</b> 0.00s paper-1, 11.03s type-strike-1, 2.55s doc-1, 7.13s type-strike-4, 10.01s thump-deep-2, 10.03s doc-2, 12.56s paper-2</p>
+<p class="m">Drawn in 6.31 s (49.1 fps, 2.05× real time) on this 2-core sandbox. Shown over black (the footage file is not on this machine).</p></div>

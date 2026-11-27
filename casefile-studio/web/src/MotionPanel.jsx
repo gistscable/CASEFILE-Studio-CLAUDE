@@ -430,7 +430,80 @@ function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, o
 // v0.4.52 Motion tab of the inspector: suggestions from the narration, graphics you make from a
 // passage you choose, and everything about the selected graphic. Only approved graphics go into
 // the export, and only while "Add to the export" is on (off by default).
-export default function MotionPanel({ project, time, playing, selectedId, onSelect, onChange, onSuggest, onDraft, onSeek, onPlayFrom, disabled, previewStatus }) {
+// v0.4.65 Automatic presentation (optional, off by default): proposes full screen, over the footage or partial for
+// each cinematic graphic, from its design, the shots under it and the production script's chapter and shot notes.
+// Nothing changes until you apply a proposal; it becomes that graphic's own look, so you can change it back.
+const MODE = { own: "Full screen", footage: "Over the footage", partial: "Partial, beside the footage", still: "Over a still", photo: "Over a photo" };
+
+function AutoPresent({ m, save, onPresent, onSeek, onSelect, disabled }) {
+  const [props, setProps] = React.useState(null);
+  const [picked, setPicked] = React.useState({});
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const cine = m.items.filter((x) => x.template === "cinematic");
+  const key = JSON.stringify(cine.map((x) => [x.id, x.start, x.end, x.look || {}]));
+  const ask = async (apply) => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await onPresent(apply ? { apply } : {});
+      setProps(r.proposals);
+      setPicked(Object.fromEntries(r.proposals.filter((p) => !p.same).map((p) => [p.id, true])));
+    } catch (e) {
+      setErr(e.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  React.useEffect(() => { if (m.present && cine.length) ask(); else setProps(null); }, [m.present, key]);
+  const changes = (props || []).filter((p) => !p.same);
+  const chosen = changes.filter((p) => picked[p.id]).map((p) => p.id);
+  return (
+    <div className="mg-present">
+      <label className="cs-check">
+        <input type="checkbox" aria-label="Propose how each cinematic graphic is presented" checked={!!m.present} disabled={disabled}
+          onChange={(e) => save({ present: e.target.checked || undefined })} />
+        Propose how each graphic is presented
+      </label>
+      {m.present && (
+        <>
+          <p className="micro-note block">
+            Full screen, over the footage, or partial beside it, read from each design, the shots under it and your production script's chapters and shot notes.
+            Nothing changes until you apply; you can change any graphic afterwards in its Look.
+          </p>
+          {!cine.length && <p className="micro-note block">Add cinematic graphics first.</p>}
+          {busy && !props && <p className="micro-note block">Reading the shots…</p>}
+          {err && <p className="micro-note block mg-error">{err}</p>}
+          {props && !changes.length && cine.length > 0 && <p className="micro-note block">Every graphic is already presented as proposed.</p>}
+          {props && props.map((p) => (
+            <div key={p.id} className={"mg-prop" + (p.same ? " same" : "")}>
+              <div className="mg-prop-head">
+                {!p.same && (
+                  <input type="checkbox" aria-label={`Apply the proposal for ${p.label}`} checked={!!picked[p.id]} disabled={disabled || busy}
+                    onChange={(e) => setPicked({ ...picked, [p.id]: e.target.checked })} />
+                )}
+                <button type="button" className="mg-prop-name" onClick={() => { onSelect(p.id); onSeek(p.start); }}>
+                  {clock(p.start)} · {p.category}
+                </button>
+                <span className="mg-prop-mode">{p.same ? MODE[p.mode] : `${MODE[p.current] || p.current} → ${MODE[p.mode]}`}</span>
+              </div>
+              <ul className="mg-prop-why">{p.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            </div>
+          ))}
+          {changes.length > 0 && (
+            <div className="st-actions">
+              <button className="btn" disabled={disabled || busy || !chosen.length} onClick={() => ask(chosen)}>
+                <Check size={12} /> {busy ? "Applying…" : `Apply ${chosen.length} of ${changes.length}`}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function MotionPanel({ project, time, playing, selectedId, onSelect, onChange, onSuggest, onDraft, onPresent, onSeek, onPlayFrom, disabled, previewStatus }) {
   const m = normaliseMotion(project.motion);
   const sel = m.items.find((x) => x.id === selectedId);
   const catalog = useCatalog();
@@ -564,6 +637,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
         <ProjectLook project={project} look={look} coll={coll} catalog={catalog} images={images} disabled={disabled}
           onChange={(l) => save({ look: Object.keys(l).length ? l : undefined })} />
       )}
+      {coll && onPresent && <AutoPresent m={m} save={save} onPresent={onPresent} onSeek={onSeek} onSelect={onSelect} disabled={disabled} />}
       {error && <p className="micro-note block mg-error">{error}</p>}
 
       {pick && (

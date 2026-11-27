@@ -67,6 +67,7 @@ export function normaliseMotion(m) {
   const v = m && typeof m === "object" ? m : {};
   const items = (v.items || []).map(normaliseItem).filter(Boolean).sort((a, b) => a.start - b.start);
   const out = { enabled: v.enabled === true, items };
+  if (v.present === true) out.present = true; // v0.4.65 automatic presentation proposals (off unless ticked)
   const look = cleanLook(v.look);
   if (Object.keys(look).length) out.look = look; // v0.4.63 the cinematic graphics' project look (the server checks it)
   return out;

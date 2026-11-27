@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.64", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.65", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1165,6 +1165,36 @@ async def motion_suggest(id: str, request: Request):
         p["motion"] = motiongfx.normalise({"enabled": cur["enabled"], "items": keep + new, "look": cur.get("look")})  # v0.4.63 keeps the look
         p = save_project(p)
     return {"project": p, "added": len(new)}
+
+
+@app.post("/api/projects/{id}/motion/present")
+async def motion_present(id: str, request: Request):
+    """v0.4.65 How each cinematic graphic could be presented (full screen, over the footage, partial), from its
+    design, the shots under it and the production script's chapter and shot notes. Without "apply" it only
+    proposes (nothing saved); {"apply": [ids]} applies those proposals as each graphic's own look (can be undone)."""
+    import presentation
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    body = body if isinstance(body, dict) else {}
+    ids = body.get("apply")
+    if not isinstance(ids, list):
+        p = project_or_404(id)
+        return {"proposals": presentation.propose(p)}
+    ids = {str(x) for x in ids}
+    with LOCK:
+        p = project_or_404(id)
+        props = {x["id"]: x for x in presentation.propose(p) if x["id"] in ids and not x["same"]}
+        if props:
+            checkpoint(p)
+            cur = motiongfx.normalise(p.get("motion"))
+            for it in cur["items"]:
+                if it["id"] in props:
+                    it["look"] = presentation.apply(it.get("look"), props[it["id"]])
+            p["motion"] = motiongfx.normalise(cur, {x["id"] for x in p["assets"] if x.get("kind") == "image"})
+            p = save_project(p)
+    return {"project": p, "applied": len(props), "proposals": presentation.propose(p)}
 
 
 @app.post("/api/projects/{id}/motion/plan")
