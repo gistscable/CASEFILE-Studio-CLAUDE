@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normaliseItem, normaliseMotion, graphicAt, graphicsAt } from "../../web/src/motion.js";
+import { normaliseItem, normaliseMotion, graphicAt, graphicsAt, cleanLook } from "../../web/src/motion.js";
 
 // v0.4.62 the story-aware (cinematic) graphics in the editor
 const cine = (over = {}) => ({
@@ -37,4 +37,16 @@ test("back to back, the preview stacks the graphics as the export does (later on
   assert.deepEqual(graphicsAt(motion, 12.4, "b").map((g) => g.item.id), ["b"]); // editing one: it alone
   assert.deepEqual(graphicsAt({ ...motion, enabled: false }, 12.4, null), []);
   assert.equal(graphicAt(motion, 11, null).item.id, "a");
+});
+
+// v0.4.63 the look of the cinematic graphics
+test("the project look survives the editor's normalise, keeping only the choices made", () => {
+  assert.equal("look" in normaliseMotion({ enabled: true, items: [] }), false);
+  const m = normaliseMotion({ enabled: true, items: [cine({ look: { palette: "B" } })], look: { vary: true, seed: "p1", palettes: { legal: "C" }, background: "footage", dim: 0.5 } });
+  assert.deepEqual(m.look, { vary: true, seed: "p1", palettes: { legal: "C" }, background: "footage", dim: 0.5 });
+  assert.deepEqual(m.items[0].look, { palette: "B" });
+  // switching a choice off removes what depended on it
+  assert.deepEqual(cleanLook({ vary: false, seed: "p1", palettes: { legal: undefined }, background: undefined, dim: 0.5, photo_id: "a", accent: "" }), {});
+  assert.deepEqual(cleanLook({ background: "photo", photo_id: "a", still_at: 3 }), { background: "photo", photo_id: "a" });
+  assert.deepEqual(cleanLook({ background: "still", still_at: 3, photo_id: "a", text: "own" }), { background: "still", still_at: 3, text: "own" });
 });

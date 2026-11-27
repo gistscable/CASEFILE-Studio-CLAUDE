@@ -151,10 +151,18 @@ def normalise(value, image_assets=None):
             seen.add(x["id"])
             items.append(x)
     items.sort(key=lambda x: x["start"])
-    if any(x["template"] == "cinematic" for x in items):  # v0.4.62 back-to-back cinematic graphics hand over
+    look = {}
+    if any(x["template"] == "cinematic" for x in items) or value.get("look"):
         import cinematic
-        cinematic.handoffs(items)
-    return {"enabled": value.get("enabled") is True, "items": items}
+        look = cinematic.normalise_look(value.get("look"), project=True, image_assets=image_assets)  # v0.4.63 the project look
+        for x in items:
+            if x["template"] == "cinematic":
+                x["style"] = cinematic.style_of(x, look)
+        cinematic.handoffs(items)  # v0.4.62 back-to-back cinematic graphics hand over
+    out = {"enabled": value.get("enabled") is True, "items": items}
+    if look:
+        out["look"] = look
+    return out
 
 
 def exported(project):
@@ -1695,7 +1703,7 @@ def background_path(project, item, data, asset_path):
     v0.4.62: a cinematic graphic's photos instead ({slot: {file, credit, month}})."""
     if item.get("template") == "cinematic":
         import cinematic
-        return cinematic.photo_files(project, item, asset_path)
+        return cinematic.photo_files(project, item, asset_path, data)
     bg = item.get("background")
     if bg == "photo":
         a = next((x for x in project.get("assets") or [] if x["id"] == item.get("photo_id") and x.get("kind") == "image"), None)

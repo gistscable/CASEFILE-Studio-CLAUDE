@@ -1,6 +1,6 @@
 import React from "react";
 import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle, Film } from "lucide-react";
-import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel } from "./motion.js";
+import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel, cleanLook } from "./motion.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 import { planFor } from "./MotionLayer.jsx";
 
@@ -70,11 +70,139 @@ const categoryOf = (catalog, it) => {
 const itemName = (catalog, x) => (x.template === "cinematic" ? x.label || categoryOf(catalog, x)?.label || "Cinematic graphic" : x.title || TEMPLATES[x.template].label);
 const kindName = (catalog, x) => (x.template === "cinematic" ? `Cinematic · ${categoryOf(catalog, x)?.label || x.category}` : TEMPLATES[x.template].label);
 
+// v0.4.63 The look of the cinematic graphics: each category's tested colour sets, your own colours (checked
+// for readability by the server, which draws them) and what the graphics are drawn over.
+const BACKDROPS = {
+  own: "Its own background",
+  footage: "Your footage, darkened",
+  still: "A still from your footage",
+  photo: "A photo from the project",
+};
+const isHex = (v) => /^#[0-9a-f]{6}$/i.test(v || "");
+
+function Sets({ label, value, palettes, onChange, disabled, follow }) {
+  return (
+    <div className="mg-sets" role="group" aria-label={label}>
+      <span>{label}</span>
+      <div className="mg-sets-row">
+        {follow && (
+          <button className={`mg-set follow ${!value ? "on" : ""}`} disabled={disabled} onClick={() => onChange("")} aria-pressed={!value}>
+            <small>{follow}</small>
+          </button>
+        )}
+        {palettes.map((p) => (
+          <button key={p.key} className={`mg-set ${value === p.key ? "on" : ""}`} disabled={disabled} title={p.label} aria-label={`${label}: ${p.label}`}
+            aria-pressed={value === p.key} onClick={() => onChange(p.key)}>
+            <i style={{ background: p.colors.bg }}>
+              <em style={{ color: p.colors.ink }}>Aa</em>
+              <b style={{ background: p.colors.accent }} />
+              {p.colors.accent2 !== p.colors.accent && <b style={{ background: p.colors.accent2 }} />}
+            </i>
+            <small>{p.label}</small>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// "" follows (the project, or the designs), "own" is the design's own colour (a graphic, over the project's), or any colour
+function ColourPick({ label, value, onChange, disabled, follow, own }) {
+  const [live, setLive] = React.useState(isHex(value) ? value : "#ffffff");
+  const timer = React.useRef(null);
+  React.useEffect(() => { if (isHex(value)) setLive(value.toLowerCase()); }, [value]);
+  React.useEffect(() => () => clearTimeout(timer.current), []);
+  return (
+    <div className="mg-swatches mg-colour">
+      <span>{label}</span>
+      <button className={`mg-chip ${!value ? "on" : ""}`} disabled={disabled} aria-pressed={!value} onClick={() => onChange("")}>{follow}</button>
+      {own && <button className={`mg-chip ${value === "own" ? "on" : ""}`} disabled={disabled} aria-pressed={value === "own"} onClick={() => onChange("own")}>Design's own</button>}
+      <label className={`mg-picker ${isHex(value) ? "on" : ""}`} title="Your own colour (checked for readability)">
+        <input type="color" aria-label={`${label}: your own colour`} value={live} disabled={disabled}
+          onChange={(e) => {
+            const c = e.target.value.toLowerCase();
+            setLive(c);
+            clearTimeout(timer.current);
+            timer.current = setTimeout(() => c !== value && onChange(c), 350);
+          }} />
+      </label>
+      {isHex(value) && <code className="mg-hex">{value.toUpperCase()}</code>}
+    </div>
+  );
+}
+
+// The project look: every cinematic graphic follows it unless you change that graphic (select it, then LOOK).
+function ProjectLook({ project, look, coll, catalog, images, disabled, onChange }) {
+  const set = (patch) => onChange(cleanLook({ ...look, ...patch }));
+  const dimD = catalog?.dim || { min: 0.4, max: 0.85, default: 0.62 };
+  const pictures = look.background && look.background !== "own";
+  const cats = coll?.categories || [];
+  const noPicture = cats.filter((k) => !(k.looks?.backdrops || []).includes("footage"));
+  const changed = Object.keys(look).length > 0;
+  return (
+    <details className="mg-look">
+      <summary>Look of all cinematic graphics{changed ? " · changed" : ""}</summary>
+      <p className="micro-note block">
+        For every cinematic graphic in this project. One graphic can still have its own look: select it, then change it under LOOK.
+      </p>
+      <label className="cs-check">
+        <input type="checkbox" checked={!!look.vary} disabled={disabled}
+          onChange={(e) => set({ vary: e.target.checked, seed: e.target.checked ? look.seed || project.id : undefined })} />
+        Vary the look automatically for this project
+      </label>
+      <p className="micro-note block">
+        Each category gets one of its tested colour sets, picked from this project's own id: this project always looks the same, other projects look different.
+        A set you choose below, or on one graphic, always wins.
+      </p>
+      <Choice label="Background" value={look.background || "own"} disabled={disabled}
+        options={[["own", "Each design's own background"], ["footage", BACKDROPS.footage], ["still", "A still from your footage (at each graphic)"], ...(images.length ? [["photo", BACKDROPS.photo]] : [])]}
+        onChange={(v) => set({ background: v === "own" ? undefined : v, photo_id: v === "photo" ? look.photo_id || images[0]?.id : undefined })} />
+      {look.background === "photo" && (
+        <Choice label="Photo (from your project)" value={look.photo_id || ""} options={images.map((a) => [a.id, a.name])} disabled={disabled} onChange={(v) => set({ photo_id: v })} />
+      )}
+      {pictures && (
+        <>
+          <Step label="Darken" value={look.dim ?? dimD.default} display={pct(look.dim ?? dimD.default)} step={0.05} min={dimD.min} max={dimD.max} disabled={disabled}
+            onChange={(x) => set({ dim: Math.round(x * 100) / 100 })} />
+          <p className="micro-note block">
+            {noPicture.map((k) => k.looks.backdrop_note).join(" ")}
+            {cats.some((k) => k.looks?.palettes?.[0]?.light) ? " A design on paper uses its dark version over a picture, so the text stays light." : ""}
+            {look.background === "footage" ? " See-through: back to back, the earlier graphic fades out under the next one." : ""}
+          </p>
+        </>
+      )}
+      <ColourPick label="Accent" value={look.accent || ""} follow="Each design's own" disabled={disabled} onChange={(v) => set({ accent: v || undefined })} />
+      <ColourPick label="Text" value={look.text || ""} follow="Each design's own" disabled={disabled} onChange={(v) => set({ text: v || undefined })} />
+      {(look.accent || look.text) && (
+        <p className="micro-note block">Checked against each design's background: a colour too faint to read there is drawn in its nearest readable shade (the graphic tells you).</p>
+      )}
+      <div className="mg-sets-head">Colour sets (tested for readability)</div>
+      {cats.map((k) => (
+        <Sets key={k.key} label={k.label} value={look.palettes?.[k.key] || (look.vary ? "" : k.looks?.palettes?.[0]?.key)} palettes={k.looks?.palettes || []}
+          follow={look.vary ? "Automatic" : null} disabled={disabled}
+          onChange={(v) => set({ palettes: { ...(look.palettes || {}), [k.key]: v === k.looks?.palettes?.[0]?.key && !look.vary ? undefined : v || undefined } })} />
+      ))}
+      {changed && (
+        <button className="text-link" disabled={disabled} onClick={() => onChange({})}>Back to each design's approved look</button>
+      )}
+    </details>
+  );
+}
+
 // v0.4.62 A story-aware graphic: its words, design and timing come from the narration (it is drawn in
 // sync with the words, so it is moved by choosing another passage, not by dragging). You choose its
 // category, the photos of its slots (only your own, with the credit you type) and the captions.
-function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, onPlayFrom, onRemove, onRemake, previewStatus }) {
+function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, onPlayFrom, onRemove, onRemake, previewStatus, time }) {
   const cat = categoryOf(catalog, sel);
+  const own = sel.look || {};
+  const setLook = (patch) => update(sel.id, { look: cleanLook({ ...own, ...patch }) });
+  const style = info && info.id === sel.id ? info.style || null : null;
+  const pals = cat?.looks?.palettes || [];
+  const palName = (k) => pals.find((p) => p.key === k)?.label || k;
+  const bds = (cat?.looks?.backdrops || ["own"]).filter((b) => b !== "photo" || images.length);
+  const dimD = catalog?.dim || { min: 0.4, max: 0.85, default: 0.62 };
+  const picture = style && style.background !== "own";
+  const projectSet = style && style.from?.palette !== "graphic" ? ` (${palName(style.palette)})` : "";
   const coll = (catalog?.collections || []).find((x) => x.key === sel.collection);
   const slots = info && info.id === sel.id ? info.slots || [] : null;
   const setPhoto = (key, patch) => {
@@ -145,6 +273,45 @@ function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, o
           </div>
         );
       })}
+
+      <div className="section-label sub"><span>LOOK</span></div>
+      <p className="micro-note block">
+        {Object.keys(own).length ? "This graphic has its own look (changed here); the rest follows the project look." : "Follows the project look (Motion › Look of all cinematic graphics)."}
+        {Object.keys(own).length > 0 && (
+          <> <button className="text-link" disabled={disabled} onClick={() => update(sel.id, { look: {} })}>Use the project look</button></>
+        )}
+      </p>
+      {pals.length > 0 && (
+        <Sets label="Colours" value={own.palette || ""} palettes={pals} follow={`Project${projectSet}`} disabled={disabled} onChange={(v) => setLook({ palette: v || undefined })} />
+      )}
+      <ColourPick label="Accent" value={own.accent || ""} follow="Project" own disabled={disabled} onChange={(v) => setLook({ accent: v || undefined })} />
+      <ColourPick label="Text" value={own.text || ""} follow="Project" own disabled={disabled} onChange={(v) => setLook({ text: v || undefined })} />
+      <Choice label="Background" value={own.background || ""} disabled={disabled}
+        options={[["", `Project${style && style.from?.background !== "graphic" ? ` (${BACKDROPS[style.background].toLowerCase()})` : ""}`], ...bds.map((b) => [b, BACKDROPS[b]])]}
+        onChange={(v) => setLook({ background: v || undefined, photo_id: v === "photo" ? own.photo_id || images[0]?.id : undefined, still_at: v === "still" ? own.still_at ?? sel.start : undefined })} />
+      {bds.length === 1 && cat?.looks?.backdrop_note && <p className="micro-note block">{cat.looks.backdrop_note}</p>}
+      {own.background === "photo" && (
+        <Choice label="Photo (from your project)" value={own.photo_id || ""} options={images.map((a) => [a.id, a.name])} disabled={disabled} onChange={(v) => setLook({ photo_id: v })} />
+      )}
+      {own.background === "still" && (
+        <div className="mg-still">
+          <Step label="Still from" value={own.still_at ?? sel.start} display={clock(own.still_at ?? sel.start)} typed={parseClock} step={0.5} min={0} max={86400} disabled={disabled}
+            onChange={(x) => setLook({ still_at: round3(x) })} />
+          <button className="text-link" disabled={disabled} title="The footage on the timeline at the playhead" onClick={() => setLook({ still_at: round3(time) })}>set to playhead</button>
+          <p className="micro-note">The frame of your own footage that plays on the timeline at that moment, darkened (not blurred).</p>
+        </div>
+      )}
+      {picture && (
+        <Step label="Darken" value={style.dim ?? dimD.default} display={pct(style.dim ?? dimD.default)} step={0.05} min={dimD.min} max={dimD.max} disabled={disabled}
+          onChange={(x) => setLook({ dim: Math.round(x * 100) / 100 })} />
+      )}
+      {style && (style.background === "still" || style.background === "photo") && info.backdrop === "own" && (
+        <p className="micro-note block mg-warn">
+          {style.background === "still" ? "No footage plays at that moment (a gap, a card or a missing file)" : "That photo's file is missing (or none is chosen)"}: its own background is used. Nothing is made up.
+        </p>
+      )}
+      {style && style.background === "footage" && <p className="micro-note block">See-through: your footage plays under it, darkened. Back to back, the graphic before it fades out under it.</p>}
+      {(style?.notes || []).map((n, i) => <p key={i} className="micro-note block mg-warn">{n}</p>)}
     </div>
   );
 }
@@ -171,14 +338,16 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   // layouts that look different for it, and whether its photo or footage still was found)
   const [info, setInfo] = React.useState(null);
   const selJson = sel ? JSON.stringify(sel) : "";
+  const look = m.look || {};
+  const lookJson = JSON.stringify(look);
   React.useEffect(() => {
     if (!sel) return setInfo(null);
     let live = true;
-    planFor(project.id, sel).then((p) => live && setInfo({ id: sel.id, ...p })).catch(() => live && setInfo(null));
+    planFor(project.id, sel, look).then((p) => live && setInfo({ id: sel.id, ...p })).catch(() => live && setInfo(null));
     return () => {
       live = false;
     };
-  }, [project.id, selJson]);
+  }, [project.id, selJson, sel?.template === "cinematic" ? lookJson : ""]);
   const layouts = sel && info && info.id === sel.id ? info.layouts || [] : [];
   const nextLayout = (it) => {
     const opts = info && info.id === it.id ? info.layouts || [] : [];
@@ -230,7 +399,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const remake = (it, category) =>
     run("regen", async () => {
       const fresh = await onDraft({ template: "cinematic", collection: it.collection, category, start: it.start, end: it.end, window: it.window, id: it.id });
-      update(it.id, { ...fresh, id: it.id, status: "draft", source: it.source, reason: it.reason, hide_captions: it.hide_captions });
+      update(it.id, { ...fresh, id: it.id, status: "draft", source: it.source, reason: it.reason, hide_captions: it.hide_captions, look: it.look });
     });
 
   const regenerate = (it, template = it.template) =>
@@ -280,6 +449,10 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           <Plus size={12} /> Cinematic from a passage
         </button>
       </div>
+      {coll && (
+        <ProjectLook project={project} look={look} coll={coll} catalog={catalog} images={images} disabled={disabled}
+          onChange={(l) => save({ look: Object.keys(l).length ? l : undefined })} />
+      )}
       {error && <p className="micro-note block mg-error">{error}</p>}
 
       {pick && (
@@ -334,7 +507,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
 
       {sel && sel.template === "cinematic" && (
         <CinematicEditor sel={sel} info={info} images={images} catalog={catalog} disabled={disabled} busy={busy} update={update} onPlayFrom={onPlayFrom}
-          onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remake} previewStatus={previewStatus} />
+          onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remake} previewStatus={previewStatus} time={time} />
       )}
       {sel && sel.template !== "cinematic" && (
         <div className="st-edit">

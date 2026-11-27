@@ -1213,8 +1213,34 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
   encode, and if that fails the export uses libx264 with a warning. The render report names the encoder.
 - **Tests:** `tests/test_cinegfx_engine.py` (20, moved from `qa/cinegfx-demos/`), `tests/test_cinematic.py` (11) and
   `tests/js/motion.test.mjs` (3).
+
+### v0.4.63 Look of the cinematic graphics (colours and backgrounds)
+
+- **Data:** the project look is `motion.look` = `{vary, seed, palettes: {category: set key}, accent, text, background, photo_id, dim}`;
+  a graphic's own changes are `item.look` = `{palette, accent, text ("own" = the design's colour over the project's), background,
+  photo_id, still_at, dim}`. Both keep only the choices made (`cinematic.normalise_look`; client `cleanLook`).
+- **Resolution:** `motion.normalise` sets `item.style = cinematic.style_of(item, look)` on every cinematic item (graphic > project >
+  automatic variation > the design). The plan route resolves it with the look the editor sends (`{item, look}`), so the preview follows
+  an unsaved change. `style` is derived: what is sent is ignored and recomputed. It is part of the cache key.
+- **Engine:** `cinegfx/look.py` (niche-agnostic): `Category.looks` declares tested sets (`palettes`, first = the approved design),
+  `backdrops` it can take, `backdrop_note`, `on_accent` (colours written on the accent). `resolve()` applies the readability check
+  (text 4.5:1, accent 3:1 against the background, or a darkened mid-grey over a picture; nearest readable shade of the same hue) and
+  says in `notes` what it changed. `theme_for` returns the category's own Theme object for the approved colours (pixel-identical).
+  Variant themes get unique names (sprite caches key on `th.name`; the legal stamp now keys on its accent).
+- **True crime:** 3 tested sets per category plus the other surface (light versions of findings, timeline, contradiction; the dark
+  docket for legal). Contradiction takes no picture (its columns fill the screen). A light set over a picture becomes the category's
+  first dark set (legal: the dark docket). Turning: the accent must also hold white text (3:1). Findings' fade under the name is now
+  the theme's background (was the navy literal = the approved bg), so a light set keeps the name readable.
+- **Backgrounds:** `footage` is see-through (a dark layer at `dim`, the video shows through); `still` / `photo` are drawn into the
+  frame (`files["__backdrop__"]` via `motion.background_path`, darkened, 4% push-in); not found = its own background (`plan.backdrop`).
+  A see-through graphic does not cover: `handoffs` sets `cut_fade` on the earlier one, which fades out over the 0.2 s fade-in.
+- **Not offered:** font, text size, alignment and position (the classic controls). The cinematic layouts are composed per category;
+  ask before adding them.
+- **Tests:** `tests/test_cinematic_look.py` (12, including an export over footage and over a photo, and a still from a real video), `tests/js/motion.test.mjs` (4).
   - The approved Javits stills must stay pixel-identical. Check with `make_demos.py --stills` against a saved baseline.
 - **Demos, photo provenance and crops:** `qa/cinegfx-demos/`; provenance in `photos/sources.json`.
   - The vigil photo is cropped below faces.
   - The Freeman St photo is cropped so the No. 2 train isn't presented as the No. 5.
+- **Look options page:** `qa/cinegfx-demos/make_looks.py` (add `--clips` for the 5 narrated MP4s) writes `qa/cinegfx-demos/looks/`
+  with the app's own look code; serve with `qa/cinegfx-demos/serve.py` (port 8001, `/looks/`). Overview image: `qa/look-options-gallery.jpg`.
 - **Kit extraction for Storyroom** comes after the user approves the integrated version.

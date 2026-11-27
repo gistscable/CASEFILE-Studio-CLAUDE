@@ -13,6 +13,7 @@ This is a new engine, separate from `motion.py`, which it never imports. It is n
 | Core | `core.py` | `Collection` / `Category` registry, `select()` (where a graphic is meaningful), `Graphic` base, `Assets` (authentic photos with provenance) |
 | Niche collections | `collections/*.py` | One module per niche. `truecrime.py` = 6 categories (detector + theme + graphic) |
 | Design | `theme.py` | Palette + type roles as data; repo fonts only |
+| Look | `look.py` | v0.4.63: a category's tested colour sets (`Category.looks`), your own colours with a readability check (nearest readable shade), the backdrops it can take |
 | Motion | `anim.py` | Fast easing (expo/quint, tight overshoot); every frame is a pure function of time |
 | Drawing | `draw.py` | Cached text sprites, supersampled shapes, sharp photo resampling (never blurred) |
 | Sound | `sfx.py` | Places `sfxlib` sounds so each sync point (transient or crest) lands on its visual event; ducks the effects under speech |
@@ -33,6 +34,9 @@ class Football(Collection):
         self.add(Category("scoreline", "Scoreline", THEME, detect_scoreline, Scoreline))
 register(Football())
 ```
+
+Optional: `looks={"palettes": [("A", "Approved", None), ("B", "Other", {bg, bg2, ink, muted, accent, accent2}), ...], "backdrops": ("own",)}`
+on the Category gives it colour sets in the editor (each set must pass `tests/test_cinematic_look.py::test_every_tested_set_is_readable`).
 
 The core finds the new module automatically (`load_collections()`). Nothing else changes. `tests/test_cinegfx_engine.py::test_new_niche_registers_without_touching_core` checks this.
 

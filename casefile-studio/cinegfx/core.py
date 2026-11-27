@@ -93,6 +93,7 @@ class Category:
     cross_chapter: bool = False   # e.g. a chapter-ending question answered by the next chapter's first line
     slots: callable = None        # (payload) -> [{key, kind: person|place|tag, value, label}]: photos it can show
     about: str = ""               # one line for the editor: what this graphic is for
+    looks: dict = field(default_factory=dict)  # v0.4.63 colour sets and backdrops it can take (see look.py)
 
     def photo_slots(self, payload) -> list:
         return list(self.slots(payload)) if self.slots else []
