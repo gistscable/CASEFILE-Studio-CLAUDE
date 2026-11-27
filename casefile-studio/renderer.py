@@ -729,7 +729,106 @@ def _split_tree(head, cuts, tree):
     return out
 
 
-def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False, tree=False):
+# v0.4.61 Soundbites (Mode O audio breaks) are normalised once each, in their own short FFmpeg pass,
+# and kept as 32-bit float WAV; the voice bus (export and the editor's ducking analysis) reads them
+# back. The same filters on the same decoded frames, written as float: the bus gets exactly the samples
+# the in-graph chain made (tests/test_audiobreak.py compares them), but no longer holds one loudnorm
+# (~110-130 MB each: it works at 192 kHz) per soundbite in memory at the same time.
+SOUNDBITE_V = 2  # part of each cached file's key: bump when the chain below changes
+SOUNDBITE_KEEP_MB = 2048  # the cache folder is pruned to about this (oldest first; files in use kept)
+_VOICE_FMT = "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo"
+
+
+def soundbite_length(scene):
+    return round(float(scene["duration"]) * FPS) / FPS
+
+
+def soundbite_chain(scene):
+    """The filters that make a soundbite's part of the voice bus from its clip's audio (before the
+    re-timing): its trim, loudness normalisation and fades, padded to the scene's length.
+    v0.4.61 Re-timed from its sample count right after the loudnorm. loudnorm stamps its frames 0.1 s
+    apart even when the last one before its flush is short, so its timestamps ran up to ~0.1 s ahead of
+    its samples, and the fades and the trim to the scene's length (which go by timestamps) cut the end
+    of the soundbite: it was up to ~0.1 s short, and everything after it in the voice bus (the
+    narration resuming, later soundbites) came that much early against the picture, adding up over a
+    film. A guide export of soundbites with no music or effects could be refused as too short. Exact
+    when a soundbite's length is a multiple of 0.1 s (nothing was cut there); otherwise the soundbite
+    now keeps its full length and its fade-out ends on its last frame."""
+    length = soundbite_length(scene)
+    a = float(scene.get("trim_start", 0))
+    b = a + length
+    fade = min(0.08, length / 4)
+    fmt = _VOICE_FMT
+    return (
+        f"atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
+        f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},{RESTAMP},afade=t=in:d={fade},"
+        f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length}"
+    )
+
+
+def soundbite_folder():
+    return DATA / "cache" / "soundbites"
+
+
+def soundbite_job(scene, clip_path):
+    """(cached file, FFmpeg command writing it to "{OUT}") for one soundbite scene. The file's name is
+    a hash of the chain (trim, length, fades), the clip file (path, size, time) and SOUNDBITE_V."""
+    import hashlib
+
+    clip_path = Path(clip_path)
+    st = clip_path.stat()
+    chain = soundbite_chain(scene)
+    key = hashlib.sha1(
+        json.dumps([chain, str(clip_path), st.st_size, int(st.st_mtime), SOUNDBITE_V]).encode()
+    ).hexdigest()[:24]
+    cmd = ["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(clip_path), "-filter_complex",
+           f"[0:a]{chain}[sb]", "-map", "[sb]", "-c:a", "pcm_f32le", "-f", "wav", "{OUT}"]
+    return soundbite_folder() / f"{key}.wav", cmd
+
+
+def soundbite_tmp(path):
+    return path.with_name(f"{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
+
+
+def prune_soundbites(keep=(), limit_mb=None):
+    """Remove the oldest cached soundbites beyond SOUNDBITE_KEEP_MB (never those in `keep`)."""
+    limit = (SOUNDBITE_KEEP_MB if limit_mb is None else limit_mb) * 2**20
+    keep = {Path(k).resolve() for k in keep}
+    try:
+        files = sorted(soundbite_folder().glob("*.wav"), key=lambda q: q.stat().st_mtime, reverse=True)
+        total = 0
+        for q in files:
+            total += q.stat().st_size
+            if total > limit and q.resolve() not in keep:
+                q.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def prepare_soundbites(scenes, clip_paths, cancelled):
+    """{scene index: cached soundbite file} for the export, each made now if it is not cached yet
+    (one short FFmpeg pass per soundbite, one at a time). `clip_paths`: {scene index: clip file}."""
+    out = {}
+    for i in sorted(clip_paths):
+        path, cmd = soundbite_job(scenes[i], clip_paths[i])
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = soundbite_tmp(path)
+            try:
+                run([str(tmp) if c == "{OUT}" else c for c in cmd], cancelled)
+                tmp.replace(path)
+            finally:
+                tmp.unlink(missing_ok=True)
+        try:
+            os.utime(path)  # recently used: kept by the pruning
+        except OSError:
+            pass
+        out[i] = path
+    prune_soundbites(keep=out.values())
+    return out
+
+
+def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False, tree=False, prepared=False):
     """v0.4.57 The FFmpeg filters that make the voice bus [voice] (narration, and Mode O soundbites),
     exactly as the export mixes it. The editor preview's effects ducking is computed from this same
     graph (sound.duck_curve), so what you hear while editing is what the export does.
@@ -741,7 +840,9 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False,
     analysis of the timeline (sound.duck_curve).
     v0.4.60 `tree` (the editor's ducking analysis only, never the export): the scene-sliced
     narration is split in two levels (see _split_tree) instead of 150 ways: the same scene trims on
-    the same frames, the same samples out, without every scene's trim seeing the whole recording."""
+    the same frames, the same samples out, without every scene's trim seeing the whole recording.
+    v0.4.61 `prepared`: the soundbite inputs are their cached files (prepare_soundbites), already
+    trimmed, normalised and faded; only the re-timing is left to do here."""
     af = []
     if voice_index is None:
         return af
@@ -796,15 +897,8 @@ def voice_graph(project, scenes, total, voice_index, insert_inputs, stems=False,
                 k += 1
             else:
                 _, i, length = g
-                scene = scenes[i]
-                a = float(scene.get("trim_start", 0))
-                b = a + length
-                fade = min(0.08, length / 4)
-                af.append(
-                    f"[{insert_inputs[i]}:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,{fmt},"
-                    f"loudnorm=I=-16:TP=-1.5:LRA=11,{fmt},afade=t=in:d={fade},"
-                    f"afade=t=out:st={max(0, length - fade)}:d={fade},apad,atrim=duration={length},{RESTAMP}[vi{i}]"
-                )
+                chain = fmt if prepared else soundbite_chain(scenes[i])
+                af.append(f"[{insert_inputs[i]}:a]{chain},{RESTAMP}[vi{i}]")
                 order.append(f"[vi{i}]")
         if stems:
             # the same segments, each stem silent where the other plays (sample-exact: the same trims)
@@ -1388,7 +1482,7 @@ def render(
                 command += music_args
                 inputs += music_args.count("-i")
         # Mode O: each producer-cleared audio break plays its own clip's sound.
-        insert_inputs = {}
+        insert_inputs, clip_paths = {}, {}
         for i, scene in enumerate(scenes):
             if scene.get("insert_audio"):
                 clip = assets.get(scene.get("asset_id"))
@@ -1396,9 +1490,17 @@ def render(
                     raise RuntimeError(
                         "An audio break needs the narration and a linked file with an audio track."
                     )
-                insert_inputs[i] = inputs
-                command += ["-i", str(asset_path(clip))]
-                inputs += 1
+                clip_paths[i] = asset_path(clip)
+        soundbites = {}
+        if clip_paths and (project.get("episode") or {}).get("guide"):
+            # v0.4.61 each soundbite normalised once, in its own short pass (cached); the voice bus
+            # reads them back instead of running one loudnorm per soundbite at the same time
+            progress(92, "Preparing the soundbites")
+            soundbites = prepare_soundbites(scenes, clip_paths, cancelled)
+        for i in sorted(clip_paths):
+            insert_inputs[i] = inputs
+            command += ["-i", str(soundbites.get(i, clip_paths[i]))]
+            inputs += 1
         # v0.4.56: the sound design layer (A4): one stem with every approved effect in place.
         sfx_index, sfx_placed = None, []
         sfx_settings = sfx.normalise(project.get("sound"))
@@ -1418,20 +1520,24 @@ def render(
                 sfx_index, sfx_placed = None, []
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
-        vgraph = voice_graph(project, scenes, total, voice_index, insert_inputs)
-        if voice_index is not None and (music_index is not None or sfx_index is not None) and any("loudnorm" in g for g in vgraph):
+        bites_cached = bool(soundbites)  # not `prepared`: that name holds the timing mark above
+        vgraph = voice_graph(project, scenes, total, voice_index, insert_inputs, prepared=bites_cached)
+        if voice_index is not None and (music_index is not None or sfx_index is not None) and (
+                bites_cached or any("loudnorm" in g for g in vgraph)):
             # v0.4.59 The voice bus is made first, in its own pass. loudnorm hands over its last 3 s
             # only when its input ends; mixed in the same graph as the music or the effects, the
             # compressors and amix ended with the other inputs, and the export's whole audio
             # (narration included) stopped ~2.9 s before the picture. Read back from a file it
             # arrives in step with the rest. 32-bit float: the voice samples are exactly the same.
+            # v0.4.61 also with cached soundbites (their loudnorm ran in their own passes): the same
+            # bus, made the same way, so the export's samples are unchanged.
             progress(94, "Preparing the narration")
             nin = {i: 1 + k for k, i in enumerate(sorted(insert_inputs))}
             pre = ["ffmpeg", "-v", "error", "-y", "-nostdin", "-i", str(asset_path(narration))]
             for i in sorted(insert_inputs):
-                pre += ["-i", str(asset_path(assets.get(scenes[i].get("asset_id"))))]
+                pre += ["-i", str(soundbites.get(i, clip_paths[i]))]
             bus = work / "voice.wav"
-            pre += ["-filter_complex", ";".join(voice_graph(project, scenes, total, 0, nin)) + ";[voice]aresample=48000,"
+            pre += ["-filter_complex", ";".join(voice_graph(project, scenes, total, 0, nin, prepared=bites_cached)) + ";[voice]aresample=48000,"
                     "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=stereo,apad,"
                     f"atrim=end_sample={round(total * 48000)}[vbus]", "-map", "[vbus]", "-c:a", "pcm_f32le", str(bus)]
             run(pre, cancelled)

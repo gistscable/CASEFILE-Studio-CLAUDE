@@ -1166,3 +1166,28 @@ Conditional approval of v0.4.59 → speed, sync and timeline-SFX checks. Full wr
   decision. loudnorm (70–80 s / 25 min) and the compressors (~6 s each) are the floor of an exact analysis.
 * QA: `qa/sound-design/duck_bench.py [--quick]` (now with a /proc RSS sampler), `browser_timeline_qa.mjs`
   (run from a folder with puppeteer-core), `tail_check_long.py [cases] [--code DIR]`.
+
+
+## Soundbite memory (v0.4.61)
+
+Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.md` § v0.4.61. Not finally approved.
+
+* **`renderer.prepare_soundbites(project, ...)`**:
+  - Each soundbite goes through `soundbite_chain` (loudnorm → `{fmt}` → `{RESTAMP}` → afade) in its own FFmpeg pass, at most `sound.SOUNDBITE_JOBS` = 2 at once.
+  - Output is f32 in `DATA/cache/soundbites/`. The key includes `SOUNDBITE_V`, so bump it whenever the chain changes.
+  - `voice_graph(..., prepared=True)` reads the cached files. The export pre-pass condition must include `prepared`; without it, odd-length exports were refused.
+* **`sound._duck_job`** prepares soundbites before building the bus; `bus_key` is v4.
+* **Bug fixed** (commit `197602b`, revertable alone): loudnorm stamps frames 0.1 s apart, so trims and fades after it cut soundbites short by up to 0.1 s. `RESTAMP` now follows loudnorm.
+* **QA:** `tail_check_long.py` has `guide-12min-10-odd-soundbites[-voice-only]`; `duck_bench.py inserts` reports peak FFmpeg RSS.
+
+## cinegfx — story-aware cinematic graphics engine (demo stage, not integrated)
+
+`casefile-studio/cinegfx/` (see its README) is a new engine, independent of `motion.py`, which it never imports.
+- **Demos:** six true-crime category demo MP4s plus a reel (`all-six-demos.mp4`) are in `casefile-studio/qa/cinegfx-demos/`.
+  - Build with `make_demos.py`; remix sound only with `remix.py`.
+  - View with `serve.py` (gallery on :8001, Range-capable).
+- **Tests:** 20 engine tests in `qa/cinegfx-demos/test_engine.py`. They move to `tests/` on integration.
+- **Not wired into the app or the Motion panel** until the user approves the demos. Kit extraction for Storyroom comes after approval.
+- **Photo provenance** is in `qa/cinegfx-demos/photos/sources.json`. Two crops were made for the editing guide:
+  - vigil photo cropped below faces;
+  - Freeman St photo cropped so the No. 2 train isn't presented as the No. 5.

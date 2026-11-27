@@ -140,6 +140,7 @@ def bench(kind, minutes):
 
     shutil.rmtree(DATA / "cache" / "sfx" / "duck", ignore_errors=True)
     shutil.rmtree(DATA / "cache" / "voicebus", ignore_errors=True)
+    shutil.rmtree(DATA / "cache" / "soundbites", ignore_errors=True)  # v0.4.61: a first analysis makes them too
     sound._DUCK_FAILED.clear()
     out = {}
     p = project(kind, minutes)

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>cinegfx — six category demos</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d10; color: #ece9e2; font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding: 28px 40px 8px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .02em; }
+  header p { margin: 6px 0 0; color: #8d929b; }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 28px; padding: 24px 40px 48px; }
+  .card { background: #13161b; border: 1px solid #222731; border-radius: 10px; overflow: hidden; }
+  .card.reel { grid-column: 1 / -1; }
+  video { width: 100%; display: block; background: #000; aspect-ratio: 16/9; }
+  .meta { padding: 14px 18px 18px; }
+  .meta b { display: block; font-size: 16px; }
+  .meta span { color: #8d929b; font-size: 13px; }
+  .tag { display: inline-block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #f2b33d; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cinematic motion graphics: six true-crime categories (demos for approval)</h1>
+  <p>Javits Frimpong script v1.0 · narration voice-02 · 1920×1080, 30 fps · native Python + FFmpeg · not yet integrated into the app</p>
+</header>
+<main>
+  <div class="card reel"><video src="all-six-demos.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">Reel</span><b>All six, back to back (1:47)</b></div></div>
+  <div class="card"><video src="1-findings.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">1 · Investigative Findings</span><b>What Kenny said</b><span>Findings revealed with their status as each is spoken; pull-quote typed with the voice.</span></div></div>
+  <div class="card"><video src="2-timeline.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">2 · Chronological Timeline</span><b>Family and community response</b><span>Real dates; “one week after” reaches back to the Oct 29 anchor.</span></div></div>
+  <div class="card"><video src="3-contradiction.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">3 · Contradictory Statements</span><b>Official accounts vs the family’s account</b><span>Words appear as spoken; ≠ lands on the opposing belief.</span></div></div>
+  <div class="card"><video src="4-legal.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">4 · Legal Outcome</span><b>Bronx Criminal Court · arraignment</b><span>“That day” resolved to Nov 11; charges typed in; stamp on “remanded”.</span></div></div>
+  <div class="card"><video src="5-digital.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">5 · Digital Evidence Analysis</span><b>Evidence log + route as described by police</b><span>No surveillance footage shown; schematic route only.</span></div></div>
+  <div class="card"><video src="6-turning.mp4" controls preload="metadata"></video>
+    <div class="meta"><span class="tag">6 · Case Turning Point</span><b>Would police make an arrest?</b><span>Question word by word, hard cut on “November 11”, 13 days computed from the story.</span></div></div>
+</main>
+</body>
+</html>

@@ -61,7 +61,7 @@ def media(minutes):
     return nar, clip, mus, plate, secs
 
 
-def project(name, minutes, guide, bites, past_end, reorder, seed):
+def project(name, minutes, guide, bites, past_end, reorder, seed, voice_only=False):
     """bites: [(index, trim_start, seconds)]; past_end: [(index, audio_start)] (sliced only)."""
     rnd = random.Random(seed)
     nar, clip, mus, plate, secs = media(minutes)
@@ -94,6 +94,8 @@ def project(name, minutes, guide, bites, past_end, reorder, seed):
          "sound": {"enabled": True, "items": items}}
     if guide:
         p["episode"] = {"guide": True, "plan": {"mode": "final"}}
+    if voice_only:
+        p["music_id"], p["sound"] = None, {"enabled": False, "items": []}
     return p, total
 
 
@@ -107,6 +109,13 @@ CASES = {
     "guide-30min-8-soundbites-one-past-clip-end": dict(minutes=30, guide=True,
                                                        bites=[(6, 1.0, 8), (25, 10.0, 8), (44, 34.0, 6), (70, 6.0, 8), (95, 18.0, 10), (120, 3.0, 8), (150, 21.0, 9), (170, 0.0, 6)],
                                                        past_end=[], reorder=False, seed=3),
+    # v0.4.61 guide, 12 min: 10 soundbites whose lengths are not multiples of 0.1 s (frame lengths a guide
+    # gives): v0.4.60 cut up to ~0.1 s off the end of each and the narration after it came early
+    "guide-12min-10-odd-soundbites": dict(minutes=12, guide=True, bites=[(3 + 6 * k, 1.3 + 2.1 * k, round((3.8333 + 0.37 * k) * 24) / 24)
+                                                                        for k in range(10)], past_end=[], reorder=False, seed=7),
+    # the same with no music and no effects (v0.4.60 refused this export as too short)
+    "guide-12min-10-odd-soundbites-voice-only": dict(minutes=12, guide=True, bites=[(3 + 6 * k, 1.3 + 2.1 * k, round((3.8333 + 0.37 * k) * 24) / 24)
+                                                                                   for k in range(10)], past_end=[], reorder=False, seed=7, voice_only=True),
     # quick checks of this script (run only when named)
     "smoke-guide-3min": dict(minutes=3, guide=True, bites=[(4, 2.0, 6), (12, 34.0, 5)], past_end=[], reorder=False, seed=4),
     "smoke-sliced-3min": dict(minutes=3, guide=False, bites=[], past_end=[(7, 185.0)], reorder=True, seed=5),

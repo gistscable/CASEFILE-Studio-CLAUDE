@@ -838,7 +838,9 @@ def test_ducking_analysis_reuses_the_timeline_for_volume_changes_and_matches_one
     # v0.4.60: a new timeline = its bus with the curve streamed from it (one pipeline); a bus on disk = the
     # two compressors side by side
     monkeypatch.setattr(sound, "_pipeline", lambda cmds, pid, key: (runs.append("bus"), real_pipe(cmds, pid, key))[1])
-    monkeypatch.setattr(sound, "_parallel", lambda cmds, pid, key: (runs.append("curve"), real_par(cmds, pid, key))[1])
+    monkeypatch.setattr(sound, "_parallel", lambda cmds, pid, key: (
+        runs.append("bite" if "loudnorm" in " ".join(cmds[0]) else "curve"), real_par(cmds, pid, key))[1])
+    monkeypatch.setattr(renderer, "DATA", data)  # v0.4.61 the cached soundbites: in this test's folder
 
     def single_pass(p):  # v0.4.58: one FFmpeg run, the voice bus and both compressors together
         job, _ = sound._duck_job(p)
@@ -878,7 +880,8 @@ def test_ducking_analysis_reuses_the_timeline_for_volume_changes_and_matches_one
                 assert n >= len(got) - 3 * sound.DUCK_RATE  # (v0.4.58 lost the last ~3 s of a loudnorm bus)
                 assert np.abs(got[:n] - r[:n]).max() <= 1, (kind, level, col)
                 assert got.min() < 200  # it really dips
-        assert runs == ["bus", "curve", "curve"], (kind, runs)  # the timeline was analysed once
+        # the timeline was analysed once (v0.4.61: its soundbite normalised first, in its own pass, once)
+        assert runs == (["bite"] if kind == "inserts" else []) + ["bus", "curve", "curve"], (kind, runs)
         # the ducking switched off for the effects only: the cached curve (music still ducks)
         runs.clear()
         assert sound.duck_curve(dict(p, sound={"enabled": True, "duck": False}), data, wait=True)["status"] == "ready" and runs == []

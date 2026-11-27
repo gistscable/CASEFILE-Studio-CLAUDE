@@ -1,0 +1,686 @@
+{
+ "selection_full_script": [
+  {
+   "category": "findings",
+   "sentences": [
+    26,
+    30
+   ],
+   "score": 1.03,
+   "why": [
+    "4 investigator findings with explicit status from Joseph Kenny"
+   ]
+  },
+  {
+   "category": "timeline",
+   "sentences": [
+    44,
+    47
+   ],
+   "score": 1.1,
+   "why": [
+    "5 dated events"
+   ]
+  },
+  {
+   "category": "legal",
+   "sentences": [
+    49,
+    51
+   ],
+   "score": 1.02,
+   "why": [
+    "charges ['murder', 'manslaughter', 'criminal possession of a weapon']; court=Bronx Criminal Court; judge=Scott Krompinger; outcome=remanded without bail"
+   ]
+  },
+  {
+   "category": "contradiction",
+   "sentences": [
+    54,
+    57
+   ],
+   "score": 0.75,
+   "why": [
+    "opposed claims share ['incident']"
+   ]
+  }
+ ],
+ "demos": {
+  "1-findings": {
+   "window": [
+    26,
+    30
+   ],
+   "chosen": "findings",
+   "expected": "findings",
+   "scores": {
+    "findings": 1.03
+   },
+   "why": [
+    "4 investigator findings with explicit status from Joseph Kenny"
+   ],
+   "mp4": "1-findings.mp4",
+   "render_s": 97.54,
+   "frames": 577,
+   "fps": 30,
+   "workers": 1,
+   "duration": 19.225,
+   "cues": [
+    {
+     "t": 0.0,
+     "sfx": "whoosh-mid-1",
+     "gain_db": -6,
+     "why": "panel in"
+    },
+    {
+     "t": 0.649,
+     "sfx": "click-mech-1",
+     "gain_db": -5,
+     "why": "finding row"
+    },
+    {
+     "t": 0.789,
+     "sfx": "pop-soft-1",
+     "gain_db": -8,
+     "why": "status chip"
+    },
+    {
+     "t": 1.392,
+     "sfx": "click-mech-2",
+     "gain_db": -5,
+     "why": "finding row"
+    },
+    {
+     "t": 1.532,
+     "sfx": "pop-soft-2",
+     "gain_db": -8,
+     "why": "status chip"
+    },
+    {
+     "t": 7.332,
+     "sfx": "click-mech-3",
+     "gain_db": -5,
+     "why": "finding row"
+    },
+    {
+     "t": 7.472,
+     "sfx": "pop-soft-3",
+     "gain_db": -8,
+     "why": "status chip"
+    },
+    {
+     "t": 14.601,
+     "sfx": "click-mech-1",
+     "gain_db": -5,
+     "why": "finding row"
+    },
+    {
+     "t": 14.741,
+     "sfx": "thump-deep-1",
+     "gain_db": -10,
+     "why": "status chip"
+    },
+    {
+     "t": 12.152,
+     "sfx": "paper-1",
+     "gain_db": -8,
+     "why": "quote card"
+    },
+    {
+     "t": 18.875,
+     "sfx": "rwhoosh-1",
+     "gain_db": -8,
+     "why": "out"
+    }
+   ]
+  },
+  "2-timeline": {
+   "window": [
+    45,
+    47
+   ],
+   "chosen": "timeline",
+   "expected": "timeline",
+   "scores": {
+    "timeline": 0.98
+   },
+   "why": [
+    "4 dated events"
+   ],
+   "mp4": "2-timeline.mp4",
+   "render_s": 35.99,
+   "frames": 566,
+   "fps": 30,
+   "workers": 1,
+   "duration": 18.86,
+   "cues": [
+    {
+     "t": 0.05,
+     "sfx": "whoosh-dir-r",
+     "gain_db": -7,
+     "why": "rail"
+    },
+    {
+     "t": 0.45,
+     "sfx": "click-muted-1",
+     "gain_db": -6,
+     "why": "event card"
+    },
+    {
+     "t": 2.766,
+     "sfx": "tick-1",
+     "gain_db": -6,
+     "why": "date lands"
+    },
+    {
+     "t": 3.743,
+     "sfx": "click-muted-2",
+     "gain_db": -6,
+     "why": "event card"
+    },
+    {
+     "t": 4.031,
+     "sfx": "tick-1",
+     "gain_db": -6,
+     "why": "date lands"
+    },
+    {
+     "t": 5.511,
+     "sfx": "sweep-down-1",
+     "gain_db": -12,
+     "why": "reach back in time"
+    },
+    {
+     "t": 6.615,
+     "sfx": "thump-deep-1",
+     "gain_db": -9,
+     "why": "anchor event"
+    },
+    {
+     "t": 8.413,
+     "sfx": "click-muted-3",
+     "gain_db": -6,
+     "why": "event card"
+    },
+    {
+     "t": 8.69,
+     "sfx": "tick-1",
+     "gain_db": -6,
+     "why": "date lands"
+    },
+    {
+     "t": 13.222,
+     "sfx": "click-muted-1",
+     "gain_db": -6,
+     "why": "event card"
+    },
+    {
+     "t": 13.272,
+     "sfx": "tick-1",
+     "gain_db": -6,
+     "why": "date lands"
+    },
+    {
+     "t": 18.51,
+     "sfx": "rwhoosh-2",
+     "gain_db": -9,
+     "why": "out"
+    }
+   ]
+  },
+  "3-contradiction": {
+   "window": [
+    54,
+    57
+   ],
+   "chosen": "contradiction",
+   "expected": "contradiction",
+   "scores": {
+    "contradiction": 0.75
+   },
+   "why": [
+    "opposed claims share ['incident']"
+   ],
+   "mp4": "3-contradiction.mp4",
+   "render_s": 54.06,
+   "frames": 603,
+   "fps": 30,
+   "workers": 1,
+   "duration": 20.087,
+   "cues": [
+    {
+     "t": 0.0,
+     "sfx": "whoosh-short-1",
+     "gain_db": -8,
+     "why": "halves in"
+    },
+    {
+     "t": 0.12,
+     "sfx": "whoosh-short-2",
+     "gain_db": -10,
+     "why": "halves in"
+    },
+    {
+     "t": 0.4,
+     "sfx": "click-mech-2",
+     "gain_db": -6,
+     "why": "statement"
+    },
+    {
+     "t": 6.915,
+     "sfx": "click-mech-2",
+     "gain_db": -6,
+     "why": "statement"
+    },
+    {
+     "t": 15.197,
+     "sfx": "click-mech-2",
+     "gain_db": -6,
+     "why": "statement"
+    },
+    {
+     "t": 16.476,
+     "sfx": "impact-tr-1",
+     "gain_db": -9,
+     "why": "contradiction"
+    },
+    {
+     "t": 16.476,
+     "sfx": "bass-hit-1",
+     "gain_db": -14,
+     "why": "contradiction"
+    },
+    {
+     "t": 19.737,
+     "sfx": "rwhoosh-3",
+     "gain_db": -9,
+     "why": "out"
+    }
+   ]
+  },
+  "4-legal": {
+   "window": [
+    49,
+    51
+   ],
+   "chosen": "legal",
+   "expected": "legal",
+   "scores": {
+    "legal": 1.02
+   },
+   "why": [
+    "charges ['murder', 'manslaughter', 'criminal possession of a weapon']; court=Bronx Criminal Court; judge=Scott Krompinger; outcome=remanded without bail"
+   ],
+   "mp4": "4-legal.mp4",
+   "render_s": 31.77,
+   "frames": 449,
+   "fps": 30,
+   "workers": 1,
+   "duration": 14.967,
+   "cues": [
+    {
+     "t": 0.0,
+     "sfx": "paper-1",
+     "gain_db": -6,
+     "why": "docket in"
+    },
+    {
+     "t": 2.246,
+     "sfx": "type-strike-1",
+     "gain_db": -6,
+     "why": "charge typed"
+    },
+    {
+     "t": 3.058,
+     "sfx": "type-strike-2",
+     "gain_db": -6,
+     "why": "charge typed"
+    },
+    {
+     "t": 3.813,
+     "sfx": "type-strike-3",
+     "gain_db": -6,
+     "why": "charge typed"
+    },
+    {
+     "t": 5.924,
+     "sfx": "click-muted-1",
+     "gain_db": -10,
+     "why": "attribution"
+    },
+    {
+     "t": 9.497,
+     "sfx": "doc-1",
+     "gain_db": -10,
+     "why": "hearing"
+    },
+    {
+     "t": 11.222,
+     "sfx": "type-strike-4",
+     "gain_db": -8,
+     "why": "judge"
+    },
+    {
+     "t": 12.751,
+     "sfx": "thump-deep-2",
+     "gain_db": -3,
+     "why": "stamp"
+    },
+    {
+     "t": 12.771,
+     "sfx": "doc-2",
+     "gain_db": -10,
+     "why": "stamp paper"
+    },
+    {
+     "t": 14.617,
+     "sfx": "paper-2",
+     "gain_db": -10,
+     "why": "out"
+    }
+   ]
+  },
+  "5-digital": {
+   "window": [
+    23,
+    26
+   ],
+   "chosen": "digital",
+   "expected": "digital",
+   "scores": {
+    "digital": 1.03
+   },
+   "why": [
+    "evidence ['SURVEILLANCE VIDEO', 'BACKPACK', 'SHELL CASINGS'] + route of 4 moves"
+   ],
+   "mp4": "5-digital.mp4",
+   "render_s": 50.08,
+   "frames": 765,
+   "fps": 30,
+   "workers": 1,
+   "duration": 25.495,
+   "cues": [
+    {
+     "t": 0.0,
+     "sfx": "scan-1",
+     "gain_db": -10,
+     "why": "hud boot"
+    },
+    {
+     "t": 3.375,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.425,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.475,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.525,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.575,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.625,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.675,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.725,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 3.775,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 2.206,
+     "sfx": "notify-1",
+     "gain_db": -9,
+     "why": "status"
+    },
+    {
+     "t": 9.772,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 9.822,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 9.872,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 9.922,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 13.055,
+     "sfx": "pulse-low-1",
+     "gain_db": -9,
+     "why": "status"
+    },
+    {
+     "t": 16.377,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.427,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.477,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.527,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.577,
+     "sfx": "key-soft-3",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.627,
+     "sfx": "key-soft-5",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 16.677,
+     "sfx": "key-soft-1",
+     "gain_db": -16,
+     "why": "typing"
+    },
+    {
+     "t": 15.331,
+     "sfx": "notify-1",
+     "gain_db": -9,
+     "why": "status"
+    },
+    {
+     "t": 17.324,
+     "sfx": "whoosh-dir-r",
+     "gain_db": -10,
+     "why": "route step"
+    },
+    {
+     "t": 19.297,
+     "sfx": "click-mech-1",
+     "gain_db": -7,
+     "why": "route step"
+    },
+    {
+     "t": 20.763,
+     "sfx": "whoosh-dir-r",
+     "gain_db": -10,
+     "why": "route step"
+    },
+    {
+     "t": 23.385,
+     "sfx": "click-mech-1",
+     "gain_db": -7,
+     "why": "route step"
+    },
+    {
+     "t": 17.324,
+     "sfx": "scan-2",
+     "gain_db": -12,
+     "why": "location scan"
+    },
+    {
+     "t": 23.685,
+     "sfx": "pulse-low-2",
+     "gain_db": -8,
+     "why": "tracked"
+    },
+    {
+     "t": 25.145,
+     "sfx": "rwhoosh-1",
+     "gain_db": -10,
+     "why": "out"
+    }
+   ]
+  },
+  "6-turning": {
+   "window": [
+    47,
+    49
+   ],
+   "chosen": "turning",
+   "expected": "turning",
+   "scores": {
+    "turning": 0.85
+   },
+   "why": [
+    "question answered by dated event (13 days after incident)"
+   ],
+   "mp4": "6-turning.mp4",
+   "render_s": 23.27,
+   "frames": 253,
+   "fps": 30,
+   "workers": 1,
+   "duration": 8.437,
+   "cues": [
+    {
+     "t": 0.0,
+     "sfx": "tick-2",
+     "gain_db": -12,
+     "why": "question word"
+    },
+    {
+     "t": 0.25,
+     "sfx": "tick-2",
+     "gain_db": -12,
+     "why": "question word"
+    },
+    {
+     "t": 0.662,
+     "sfx": "tick-2",
+     "gain_db": -12,
+     "why": "question word"
+    },
+    {
+     "t": 0.912,
+     "sfx": "tick-2",
+     "gain_db": -12,
+     "why": "question word"
+    },
+    {
+     "t": 1.162,
+     "sfx": "click-mech-3",
+     "gain_db": -6,
+     "why": "question word"
+    },
+    {
+     "t": 2.267,
+     "sfx": "riser-2",
+     "gain_db": -8,
+     "why": "tension into the answer"
+    },
+    {
+     "t": 2.267,
+     "sfx": "impact-tr-2",
+     "gain_db": -4,
+     "why": "the answer"
+    },
+    {
+     "t": 2.267,
+     "sfx": "bass-hit-2",
+     "gain_db": -9,
+     "why": "the answer"
+    },
+    {
+     "t": 2.517,
+     "sfx": "tick-seq-1",
+     "gain_db": -14,
+     "why": "date roll"
+    },
+    {
+     "t": 5.775,
+     "sfx": "click-mech-1",
+     "gain_db": -5,
+     "why": "arrested"
+    },
+    {
+     "t": 6.646,
+     "sfx": "thump-deep-3",
+     "gain_db": -5,
+     "why": "charge"
+    },
+    {
+     "t": 8.087,
+     "sfx": "rwhoosh-2",
+     "gain_db": -9,
+     "why": "out"
+    }
+   ]
+  }
+ }
+}

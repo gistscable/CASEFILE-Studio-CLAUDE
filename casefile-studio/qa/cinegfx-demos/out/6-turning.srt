@@ -1,0 +1,15 @@
+1
+00:00:00,000 --> 00:00:01,574
+Would police make an arrest
+
+2
+00:00:02,024 --> 00:00:03,135
+On November 11
+
+3
+00:00:03,410 --> 00:00:06,646
+police announced that a 17-year-old had been arrested and
+
+4
+00:00:06,646 --> 00:00:07,611
+charged with murder

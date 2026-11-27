@@ -1148,18 +1148,24 @@ def _duck_job(project):
         return None, None
     total = sum(round(float(sc["duration"]) * FPS) / FPS for sc in scenes)
     paths = [renderer.asset_path(narration)]
-    inserts = {}
+    inserts, prep = {}, []
+    guide = bool((project.get("episode") or {}).get("guide"))
     for i, sc in enumerate(scenes):
         if sc.get("insert_audio"):
             clip = assets.get(sc.get("asset_id"))
             if not clip or not clip.get("has_audio"):
                 return None, None  # the export refuses this project anyway
             inserts[i] = len(paths)
-            paths.append(renderer.asset_path(clip))
+            if guide:  # v0.4.61 the export's own cached soundbite (made first if it is not on disk yet)
+                bite, cmd = renderer.soundbite_job(sc, renderer.asset_path(clip))
+                prep.append((cmd, bite))
+                paths.append(bite)
+            else:
+                paths.append(renderer.asset_path(clip))
     level = renderer.narration_volume(project)
     # the bus at 100% narration: the volume is not part of the timeline's analysis
     unit = {**project, "narration_volume": 1.0}
-    graph = renderer.voice_graph(unit, scenes, total, 0, inserts, stems=True, tree=True)
+    graph = renderer.voice_graph(unit, scenes, total, 0, inserts, stems=True, tree=True, prepared=guide)
     two = any(g.endswith("[voicei]") for g in graph)
     fmt = "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=mono"
     if two:
@@ -1184,8 +1190,9 @@ def _duck_job(project):
                          ";".join([f"[0:a]{loud}"] + graph[k + 1:])] + outs]
     else:
         chain = [head + ins + ["-filter_complex", ";".join(graph)] + outs]
-    stamp = [(str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
-    bus_key = hashlib.sha1(json.dumps([graph, stamp, 3], sort_keys=True).encode()).hexdigest()[:20]
+    prepped = {str(bite) for _, bite in prep}  # named by their sources' stamps already
+    stamp = [str(pth) if str(pth) in prepped else (str(pth), pth.stat().st_size, int(pth.stat().st_mtime)) for pth in paths]
+    bus_key = hashlib.sha1(json.dumps([graph, stamp, 4], sort_keys=True).encode()).hexdigest()[:20]
     d = SPEC["duck"]
     # the narration level scales the narration's part of the level (and the soundbites keep theirs)
     key_in = f"[0:a]pan=mono|c0={level:.6f}*c0+c1" if two else f"[0:a]volume={level:.6f}"
@@ -1207,7 +1214,7 @@ def _duck_job(project):
         parts.append(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", "{BUS}", "-filter_complex", ";".join(g), "-map", out,
                       "-f", "f32le", "-acodec", "pcm_f32le", "{OUT}"])
     key = hashlib.sha1(json.dumps([bus_key, curve, DUCK_RATE], sort_keys=True).encode()).hexdigest()[:20]
-    return {"chain": chain, "bus_key": bus_key, "curve_pipe": curve_pipe, "curve": parts}, key
+    return {"chain": chain, "bus_key": bus_key, "curve_pipe": curve_pipe, "curve": parts, "prep": prep}, key
 
 
 BUS_KEEP = 4  # voice-bus analyses kept on disk (the latest used; a 25-minute one is ~50-100 MB)
@@ -1338,6 +1345,41 @@ def _curves_from_bus(job, bus, folder, pid, key):
             out.unlink(missing_ok=True)
 
 
+SOUNDBITE_JOBS = 2  # soundbites normalised side by side by the analysis (~130 MB each)
+
+
+def _prepare_soundbites(prep, pid, key):
+    """v0.4.61 Make the cached soundbites the bus reads that are not on disk yet (the export's own
+    files and commands, renderer.soundbite_job), SOUNDBITE_JOBS at a time. False when this job became
+    obsolete meanwhile (what was finished is kept); raises when one failed."""
+    import renderer
+
+    todo = [(cmd, bite) for cmd, bite in prep if not Path(bite).exists()]
+    for k in range(0, len(todo), SOUNDBITE_JOBS):
+        batch = todo[k:k + SOUNDBITE_JOBS]
+        tmps = [renderer.soundbite_tmp(Path(bite)) for _, bite in batch]
+        try:
+            Path(batch[0][1]).parent.mkdir(parents=True, exist_ok=True)
+            cmds = [[str(tmp) if c == "{OUT}" else c for c in cmd] for (cmd, _), tmp in zip(batch, tmps)]
+            done, superseded = _parallel(cmds, pid, key)
+            if done:
+                for (_, bite), tmp in zip(batch, tmps):
+                    tmp.replace(bite)
+            if superseded or not done:
+                return False
+        finally:
+            for tmp in tmps:
+                tmp.unlink(missing_ok=True)
+    for _, bite in prep:
+        try:
+            os.utime(bite)  # recently used: kept by the pruning
+        except OSError:
+            pass
+    if todo:
+        renderer.prune_soundbites(keep=[bite for _, bite in prep])
+    return True
+
+
 def _analyse(job, folder, pid, key):
     """The two gains of `job`: (fx, music), or None when this job became obsolete meanwhile. A new
     timeline: its bus made (and kept) with the curves streamed from it; a bus on disk (or being made
@@ -1364,6 +1406,9 @@ def _analyse(job, folder, pid, key):
             continue
         try:
             folder.mkdir(parents=True, exist_ok=True)
+            raw, superseded = None, False
+            if not _prepare_soundbites(job.get("prep") or [], pid, key):
+                return None
             tmp = folder / f"bus-{job['bus_key']}.{threading.get_ident()}.tmp"
             try:
                 cmds = [[str(tmp) if c == "{BUS}" else c for c in cmd] for cmd in job["chain"]] + [job["curve_pipe"]]
