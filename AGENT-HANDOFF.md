@@ -1331,3 +1331,8 @@ selection identical). The words on screen are still the script's own; what is no
 - **Bismilah:** gains Findings ("What detectives said": records, social media messages, notes, search history — FOUND; Moore —
   IMPLICATED); turning reads age 14; digital moves one beat later (the findings take its window).
 - `cinematic.ENGINE` 5. **Tests:** `tests/test_truecrime_wider.py` (17).
+- **v0.4.65 leftovers closed:** the empty defense column / charges field in the motion-check frame at 9 s (`mc1.jpg`) is not a
+  bug: the words type in when they are spoken (Bismilah's contradiction fills its defense card at ~10 s; the legal docket's
+  "MURDER" is said last, at ~11.5 s). JS test: `normaliseMotion` keeps `present` only when it is a real `true` (`motion.test.mjs`).
+- **Seen, not changed:** a *partial* (placed, scale 0.86) graphic encodes at ~12 fps: `cinematic._placed` Lanczos-resizes the whole
+  1920×1080 layer every frame (the drawing itself is ~10 ms). Cropping the layer to its drawn box before the resize would cut it.
