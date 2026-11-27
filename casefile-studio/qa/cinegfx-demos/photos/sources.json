@@ -1,0 +1,67 @@
+{
+ "javits": {
+  "file": "javits.jpg",
+  "subject": "Javits Frimpong",
+  "credit": "Courtesy of Thomas Frimpong / NY Daily News",
+  "month": "November 2026",
+  "url": "https://www.nydailynews.com/2026/11/11/bronx-teen-javits-frimpong-murder-arrest-walking-to-school-ghana-immigrant/",
+  "people": [
+   "Javits Frimpong"
+  ]
+ },
+ "kenny": {
+  "file": "kenny.jpg",
+  "subject": "NYPD Chief of Detectives Joseph Kenny",
+  "credit": "amNY",
+  "month": "September 2026",
+  "url": "https://amny.com/police-fire/9-11-nypd-chief-ground-zero-cancer",
+  "people": [
+   "Joseph Kenny"
+  ]
+ },
+ "courthouse": {
+  "file": "courthouse.jpg",
+  "subject": "Bronx Family and Criminal Courthouse, 215 East 161st Street",
+  "credit": "NYC DCAS",
+  "month": "",
+  "url": "https://www.nyc.gov/site/dcas/business/dcasmanagedbuildings/bronx-family-criminal-courthouse.page",
+  "places": [
+   "Bronx Criminal Court"
+  ]
+ },
+ "freeman": {
+  "file": "freeman-tracks.jpg",
+  "subject": "Elevated tracks at Freeman Street station (cropped: the train in the original is a No. 2, not the No. 5 in the narration)",
+  "credit": "subwaynut.com (photo: Jeremiah Cox)",
+  "month": "",
+  "url": "https://subwaynut.com/irt/freemann2/index.php",
+  "places": [
+   "Freeman Street station"
+  ]
+ },
+ "crump": {
+  "file": "crump.jpg",
+  "subject": "Attorney Ben Crump",
+  "credit": "amNY",
+  "month": "November 2026",
+  "url": "https://www.amny.com/law/family-slain-bronx-teen-ben-crump/",
+  "people": [
+   "Ben Crump"
+  ]
+ },
+ "memorial": {
+  "file": "memorial-candles.jpg",
+  "subject": "Candles and white carnations at the Bronx memorial service (cropped below faces: no close-up of mourners)",
+  "credit": "PIX11",
+  "month": "November 2026",
+  "url": "https://pix11.com/news/local-news/memorial-service-held-for-bronx-teen-killed-while-going-to-school",
+  "places": [
+   "East 171st Street"
+  ],
+  "tags": [
+   "vigil",
+   "memorial",
+   "candlelight"
+  ]
+ }
+}
