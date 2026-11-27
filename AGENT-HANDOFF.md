@@ -1234,8 +1234,7 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
 - **Backgrounds:** `footage` is see-through (a dark layer at `dim`, the video shows through); `still` / `photo` are drawn into the
   frame (`files["__backdrop__"]` via `motion.background_path`, darkened, 4% push-in); not found = its own background (`plan.backdrop`).
   A see-through graphic does not cover: `handoffs` sets `cut_fade` on the earlier one, which fades out over the 0.2 s fade-in.
-- **Not offered:** font, text size, alignment and position (the classic controls). The cinematic layouts are composed per category;
-  ask before adding them.
+- **Not offered in v0.4.63:** font, text size, alignment and position. Added in v0.4.64 (below), on the user's approval.
 - **Tests:** `tests/test_cinematic_look.py` (12, including an export over footage and over a photo, and a still from a real video), `tests/js/motion.test.mjs` (4).
   - The approved Javits stills must stay pixel-identical. Check with `make_demos.py --stills` against a saved baseline.
 - **Demos, photo provenance and crops:** `qa/cinegfx-demos/`; provenance in `photos/sources.json`.
@@ -1243,4 +1242,30 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
   - The Freeman St photo is cropped so the No. 2 train isn't presented as the No. 5.
 - **Look options page:** `qa/cinegfx-demos/make_looks.py` (add `--clips` for the 5 narrated MP4s) writes `qa/cinegfx-demos/looks/`
   with the app's own look code; serve with `qa/cinegfx-demos/serve.py` (port 8001, `/looks/`). Overview image: `qa/look-options-gallery.jpg`.
-- **Kit extraction for Storyroom** comes after the user approves the integrated version.
+- **Kit extraction for Storyroom** comes after the user approves the integrated version (user: "not yet", 2026-11-27).
+
+### v0.4.64 Type and layout of the cinematic graphics; crowded timeline; legal darker over pictures
+
+- **Data:** project and graphic looks gain `font` (a `look.STYLES` key; a graphic may store `"design"`), `size` (0.85–1.15),
+  `mirror` (bool; a graphic's `false` = as designed over the project's `true`) and `place` `{scale 0.8–1, x -1..1, y -1..1}`
+  (a graphic's full-size place = as designed). The project keeps only non-default values. Client: `cleanLook` keeps `mirror: false`.
+- **Resolution:** `style_of` adds `style.type = {font, fonts, size, mirror, place}` (graphic > project > design) via
+  `look.resolve_type`, which clamps to what the category declares and says it in `notes` ("keeps its own font", "fills the screen",
+  "cannot be mirrored"; no note when the project's mirror simply does not apply to a category).
+- **Engine:** the type goes into the Theme (`look.theme_for(cat, colors, type)`): font roles swapped; Text size as a font-key suffix
+  (`"inter-bold@1.1"`, read by `draw.font`/`draw.scale_of`) on heading/body/label only; display type is composed and fitted
+  (`fit_size` on titles, names, charges, judge, chapter). Line steps that follow text use `D.lead(key, n)` (= n at 100%: pixel-identical).
+  `traits["mirror"]` flips findings (photo right), legal (courthouse right, stamp in the docket) and turning (photo left, both phases).
+  Place is drawn in `cinematic._placed`: the layout on its own layer, Lanczos-downscaled, over the full-frame background.
+- **Declared per category** (`LOOKS[...]`): `fonts` (styles that passed the layout check), `size` (all 0.85–1.15), `mirror` (label),
+  `place` (all but contradiction), `dim` (legal 0.75: its red labels are 2.8:1 over a mid-grey picture at 62%, 3.5:1 at 75%).
+  Contradiction does not offer Typewriter (its statements overlapped at 115%).
+- **Layout check:** `tests/cinegfx_layout.py` records every `D.text` (`draw.RECORD`) at the graphic's settled moments and reports
+  overlap / clipped / outside. `test_every_offered_font_and_size_fits_its_layout` runs it for every offered font × size ends × mirror.
+- **Timeline:** 5+ events (spacing < 346 px) narrow the cards (spacing − 32), the labels (30 px) and fit the dates; ≤ 4 events as before.
+- **Digital:** a long station credit now ends inside the frame (it ran off the right edge); a station's sub-label follows the heading size.
+- **Legal:** the outcome stamp moves down under the judge when larger text pushes the judge line down (at 100% it stays at y 905).
+- The layout check also reports `touching` (stacked texts of different blocks less than 5 px apart; wrapped lines of one paragraph excepted).
+- `cinematic.ENGINE` 3 (cached frames remade). Approved Javits stills: 97/97 pixel-identical.
+- **Tests:** `tests/test_cinematic_type.py` (10), `tests/js/motion.test.mjs` (+1).
+- **Demo page:** `qa/cinegfx-demos/make_type.py` (`--clips` for 5 narrated MP4s) writes `qa/cinegfx-demos/type/`; served on port 8001 at `/type/`.

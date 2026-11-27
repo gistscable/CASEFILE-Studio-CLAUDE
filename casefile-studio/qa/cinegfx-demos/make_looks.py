@@ -110,27 +110,29 @@ def narrated(key):
     return core.Beat("truecrime", cat, a, b, score, payload, why), tl
 
 
-def clip(name, key, look=None, ilook=None, backdrop=None, fps=24, size=(1280, 720)):
+def clip(name, key, look=None, ilook=None, backdrop=None, fps=24, size=(1280, 720), out=None):
     beat, tl = narrated(key)
     cat = TC.categories[beat.category]
     st = cinematic.style_of({"collection": "truecrime", "category": beat.category, "look": cinematic.normalise_look(ilook or {}), "start": 0.0},
                             cinematic.normalise_look(look or {}, project=True))
-    g = cat.graphic(beat, L.theme_for(cat, st["colors"]), tl, core.Assets(items={
+    g = cat.graphic(beat, L.theme_for(cat, st["colors"], st.get("type")), tl, core.Assets(items={
         k: {"file": v["file"], "credit": v["credit"], "month": "", "subject": s["value"],
             "people": [s["value"]] if s["kind"] == "person" else [], "places": [s["value"]] if s["kind"] == "place" else [],
             "tags": [s["value"]] if s["kind"] == "tag" else []}
         for s in cat.photo_slots(beat.payload) for k, v in slot_files([s]).items()}))
-    # what the app does in cinematic.build for the background
+    # what the app does in cinematic.build for the background (and v0.4.64 the layout's size and place)
+    g.place = L.placement(st["type"]["place"]) if (st.get("type") or {}).get("place") else None
     g.backdrop = None
     if st["background"] == "footage":
-        g.backdrop = ("footage", st.get("dim") or L.DIM[2])
+        g.backdrop = ("footage", st.get("dim") or L.default_dim(cat))
     elif st["background"] in ("photo", "still") and backdrop:
-        g.backdrop = ("picture", cinematic._picture(P + backdrop, st.get("dim") or L.DIM[2]))
+        g.backdrop = ("picture", cinematic._picture(P + backdrop, st.get("dim") or L.default_dim(cat)))
     total = g.duration
     n = int(total * fps)
-    wav = OUT / f"{name}.wav"
+    out = out or OUT
+    wav = out / f"{name}.wav"
     sfx.mix(g.cues, str(HERE / "narration" / f"{key}.mp3"), total, str(wav))
-    mp4 = OUT / f"{name}.mp4"
+    mp4 = out / f"{name}.mp4"
     w, h = size
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{w}x{h}", "-r", str(fps), "-i", "-",
                           "-i", str(wav), "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-c:a", "aac",

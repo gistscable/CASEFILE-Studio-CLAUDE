@@ -76,7 +76,7 @@ export function normaliseMotion(m) {
 export function cleanLook(look) {
   const out = {};
   for (const [k, v] of Object.entries(look && typeof look === "object" ? look : {})) {
-    if (v === undefined || v === null || v === "" || v === false) continue;
+    if (v === undefined || v === null || v === "" || (v === false && k !== "mirror")) continue; // v0.4.64: mirror false = as designed (a graphic)
     if (k === "palettes") {
       const p = Object.fromEntries(Object.entries(v || {}).filter(([, x]) => x));
       if (Object.keys(p).length) out.palettes = p;
@@ -86,6 +86,7 @@ export function cleanLook(look) {
   if (out.background !== "photo") delete out.photo_id;
   if (out.background !== "still") delete out.still_at;
   if (!out.background || out.background === "own") delete out.dim;
+  if (out.place && typeof out.place !== "object") delete out.place;
   return out;
 }
 

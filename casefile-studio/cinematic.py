@@ -47,7 +47,7 @@ from cinegfx import story as S
 from cinegfx import text as T
 from cinegfx.timing import Timeline, Word
 
-ENGINE = 2          # bump when the drawing or the item format changes: cached frames are made again
+ENGINE = 3          # bump when the drawing or the item format changes: cached frames are made again
 FPS = motion.FPS    # the app's motion layer rate (frames are sampled from the graphic at this rate)
 LEAD = 0.45         # the graphic comes up this long before the first narrated word of its passage
 TAIL = 0.25         # ... and its narration ends this long before the graphic's own exit
@@ -70,13 +70,19 @@ def catalog():
         {"key": c.key, "label": c.label,
          "categories": [{"key": k.key, "label": k.label, "about": k.about, "looks": _looks(k)} for k in c.categories.values()]}
         for c in registry().values()], "default": DEFAULT_COLLECTION,
-        "dim": {"min": L.DIM[0], "max": L.DIM[1], "default": L.DIM[2]}}
+        "dim": {"min": L.DIM[0], "max": L.DIM[1], "default": L.DIM[2]},
+        "type": {"styles": [{"key": k, "label": lab} for k, (lab, _) in L.STYLES.items()], "size": list(L.SIZE),
+                 "place": list(L.PLACE)}}
 
 
 def _looks(cat):
     """v0.4.63 What the editor can offer for a category's look."""
+    lk = cat.looks or {}
     return {"palettes": [{"key": k, "label": lab, "colors": c, "light": L.is_light(c)} for k, lab, c in L.palettes(cat)],
-            "backdrops": list(L.backdrops(cat)), "backdrop_note": (cat.looks or {}).get("backdrop_note") or ""}
+            "backdrops": list(L.backdrops(cat)), "backdrop_note": lk.get("backdrop_note") or "",
+            # v0.4.64 type and layout
+            "fonts": [{"key": k, "label": lab} for k, lab in L.fonts_of(cat)], "size": list(L.size_range(cat)),
+            "mirror": lk.get("mirror") or "", "place": bool(lk.get("place")), "dim": L.default_dim(cat)}
 
 
 def _category(item):
@@ -538,6 +544,23 @@ def normalise_look(v, project=False, image_assets=None):
             out["still_at"] = round(_num(v.get("still_at"), 0.0, 86400.0, 0.0), 3)
     if v.get("dim") is not None:
         out["dim"] = round(_num(v.get("dim"), L.DIM[0], L.DIM[1], L.DIM[2]), 2)
+    # v0.4.64 type and layout. Project: {font, size, mirror, place}; a graphic's own: the same, where font "design",
+    # size 1, mirror False or a full-size place mean "as designed" over the project's choice.
+    f = v.get("font")
+    if isinstance(f, str) and (f in L.STYLES or (f == "design" and not project)):
+        out["font"] = f
+    if v.get("size") is not None:
+        sz = round(_num(v.get("size"), L.SIZE[0], L.SIZE[1], 1.0), 2)
+        if sz != 1.0 or not project:
+            out["size"] = sz
+    if isinstance(v.get("mirror"), bool) and (v["mirror"] or not project):
+        out["mirror"] = v["mirror"]
+    pl = v.get("place")
+    if isinstance(pl, dict):
+        q = {"scale": round(_num(pl.get("scale"), L.PLACE[0], L.PLACE[1], 1.0), 3),
+             "x": round(_num(pl.get("x"), -1.0, 1.0, 0.0), 3), "y": round(_num(pl.get("y"), -1.0, 1.0, 0.0), 3)}
+        if q != {"scale": 1.0, "x": 0.0, "y": 0.0} or not project:
+            out["place"] = q
     return out
 
 
@@ -568,7 +591,20 @@ def style_of(item, look=None):
         bg, photo, still, src["background"] = P.get("background") or "own", P.get("photo_id") or "", None, ("project" if P.get("background") else "design")
     dim = G.get("dim") if G.get("dim") is not None else P.get("dim")
     r = L.resolve(cat, pal, picks["accent"], picks["text"], bg, dim)
-    out = {"palette": r["palette"], "colors": r["colors"], "background": r["backdrop"], "notes": r["notes"], "picked": r["picked"], "from": src}
+    # v0.4.64 type and layout: the graphic's own over the project's over the design
+    ty = {}
+    for k in ("font", "size", "mirror", "place"):
+        if k in G:
+            ty[k], src[k] = G[k], "graphic"
+        elif k in P:
+            ty[k], src[k] = P[k], "project"
+        else:
+            ty[k], src[k] = None, "design"
+    rt = L.resolve_type(cat, ty["font"], ty["size"], ty["mirror"], ty["place"])
+    if src["mirror"] == "project" and not (cat.looks or {}).get("mirror"):
+        rt["notes"] = [n for n in rt["notes"] if "mirrored" not in n]  # "mirror where it can": no note on the ones that cannot
+    out = {"palette": r["palette"], "colors": r["colors"], "background": r["backdrop"], "notes": r["notes"] + rt["notes"], "picked": r["picked"],
+           "from": src, "type": {"font": rt["font"], "fonts": rt["fonts"], "size": rt["size"], "mirror": rt["mirror"], "place": rt["place"]}}
     if r["backdrop"] in L.PICTURE:
         out["dim"] = r["dim"]
     if r["backdrop"] == "photo":
@@ -723,7 +759,8 @@ def build(item, files=None):
         raise ValueError("Unknown cinematic graphic.")
     beat = core.Beat(item["collection"], item["category"], *item["window"], item.get("score", 0.0), item["payload"], [])
     style = item.get("style") or {}
-    g = cat.graphic(beat, L.theme_for(cat, style.get("colors")), timeline(item), _assets(item, files))
+    g = cat.graphic(beat, L.theme_for(cat, style.get("colors"), style.get("type")), timeline(item), _assets(item, files))
+    g.place = L.placement((style.get("type") or {}).get("place"), D.W, D.H) if (style.get("type") or {}).get("place") else None  # v0.4.64
     used = backdrop_used(item, files)
     dim = float(style.get("dim") or L.DIM[2])
     g.backdrop = None  # v0.4.63: None (its own background), ("footage", dim) or ("picture", darkened picture)
@@ -754,6 +791,9 @@ PUSH = 1.04   # v0.4.63: a picture behind a graphic pushes in this much over the
 def _canvas(g, t, total):
     """The graphic at time t over what its look puts behind it (1920x1080 RGBA)."""
     bd = getattr(g, "backdrop", None)
+    place = getattr(g, "place", None)
+    if place is not None:  # v0.4.64: made smaller / placed: the layout is drawn on its own layer, the background stays full-frame
+        return _placed(g, t, total, bd, place)
     if bd is None:
         return g.frame(t)  # its own background (the approved path, unchanged)
     if bd[0] == "footage":  # see-through: the darkening only; the video shows through in the preview and the export
@@ -766,6 +806,33 @@ def _canvas(g, t, total):
         box = ((pw - cw) / 2, (ph - ch) / 2, (pw + cw) / 2, (ph + ch) / 2)
         canvas = pic.resize((D.W, D.H), Image.BILINEAR, box=box)
     g.draw(canvas, t)
+    return canvas
+
+
+def _background(g, t, total, bd):
+    if bd is None:
+        return Image.new("RGBA", (D.W, D.H), g.th.c("bg"))
+    if bd[0] == "footage":
+        return Image.new("RGBA", (D.W, D.H), (8, 8, 10, int(round(255 * bd[1]))))
+    pic = bd[1]
+    z = 1.0 + (PUSH - 1.0) * A.clamp(t / max(1.0, total))
+    pw, ph = pic.size
+    cw, ch = pw / z, ph / z
+    return pic.resize((D.W, D.H), Image.BILINEAR, box=((pw - cw) / 2, (ph - ch) / 2, (pw + cw) / 2, (ph + ch) / 2))
+
+
+def _placed(g, t, total, bd, place):
+    """The layout at its size and position over the full-frame background (its own, the darkened footage, a picture).
+    Downscaled with Lanczos (sharp, no blur filter); at full size only moved."""
+    sc, dx, dy = place
+    layer = Image.new("RGBA", (D.W, D.H), (0, 0, 0, 0))
+    g.draw(layer, t)
+    if sc != 1.0:
+        layer = layer.resize((max(1, round(D.W * sc)), max(1, round(D.H * sc))), Image.LANCZOS)
+    canvas = _background(g, t, total, bd)
+    top = Image.new("RGBA", (D.W, D.H), (0, 0, 0, 0))
+    top.paste(layer, (dx, dy))
+    canvas.alpha_composite(top)
     return canvas
 
 
