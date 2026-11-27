@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><title>Cinematic graphics v0.4.66</title>
+<style>body{background:#0e0f12;color:#e8e8e8;font:15px/1.5 system-ui;margin:0 auto;max-width:1240px;padding:24px}a{color:#f2b33d}
+img{width:100%;border-radius:6px;background:#000}.card{background:#17181c;border-radius:8px;padding:14px;margin:14px 0}
+.m{font-size:13px;opacity:.8}table{border-collapse:collapse;margin:10px 0}td,th{border:1px solid #333;padding:6px 10px;vertical-align:top}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.g2 p{margin:4px 0 0}</style>
+<p><a href="../">&larr; all demos</a></p>
+<h1>v0.4.66 — the detectors read more than the Javits wording</h1>
+<p>Each of the six true-crime detectors now recognises more of the ways a script can say the same thing. The new forms are tried
+only when the original Javits form finds nothing, so the approved Javits graphics are <b>unchanged: 97 of 97 stills pixel-identical</b>.
+Every word on screen still comes from the narration. A span of time is shown only when the script's own dates confirm it.</p>
+<table>
+<tr><th>Project</th><th>Before (v0.4.65)</th><th>After (v0.4.66)</th></tr>
+<tr><td><b>Javits</b> (approved)</td><td>6 graphics</td><td>No change: the same plan and pixel-identical stills</td></tr>
+<tr><td><b>Bismilah</b></td><td>5 graphics, no Findings</td><td>6 graphics: Findings added (“What detectives said”); the Turning Point reads the age 14 from “was fourteen”</td></tr>
+<tr><td><b>Third script</b> (fictional sheriff's-office case, <code>tests/fixtures/sheriff-script.md</code>)</td><td>2 graphics (Timeline, Legal)</td><td>All six</td></tr>
+</table>
+
+<h2>1. Bismilah: the new graphics</h2>
+<div class="g2">
+<div class="card"><img src="bismilah-findings.jpg"><p class="m">New Findings: from “Detectives reported finding records …, along with social media messages, notes and search history” and “Police said the material implicated Moore”. The source is “Detectives”, not a person, so no portrait is asked for and the column is centred.</p></div>
+<div class="card"><img src="bismilah-turning.jpg"><p class="m">Turning Point: unchanged on screen. The age (14, from “Jevario Buie was fourteen”) now shows in the photo caption once there's a photo.</p></div>
+</div>
+
+<h2>2. The third script: different wording, all six</h2>
+<p class="m">A sheriff's office and deputies, “persons of interest”, “remains under investigation”, a magistrate, bond, a plea, “more than five months”. Before v0.4.66 only the Timeline and Legal graphics were placed.</p>
+<div class="g2">
+<div class="card"><img src="sheriff-findings.jpg"><p class="m">Findings: person of interest / not believed involved / under investigation. The heading names the agency from the sheriff's role.</p></div>
+<div class="card"><img src="sheriff-timeline.jpg"><p class="m">Timeline: clock times, PM taken from “that night”; “deputies said” left out of the label.</p></div>
+<div class="card"><img src="sheriff-contradiction.jpg"><p class="m">Conflicting accounts: “alone” against “with two friends” (no “not” needed).</p></div>
+<div class="card"><img src="sheriff-legal.jpg"><p class="m">Legal: Magistrate, bond hearing, the BOND $750,000 stamp; an adult named with an adult age is named.</p></div>
+<div class="card"><img src="sheriff-digital.jpg"><p class="m">Digital: each item's status from its own sentence (RECOVERED BY DEPUTIES, MATCHED), new moves (headed to, walked to), “described by Sheriff's Office”.</p></div>
+<div class="card"><img src="sheriff-turning.jpg"><p class="m">Turning Point: “MORE THAN FIVE MONTHS AFTER THE KILLING”, the narration's own words, checked against the dates (158 days).</p></div>
+</div>
+
+<h2>3. The empty fields from the v0.4.65 motion check: not a bug</h2>
+<p>Those graphics type each statement in time with the narration, so a frame taken before the words are spoken shows an empty box.
+In Bismilah the legal docket's charge, “murder”, comes at the end of the sentence, so its line stays empty until about 11.5 s.</p>
+<div class="g2">
+<div class="card"><img src="typing-contradiction-3s.jpg"><p class="m">Contradiction at 3 s: nothing spoken yet</p></div>
+<div class="card"><img src="typing-contradiction-12s.jpg"><p class="m">at 12.5 s: both accounts filled in</p></div>
+<div class="card"><img src="typing-legal-9s.jpg"><p class="m">Legal at 9 s: the charge not spoken yet</p></div>
+<div class="card"><img src="typing-legal-12s.jpg"><p class="m">at 12 s: MURDER, then the HELD WITHOUT BAIL stamp</p></div>
+</div>
