@@ -1,0 +1,64 @@
+{
+ "words": [
+  {
+   "word": "Nineteen-year-old",
+   "start": 0.3,
+   "end": 1.41
+  },
+  {
+   "word": "Dana",
+   "start": 1.41,
+   "end": 1.92
+  },
+  {
+   "word": "Whitfield",
+   "start": 1.92,
+   "end": 2.43
+  },
+  {
+   "word": "was",
+   "start": 2.43,
+   "end": 2.74
+  },
+  {
+   "word": "a",
+   "start": 2.74,
+   "end": 3.05
+  },
+  {
+   "word": "nursing",
+   "start": 3.05,
+   "end": 3.56
+  },
+  {
+   "word": "student",
+   "start": 3.56,
+   "end": 4.07
+  },
+  {
+   "word": "at",
+   "start": 4.07,
+   "end": 4.38
+  },
+  {
+   "word": "Calder",
+   "start": 4.38,
+   "end": 4.89
+  },
+  {
+   "word": "Community",
+   "start": 4.89,
+   "end": 5.8
+  },
+  {
+   "word": "College",
+   "start": 5.8,
+   "end": 6.31
+  },
+  {
+   "word": "in",
+   "start": 6.31,
+   "end": 6.62
+  }
+ ]
+}

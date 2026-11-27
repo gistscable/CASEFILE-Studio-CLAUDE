@@ -1,0 +1,40 @@
+{
+ "copied_from": "casefile-studio",
+ "commit": "b3c3d45",
+ "patches": {
+  "cinegfx/theme.py": 2,
+  "cinegfx/sfx.py": 1
+ },
+ "files": {
+  "cinegfx/__init__.py": "cad0d2f434168ca6",
+  "cinegfx/anim.py": "61863159dd48bb20",
+  "cinegfx/collections/__init__.py": "211f435c6770a0e2",
+  "cinegfx/collections/truecrime.py": "3d1adb02ce306e96",
+  "cinegfx/core.py": "3f353e2b1b9c6897",
+  "cinegfx/draw.py": "9efc268aedb8ebe3",
+  "cinegfx/look.py": "66fa6cc4c9ddfc24",
+  "cinegfx/render.py": "f7896a666d36d60b",
+  "cinegfx/sfx.py": "7b3a50ab0cd282fb",
+  "cinegfx/story.py": "7235b1c5c82963a5",
+  "cinegfx/text.py": "1e1df04bfcaac1a1",
+  "cinegfx/theme.py": "d6881360b70b356c",
+  "cinegfx/timing.py": "9ec7ae53bb1207a3",
+  "sfxlib.py": "20ae6215d55bb846",
+  "fonts/Caladea-Bold.ttf": "ae3cb2dcbc925809",
+  "fonts/Carlito-Bold.ttf": "bb5d20f79b82599e",
+  "fonts/DejaVuSans-Bold.ttf": "5c1247acef7f2b85",
+  "fonts/DejaVuSans.ttf": "ae7b7855e115a596",
+  "fonts/Inter-Black.otf": "1dc81aa64047bfb4",
+  "fonts/Inter-Bold.otf": "00fd6f4691ee8884",
+  "fonts/LICENSES.md": "f89b57f63403211b",
+  "fonts/LiberationMono-Bold.ttf": "626655e94dd82f3f",
+  "fonts/LiberationSans-Bold.ttf": "3973aa5054fb467d",
+  "fonts/LiberationSerif-Bold.ttf": "9e66c25e20868756",
+  "fonts/Oswald-Bold.ttf": "eb7d46f856dd57f1",
+  "fonts/Oswald-Medium.ttf": "d8b3ac8668c6ddbc",
+  "fonts/Oswald-Regular.ttf": "0d9980da817ee71a",
+  "fonts/Poppins-Bold.ttf": "983676516167748b",
+  "fonts/dm-sans.ttf": "8cd08d97e89c24d0",
+  "fonts/DM-Sans-LICENSE.txt": "9af36190332437f5"
+ }
+}
