@@ -3,18 +3,20 @@ import React from "react";
 // v0.4.52 A motion graphic over the preview: the frames the export makes (drawn by the server,
 // smaller, as WebP), at 24 fps. Each graphic's frames are loaded ahead while it plays; a frame that
 // has not arrived yet keeps the last one on screen (no flicker), and identical frames load once.
-const PLANS = new Map(); // item JSON -> Promise<plan>
+const PLANS = new Map(); // item JSON (+ the project look) -> Promise<plan>
 const IMAGES = new Map(); // hash/k -> HTMLImageElement (loaded or loading)
 const MAX_IMAGES = 1500;
 
-export function planFor(projectId, item) {
-  const key = projectId + JSON.stringify(item);
+// v0.4.63 `look`: the project look the editor has now (a cinematic graphic is drawn with it, before it is saved)
+export function planFor(projectId, item, look) {
+  const body = item.template === "cinematic" ? { item, look: look || {} } : { item };
+  const key = projectId + JSON.stringify(body);
   if (!PLANS.has(key)) {
     const p = fetch(`/api/projects/${projectId}/motion/plan`, {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ item }),
+      body: JSON.stringify(body),
     }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("plan"))));
     p.catch(() => PLANS.delete(key));
     PLANS.set(key, p);
@@ -40,18 +42,18 @@ function image(hash, k) {
   return im;
 }
 
-export default function MotionLayer({ projectId, item, time, width, height, playing, onStatus }) {
+export default function MotionLayer({ projectId, item, look, time, width, height, playing, onStatus }) {
   const canvas = React.useRef(null);
   const [plan, setPlan] = React.useState(null);
   const lastDrawn = React.useRef(null);
   const wanted = React.useRef(null);
-  const json = JSON.stringify(item);
+  const json = JSON.stringify([item, item.template === "cinematic" ? look || {} : null]);
   React.useEffect(() => {
     let live = true;
     setPlan(null);
     lastDrawn.current = null;
     onStatus?.("preparing");
-    planFor(projectId, item)
+    planFor(projectId, item, look)
       .then((p) => live && (setPlan(p), onStatus?.("ready")))
       .catch(() => live && onStatus?.("error"));
     return () => {

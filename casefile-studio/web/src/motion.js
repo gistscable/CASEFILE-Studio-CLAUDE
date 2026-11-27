@@ -66,7 +66,27 @@ export function normaliseItem(it) {
 export function normaliseMotion(m) {
   const v = m && typeof m === "object" ? m : {};
   const items = (v.items || []).map(normaliseItem).filter(Boolean).sort((a, b) => a.start - b.start);
-  return { enabled: v.enabled === true, items };
+  const out = { enabled: v.enabled === true, items };
+  const look = cleanLook(v.look);
+  if (Object.keys(look).length) out.look = look; // v0.4.63 the cinematic graphics' project look (the server checks it)
+  return out;
+}
+
+// v0.4.63 A look keeps only the choices made: an empty one follows the project (a graphic) or the designs (the project).
+export function cleanLook(look) {
+  const out = {};
+  for (const [k, v] of Object.entries(look && typeof look === "object" ? look : {})) {
+    if (v === undefined || v === null || v === "" || v === false) continue;
+    if (k === "palettes") {
+      const p = Object.fromEntries(Object.entries(v || {}).filter(([, x]) => x));
+      if (Object.keys(p).length) out.palettes = p;
+    } else out[k] = v;
+  }
+  if (!out.vary) delete out.seed;
+  if (out.background !== "photo") delete out.photo_id;
+  if (out.background !== "still") delete out.still_at;
+  if (!out.background || out.background === "own") delete out.dim;
+  return out;
 }
 
 // What the preview shows at `time`: the graphic you are editing (even a suggestion or a draft),

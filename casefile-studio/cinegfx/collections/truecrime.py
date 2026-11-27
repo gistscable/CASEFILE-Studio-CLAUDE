@@ -169,7 +169,7 @@ class FindingsGraphic(Graphic):
             img = D.photo(self.assets.path(self.photo_key), pw, ph, focus=(0.77, 0.42), zoom=A.drift(t, self.duration, 0.07), sat=0.92, contrast=1.06)
             reveal = py0 + ph * (1 - e)
             D.blit(c, img, px0, py0, e_out, clip=(px0, reveal, px0 + pw, py0 + ph))
-            D.blit(c, D.gradient(pw, 360, (11, 17, 32, 0), (11, 17, 32, 245)), px0, py0 + ph - 360, e * e_out)
+            D.blit(c, D.gradient(pw, 360, th.c("bg", 0), th.c("bg", 245)), px0, py0 + ph - 360, e * e_out)  # v0.4.63: was the navy (11, 17, 32) = the approved bg
             D.rect(c, px0 + pw - 6, reveal, px0 + pw, py0 + ph, th.accent, e_out)
             en = A.ease(t, 0.3, A.FAST)
             name = p["source"].upper()
@@ -874,7 +874,7 @@ def _ruled(th):
 
 
 def _stamp(outcome, th):
-    key = ("stamp", outcome)
+    key = ("stamp", outcome, th.accent)  # v0.4.63: the stamp is in the accent, which a colour set changes
     if key in _CACHE:
         return _CACHE[key]
     import numpy as np
@@ -1379,6 +1379,51 @@ THEMES = {
 }
 
 
+# v0.4.63 Look options (cinegfx/look.py): three tested colour sets per category (the first is the approved design)
+# and the other surface where the design has one; every set meets text 4.5:1 and accent 3:1 against its background.
+_F = ("bg", "bg2", "ink", "muted", "accent", "accent2")
+
+
+def _set(*colors):
+    return dict(zip(_F, colors))
+
+
+_PICTURES = ("own", "footage", "still", "photo")
+LOOKS = {
+    "findings": {"palettes": [
+        ("A", "Navy & amber", None),
+        ("B", "Graphite & red", _set("#101214", "#1A1D21", "#F2F2F0", "#8A9099", "#E5484D", "#F2B33D")),
+        ("C", "Forest & brass", _set("#0C1512", "#13201B", "#EFF3EE", "#86A096", "#D9B45B", "#E07A5F")),
+        ("L", "Light version", _set("#F3F1EC", "#E7E3DA", "#14161C", "#666B78", "#B7791F", "#D2483A"))]},
+    "timeline": {"palettes": [
+        ("A", "Black & red", None),
+        ("B", "Navy & gold", _set("#0B1220", "#131C2E", "#F4F1EA", "#8E9AB3", "#E8B04B", "#E8B04B")),
+        ("C", "Charcoal & teal", _set("#111416", "#1A1F22", "#EEF2F1", "#87918F", "#2BB3A3", "#2BB3A3")),
+        ("L", "Light version", _set("#F2EFE8", "#E6E2D8", "#15161A", "#6B6862", "#C62828", "#C62828"))]},
+    "contradiction": {"palettes": [
+        ("A", "Blue vs orange", None),
+        ("B", "Teal vs coral", _set("#0B1416", "#1A1410", "#F3F5F2", "#8F9A96", "#39C3B5", "#FF7A59")),
+        ("C", "Silver vs red", _set("#111214", "#1C1213", "#F4F2EE", "#96918C", "#C9D1DC", "#E5484D")),
+        ("L", "Light version", _set("#F2F1EE", "#ECE6DF", "#15171A", "#6E6A64", "#2F6FD0", "#C9731C"))],
+        "backdrops": ("own",),
+        "backdrop_note": "Conflicting accounts keeps its own background: its two account columns fill the screen, so no picture would show."},
+    "legal": {"palettes": [
+        ("A", "Cream & oxblood", None),
+        ("B", "Cool paper & navy", _set("#ECEEF0", "#E1E4E8", "#121417", "#5F6670", "#1F3A68", "#1F3A68")),
+        ("C", "Cream & green stamp", _set("#EFEBDF", "#E4DFD0", "#14150F", "#666452", "#1E5B3A", "#1E5B3A")),
+        ("D", "Dark docket", _set("#15130F", "#1E1B16", "#F1EBDD", "#9C9282", "#D0503F", "#D0503F"))]},
+    "digital": {"palettes": [
+        ("A", "Cyan terminal", None),
+        ("B", "Amber terminal", _set("#0A0804", "#15110A", "#FFF6E5", "#8C7A5A", "#FFB000", "#FF4D5E")),
+        ("C", "Green phosphor", _set("#040A06", "#0A160E", "#E9FFF1", "#5C8C6E", "#39FF88", "#FF4D5E"))]},
+    "turning": {"palettes": [
+        ("A", "Black & red", None),
+        ("B", "Black & burnt orange", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#D4500F", "#D4500F")),
+        ("C", "Black & royal blue", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#1F6FEB", "#1F6FEB"))],
+        "on_accent": ("#FFFFFF",)},  # "CHARGED WITH MURDER" is white on the accent
+}
+
+
 # ============================================================ photo slots (what each graphic can show)
 # A slot is filled only with a photo the producer has in the project (matched by file name, or chosen by
 # hand), with the credit they type. Nothing is generated, searched for or substituted.
@@ -1428,17 +1473,17 @@ class TrueCrime(Collection):
     def __init__(self):
         super().__init__()
         self.add(Category("findings", "Investigative Findings", THEMES["findings"], detect_findings, FindingsGraphic, max_window=4, min_window=2,
-                          slots=slots_findings, about="What an investigator said, each point with its status (possible, ruled out, not announced)."))
+                          slots=slots_findings, about="What an investigator said, each point with its status (possible, ruled out, not announced).", looks=LOOKS["findings"]))
         self.add(Category("timeline", "Chronological Timeline", THEMES["timeline"], detect_timeline, TimelineGraphic, max_window=5,
-                          slots=slots_timeline, about="Three or more dated events (or exact times on one day) on a rail, each landing as it is spoken."))
+                          slots=slots_timeline, about="Three or more dated events (or exact times on one day) on a rail, each landing as it is spoken.", looks=LOOKS["timeline"]))
         self.add(Category("contradiction", "Contradictory Statements", THEMES["contradiction"], detect_contradiction, ContradictionGraphic,
-                          max_window=3, min_window=2, slots=slots_contradiction, about="Two attributed accounts that oppose each other, side by side."))
+                          max_window=3, min_window=2, slots=slots_contradiction, about="Two attributed accounts that oppose each other, side by side.", looks=LOOKS["contradiction"]))
         self.add(Category("legal", "Legal Outcome", THEMES["legal"], detect_legal, LegalGraphic, max_window=3,
-                          slots=slots_legal, about="Charges, court, judge and the outcome, as a docket with a stamp."))
+                          slots=slots_legal, about="Charges, court, judge and the outcome, as a docket with a stamp.", looks=LOOKS["legal"]))
         self.add(Category("digital", "Digital Evidence Analysis", THEMES["digital"], detect_digital, DigitalGraphic, max_window=3,
-                          slots=slots_digital, about="An evidence log (three or more kinds of evidence), with the route when police described one."))
+                          slots=slots_digital, about="An evidence log (three or more kinds of evidence), with the route when police described one.", looks=LOOKS["digital"]))
         self.add(Category("turning", "Case Turning Point", THEMES["turning"], detect_turning, TurningGraphic, max_window=2, min_window=2,
-                          cross_chapter=True, slots=slots_turning, about="A question (or the narration's own count of days), then the dated event that changes the case."))
+                          cross_chapter=True, slots=slots_turning, about="A question (or the narration's own count of days), then the dated event that changes the case.", looks=LOOKS["turning"]))
 
 
 register(TrueCrime())

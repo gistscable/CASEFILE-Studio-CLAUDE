@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.62", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.63", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1162,7 +1162,7 @@ async def motion_suggest(id: str, request: Request):
                 raise HTTPException(422, str(e))
         else:
             new = motiongfx.suggest(p, keep)
-        p["motion"] = motiongfx.normalise({"enabled": cur["enabled"], "items": keep + new})
+        p["motion"] = motiongfx.normalise({"enabled": cur["enabled"], "items": keep + new, "look": cur.get("look")})  # v0.4.63 keeps the look
         p = save_project(p)
     return {"project": p, "added": len(new)}
 
@@ -1175,6 +1175,12 @@ async def motion_plan(id: str, request: Request):
     item = motiongfx.normalise_item(body.get("item"))
     if not item:
         raise HTTPException(422, "Not a motion graphic.")
+    if item["template"] == "cinematic":  # v0.4.63: drawn with its look over the project look the editor has now
+        import cinematic
+        images = {x["id"] for x in p.get("assets") or [] if x.get("kind") == "image"}
+        look = (cinematic.normalise_look(body.get("look"), project=True, image_assets=images) if "look" in body
+                else motiongfx.normalise(p.get("motion")).get("look"))
+        item["style"] = cinematic.style_of(item, look)
     try:
         out = motiongfx.preview_plan(DATA, p, item, _motion_photo(p, item))
     except (OSError, ValueError) as e:

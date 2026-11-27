@@ -19,6 +19,9 @@ the export", caption hiding, the preview layer, the content-addressed cache and 
   left empty is simply not drawn: nothing is generated or substituted.
 * Frames are pure functions of time: the export draws them in parallel worker processes (spawn-safe on
   macOS and Windows) and streams them to one FFmpeg.
+* v0.4.63 Look: a project look (`motion.look`: colour set per category, automatic variation, your own accent and
+  text colours, what the graphics are drawn over) and, per graphic, `look` overrides of any of it. Both resolve into
+  the item's `style` (cinegfx/look.py: tested sets, readability check), which is what is drawn and cached.
 """
 from __future__ import annotations
 
@@ -39,11 +42,12 @@ import motion
 from cinegfx import anim as A
 from cinegfx import core
 from cinegfx import draw as D
+from cinegfx import look as L
 from cinegfx import story as S
 from cinegfx import text as T
 from cinegfx.timing import Timeline, Word
 
-ENGINE = 1          # bump when the drawing or the item format changes: cached frames are made again
+ENGINE = 2          # bump when the drawing or the item format changes: cached frames are made again
 FPS = motion.FPS    # the app's motion layer rate (frames are sampled from the graphic at this rate)
 LEAD = 0.45         # the graphic comes up this long before the first narrated word of its passage
 TAIL = 0.25         # ... and its narration ends this long before the graphic's own exit
@@ -64,8 +68,15 @@ def catalog():
     """The collections and their categories, for the editor (new niches appear here on their own)."""
     return {"collections": [
         {"key": c.key, "label": c.label,
-         "categories": [{"key": k.key, "label": k.label, "about": k.about} for k in c.categories.values()]}
-        for c in registry().values()], "default": DEFAULT_COLLECTION}
+         "categories": [{"key": k.key, "label": k.label, "about": k.about, "looks": _looks(k)} for k in c.categories.values()]}
+        for c in registry().values()], "default": DEFAULT_COLLECTION,
+        "dim": {"min": L.DIM[0], "max": L.DIM[1], "default": L.DIM[2]}}
+
+
+def _looks(cat):
+    """v0.4.63 What the editor can offer for a category's look."""
+    return {"palettes": [{"key": k, "label": lab, "colors": c, "light": L.is_light(c)} for k, lab, c in L.palettes(cat)],
+            "backdrops": list(L.backdrops(cat)), "backdrop_note": (cat.looks or {}).get("backdrop_note") or ""}
 
 
 def _category(item):
@@ -236,16 +247,20 @@ def handoffs(items):
     """Back to back, the later graphic takes over the screen: each graphic fades in fully opaque over the earlier
     one, which ends once covered (no exit of its own under the new one). Sets or clears `cut` (and `end`) on
     every cinematic item, in place: the next approved cinematic graphic that starts before this one has ended
-    covers it. Run on the whole list whenever it changes (motion.normalise), so preview and export agree."""
+    covers it. Run on the whole list whenever it changes (motion.normalise), so preview and export agree.
+    v0.4.63: a see-through graphic (over the footage) does not cover: the earlier one fades out under it (`cut_fade`)."""
     cine = sorted((x for x in items if x.get("template") == "cinematic"), key=lambda x: x["start"])
     for i, a in enumerate(cine):
         a.pop("cut", None)
         full_end = a["start"] + full_frames(a) / FPS
         nxt = next((b for b in cine[i + 1:] if b["status"] == "approved" and b["id"] != a["id"]), None)
+        a.pop("cut_fade", None)
         if nxt and a["start"] < nxt["start"] < full_end - 1e-6:
             cut = int(round((nxt["start"] - a["start"] + FADE_IN) * FPS))
             if cut < full_frames(a):
                 a["cut"] = max(1, cut)
+                if see_through(nxt):  # v0.4.63: the next one is see-through (over the footage): this one fades out under it
+                    a["cut_fade"] = True
         a["end"] = round(a["start"] + frames_of(a) / FPS, 3)
     return items
 
@@ -476,8 +491,96 @@ def normalise_item(it, n=0, image_assets=None):
         cut = 0
     if 0 < cut < full_frames(out):
         out["cut"] = cut
+        if it.get("cut_fade") is True:
+            out["cut_fade"] = True
+    look = normalise_look(it.get("look"), image_assets=image_assets)
+    if look:
+        out["look"] = look
     out["end"] = round(start + frames_of(out) / FPS, 3)
     return out
+
+
+# ====================================================================== look (v0.4.63)
+
+_KEY = re.compile(r"[A-Za-z0-9_-]{1,12}")
+
+
+def normalise_look(v, project=False, image_assets=None):
+    """A look as stored: only the choices made (an empty look follows the project / the design).
+    Project: {vary, seed, palettes: {category: set}, accent, text, background, photo_id, dim}.
+    Graphic: {palette, accent, text ("own": the design's own, over the project's), background, photo_id, still_at, dim}."""
+    if not isinstance(v, dict):
+        return {}
+    out = {}
+    if project:
+        if v.get("vary") is True:
+            out["vary"] = True
+            out["seed"] = re.sub(r"[^\w-]", "", str(v.get("seed") or ""))[:40]
+        pals = v.get("palettes") if isinstance(v.get("palettes"), dict) else {}
+        pals = {re.sub(r"[^\w-]", "", str(k))[:40]: x for k, x in list(pals.items())[:40] if isinstance(x, str) and _KEY.fullmatch(x)}
+        if pals:
+            out["palettes"] = pals
+    elif isinstance(v.get("palette"), str) and _KEY.fullmatch(v["palette"]):
+        out["palette"] = v["palette"]
+    for k in ("accent", "text"):
+        x = v.get(k)
+        if L.is_hex(x):
+            out[k] = x.upper()
+        elif not project and x == "own":
+            out[k] = "own"
+    bg = v.get("background")
+    if bg in L.BACKDROPS:
+        out["background"] = bg
+        if bg == "photo":
+            pid = re.sub(r"[^\w-]", "", str(v.get("photo_id") or ""))[:40]
+            out["photo_id"] = pid if (image_assets is None or pid in image_assets) else ""
+        if bg == "still" and not project and v.get("still_at") is not None:
+            out["still_at"] = round(_num(v.get("still_at"), 0.0, 86400.0, 0.0), 3)
+    if v.get("dim") is not None:
+        out["dim"] = round(_num(v.get("dim"), L.DIM[0], L.DIM[1], L.DIM[2]), 2)
+    return out
+
+
+def style_of(item, look=None):
+    """What the graphic is drawn with: its own choices over the project's over the design's
+    {palette, colors, background, dim, photo_id, still_at, notes, picked, from}."""
+    cat = _category(item)
+    G = item.get("look") or {}
+    P = look or {}
+    src = {}
+    if G.get("palette"):
+        pal, src["palette"] = G["palette"], "graphic"
+    elif (P.get("palettes") or {}).get(cat.key):
+        pal, src["palette"] = P["palettes"][cat.key], "project"
+    elif P.get("vary"):
+        pal, src["palette"] = L.varied(cat, P.get("seed") or ""), "vary"
+    else:
+        pal, src["palette"] = None, "design"
+    picks = {}
+    for k in ("accent", "text"):
+        if G.get(k):
+            picks[k], src[k] = (None if G[k] == "own" else G[k]), "graphic"
+        else:
+            picks[k], src[k] = P.get(k), ("project" if P.get(k) else "design")
+    if G.get("background"):
+        bg, photo, still, src["background"] = G["background"], G.get("photo_id") or "", G.get("still_at"), "graphic"
+    else:
+        bg, photo, still, src["background"] = P.get("background") or "own", P.get("photo_id") or "", None, ("project" if P.get("background") else "design")
+    dim = G.get("dim") if G.get("dim") is not None else P.get("dim")
+    r = L.resolve(cat, pal, picks["accent"], picks["text"], bg, dim)
+    out = {"palette": r["palette"], "colors": r["colors"], "background": r["backdrop"], "notes": r["notes"], "picked": r["picked"], "from": src}
+    if r["backdrop"] in L.PICTURE:
+        out["dim"] = r["dim"]
+    if r["backdrop"] == "photo":
+        out["photo_id"] = photo
+    if r["backdrop"] == "still":
+        out["still_at"] = round(float(still if still is not None else item["start"]), 3)
+    return out
+
+
+def see_through(item):
+    """Drawn over the footage itself (the darkened video shows through): it does not cover what is under it."""
+    return (item.get("style") or {}).get("background") == "footage"
 
 
 def describe(it):
@@ -533,9 +636,13 @@ def auto_photos(project, item, st=None, keep=None):
     return out
 
 
-def photo_files(project, item, asset_path):
+BACKDROP = "__backdrop__"   # v0.4.63: the picture behind the graphic (a project photo or a still), in `files`
+
+
+def photo_files(project, item, asset_path, data=None):
     """{slot key: {file, credit, month}} for the slots with a photo whose file is on this machine (what the
-    graphic is drawn with; part of its cache key)."""
+    graphic is drawn with; part of its cache key). v0.4.63: plus BACKDROP: {file}, the photo or footage still
+    its look puts behind it (motion.background_path: taken once with FFmpeg and cached), when found."""
     assets = {a["id"]: a for a in project.get("assets") or [] if a.get("kind") == "image"}
     out = {}
     for k, v in (item.get("photos") or {}).items():
@@ -548,7 +655,23 @@ def photo_files(project, item, asset_path):
             continue
         if path.is_file():
             out[k] = {"file": str(path), "credit": v.get("credit") or "", "month": v.get("month") or ""}
+    st = item.get("style") or {}
+    if st.get("background") in ("photo", "still") and data is not None:
+        src = {"background": st["background"], "photo_id": st.get("photo_id") or "", "still_at": st.get("still_at", item.get("start", 0)),
+               "start": item.get("start", 0)}
+        f = motion.background_path(project, src, data, asset_path)
+        if f:
+            out[BACKDROP] = {"file": str(f), "credit": "", "month": ""}
     return out
+
+
+def backdrop_used(item, files):
+    """What the graphic is actually drawn over: its own background, the footage, or the photo / still when
+    its file was found (else its own background: nothing is made up)."""
+    bg = (item.get("style") or {}).get("background") or "own"
+    if bg in ("photo", "still") and BACKDROP not in (files or {}):
+        return "own"
+    return bg
 
 
 def _assets(item, files):
@@ -599,7 +722,15 @@ def build(item, files=None):
     if not cat:
         raise ValueError("Unknown cinematic graphic.")
     beat = core.Beat(item["collection"], item["category"], *item["window"], item.get("score", 0.0), item["payload"], [])
-    g = cat.graphic(beat, cat.theme, timeline(item), _assets(item, files))
+    style = item.get("style") or {}
+    g = cat.graphic(beat, L.theme_for(cat, style.get("colors")), timeline(item), _assets(item, files))
+    used = backdrop_used(item, files)
+    dim = float(style.get("dim") or L.DIM[2])
+    g.backdrop = None  # v0.4.63: None (its own background), ("footage", dim) or ("picture", darkened picture)
+    if used == "footage":
+        g.backdrop = ("footage", dim)
+    elif used in ("photo", "still"):
+        g.backdrop = ("picture", _picture(files[BACKDROP]["file"], dim))
     with _GRAPHICS_LOCK:
         _GRAPHICS[key] = g
         while len(_GRAPHICS) > 8:
@@ -607,9 +738,42 @@ def build(item, files=None):
     return g
 
 
-def _envelope(t, total):
+def _picture(path, dim):
+    """A photo or still behind the graphic: covering the frame with room for a slow push-in, darkened."""
+    from PIL import ImageOps
+    with Image.open(path) as src:
+        im = ImageOps.exif_transpose(src).convert("RGB")
+    size = (round(D.W * PUSH), round(D.H * PUSH))
+    im = ImageOps.fit(im, size, Image.LANCZOS)
+    return Image.blend(im, Image.new("RGB", size, (8, 8, 10)), dim).convert("RGBA")
+
+
+PUSH = 1.04   # v0.4.63: a picture behind a graphic pushes in this much over the graphic (like the classic templates)
+
+
+def _canvas(g, t, total):
+    """The graphic at time t over what its look puts behind it (1920x1080 RGBA)."""
+    bd = getattr(g, "backdrop", None)
+    if bd is None:
+        return g.frame(t)  # its own background (the approved path, unchanged)
+    if bd[0] == "footage":  # see-through: the darkening only; the video shows through in the preview and the export
+        canvas = Image.new("RGBA", (D.W, D.H), (8, 8, 10, int(round(255 * bd[1]))))
+    else:
+        pic = bd[1]
+        z = 1.0 + (PUSH - 1.0) * A.clamp(t / max(1.0, total))
+        pw, ph = pic.size
+        cw, ch = pw / z, ph / z
+        box = ((pw - cw) / 2, (ph - ch) / 2, (pw + cw) / 2, (ph + ch) / 2)
+        canvas = pic.resize((D.W, D.H), Image.BILINEAR, box=box)
+    g.draw(canvas, t)
+    return canvas
+
+
+def _envelope(t, total, cut_fade=None):
     a_in = A.out_cubic(A.clamp(t / FADE_IN))
     a_out = A.out_cubic(A.clamp((total - t) / FADE_OUT))
+    if cut_fade is not None:  # v0.4.63: fading out under a see-through graphic, over its fade-in
+        a_out = min(a_out, A.out_cubic(A.clamp((cut_fade - t) / FADE_IN)))
     return min(a_in, a_out)
 
 
@@ -619,7 +783,8 @@ def frame(g, item, n, W, H):
     category's own background."""
     t = n / FPS
     total = full_frames(item) / FPS  # a covered graphic (`cut`) has no exit: the next one is over it by then
-    im = g.frame(t)
+    im = _canvas(g, t, total)
+    see = getattr(g, "backdrop", None) is not None and g.backdrop[0] == "footage"
     if (W, H) != (D.W, D.H):
         if abs(W / H - D.W / D.H) < 0.01:
             im = im.resize((W, H), Image.LANCZOS)
@@ -630,12 +795,15 @@ def frame(g, item, n, W, H):
                 panel, pos = im.resize((w, H), Image.LANCZOS), ((W - w) // 2, 0)
             else:
                 panel, pos = im.resize((W, h), Image.LANCZOS), (0, (H - h) // 2)
-            bg = Image.new("RGBA", (W, H), g.th.c("bg"))
+            bg = Image.new("RGBA", (W, H), (8, 8, 10, int(round(255 * g.backdrop[1]))) if see else g.th.c("bg"))
             bg.paste(panel, pos)
             im = bg
-    a = _envelope(t, total)
+    a = _envelope(t, total, frames_of(item) / FPS if item.get("cut_fade") else None)
     if a < 0.999:
-        im.putalpha(int(round(255 * a)))
+        if see:  # see-through: scale its own transparency
+            im.putalpha(im.getchannel("A").point(lambda v: int(round(v * a))))
+        else:
+            im.putalpha(int(round(255 * a)))
     return im
 
 
@@ -653,9 +821,11 @@ def preview_plan(data, project, item, files=None):
         os.replace(tmp, spec)
     n = frames_of(item)
     sl = slots(item)
+    st = item.get("style") or {}
     return {"hash": h, "width": W, "height": H, "fps": FPS, "frames": list(range(n)), "unique": n, "start": item["start"],
             "layout": "cinematic", "layouts": [], "background": "cinematic",
-            "slots": [dict(s, filled=s["key"] in (files or {})) for s in sl]}
+            "slots": [dict(s, filled=s["key"] in (files or {})) for s in sl],
+            "style": st, "backdrop": backdrop_used(item, files)}
 
 
 def preview_frame(folder, spec, k, out):

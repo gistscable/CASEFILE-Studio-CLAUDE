@@ -3312,7 +3312,7 @@ function App() {
                     const gs = graphicsAt(project.motion, time, inspectorTab === "motion" ? motionId : null);
                     return gs.map((g, k) => (
                       <div key={g.item.id} className={`motion-wrap ${g.exported ? "" : "draft"}`}>
-                        <MotionLayer projectId={project.id} item={g.item} time={time} width={frameSize.width} height={frameSize.height} playing={playing}
+                        <MotionLayer projectId={project.id} item={g.item} look={project.motion?.look} time={time} width={frameSize.width} height={frameSize.height} playing={playing}
                           onStatus={k === gs.length - 1 ? setMotionStatus : undefined} />
                         {!g.exported && <span className="motion-draft-tag">{g.item.status === "approved" ? "Approved · export is off" : "Preview · not approved"}</span>}
                       </div>

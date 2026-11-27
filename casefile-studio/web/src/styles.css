@@ -7140,3 +7140,109 @@ body.resizing-row * {
   opacity: 0.5;
   cursor: default;
 }
+/* v0.4.63 the cinematic graphics' look: project look, tested colour sets, your own colours */
+.mg-look {
+  margin: 8px 0 10px;
+  border: 1px solid #2a2f37;
+  border-radius: 8px;
+  padding: 6px 10px 8px;
+  background: #15181d;
+}
+.mg-look summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dfe3e8;
+  padding: 2px 0;
+}
+.mg-look[open] summary {
+  margin-bottom: 6px;
+}
+.mg-sets-head {
+  margin: 10px 0 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8a919c;
+}
+.mg-sets {
+  margin: 6px 0;
+  font-size: 11.5px;
+  color: #b8bec7;
+}
+.mg-sets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.mg-set {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  width: 64px;
+  padding: 3px;
+  border: 2px solid #2a2f37;
+  border-radius: 7px;
+  background: #1b1f25;
+  color: #b8bec7;
+  cursor: pointer;
+}
+.mg-set.on {
+  border-color: #fff;
+  color: #fff;
+}
+.mg-set i {
+  position: relative;
+  display: block;
+  width: 54px;
+  height: 30px;
+  border-radius: 4px;
+  overflow: hidden;
+  font-style: normal;
+}
+.mg-set i em {
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  font: 700 12px/1 Inter, system-ui, sans-serif;
+  font-style: normal;
+}
+.mg-set i b {
+  position: absolute;
+  bottom: 5px;
+  left: 6px;
+  width: 20px;
+  height: 4px;
+  border-radius: 2px;
+}
+.mg-set i b + b {
+  left: 28px;
+}
+.mg-set small {
+  font-size: 9.5px;
+  line-height: 1.15;
+  text-align: center;
+}
+.mg-set.follow {
+  align-content: center;
+  min-height: 52px;
+}
+.mg-colour .mg-chip {
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  padding: 2px 8px;
+  font-size: 10.5px;
+  color: #b8bec7;
+  background: #1b1f25;
+  border: 2px solid #2a2f37;
+}
+.mg-colour .mg-chip.on {
+  border-color: #fff;
+  color: #fff;
+}
+.mg-hex {
+  font-size: 10.5px;
+  color: #dfe3e8;
+}
