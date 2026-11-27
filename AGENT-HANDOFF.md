@@ -24,7 +24,7 @@ Hosted on Render: `render.yaml` at the repo root builds
 (`CASEFILE_DATA_DIR`). See `casefile-studio/RENDER-DEPLOY.md`. Do not run more
 than one uvicorn worker — jobs and AI sessions are in-process state.
 
-Tests (374 passing at v0.4.22; JS: `node --test tests/js/previewClock.test.mjs`, including `tests/test_deployment.py`, which reads
+Tests (732 passing, 1 skipped at v0.4.66; 374 at v0.4.22; JS: `node --test tests/js/previewClock.test.mjs`, including `tests/test_deployment.py`, which reads
 `render.yaml` from the repo root; browser/long-render ones are slow-path):
 
 ```bash
@@ -1291,3 +1291,43 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
   project (a copy in memory, never saved) and writes `qa/motion-check/<id>/report.md` with every decision and timing. It is the M1 benchmark.
 - `cinematic.ENGINE` 4. `APP_VERSION` in `main.jsx` was stale (0.4.60); now follows the release.
 - **Tests:** `tests/test_presentation.py` (9).
+
+### v0.4.66 The six true-crime detectors read more than the Javits wording
+
+All in `cinegfx/collections/truecrime.py`. Every addition is tried **only when the original Javits-tuned form finds
+nothing**, so the Javits plan and graphics are unchanged (97/97 stills pixel-identical; Javits candidates, best payloads and
+selection identical). The words on screen are still the script's own; what is not recognised is left out.
+
+- **Findings:** `STATUS_MORE` (persons of interest, "do not believe … was involved", cleared, remains under investigation,
+  identified, implicated, confirmed, "a detail … that had not been publicly released", found/recovered/obtained + evidence with
+  ", along with A, B and C"; the status is the verb). `_ACTION` reads what investigators did, told as fact ("In December, police
+  identified Moore as one of them."). "No arrest had been announced" also inside a sentence. Ranks as the whole role (`RANKS`: Chief,
+  Lieutenant …). A pull quote also from "X described the killing as “…”" (only words in quotation marks). The agency follows the lead's
+  role (SHERIFF’S OFFICE, FBI, STATE POLICE). "Police"/"Detectives" as the source: `payload.person = False`, no portrait slot, and the
+  findings column centres when there is no portrait. A long label shrinks so it never runs under its chip.
+- **Timeline:** `EVENT_SPLIT` + occurred / was reported / was found / was discovered / was last seen; "On March 3, 2025, …" labels no
+  longer keep "On,"; clock events read "at 9:30 that morning / that night"; more attributions stripped (deputies, authorities …).
+- **Contradiction:** `OPPOSED` + alone vs with others, unarmed vs armed, fled vs stayed, strangers vs knew each other, at home vs at the
+  scene (each pair names its own topic). The context quote falls back to the earliest quoted account sharing the accounts' words.
+- **Legal:** `CRIMES` + aggravated, carjacking, battery, sexual assault, stalking, child abuse. `CHARGE_MORE` (pleaded … to, indicted on,
+  convicted of, accused of, "a … charge"), `OUTCOME_MORE` (pleaded guilty/not guilty/no contest, held without bond, held on $X bond → stamp
+  BOND / $X, released on recognizance, mistrial, dismissed, plea deal), more hearings (sentencing, plea, bond hearing, trial). Judges by
+  `JUDGE_ROLE` (Circuit/District Judge, Magistrate …; `payload.judge_title` when the script does not say "Judge X"). An adult the script
+  names with an adult age ("41-year-old Thomas Reed") is the defendant; a juvenile never is. No "DEFENDANT DEFENDANT".
+- **Digital:** more evidence kinds (camera footage, fingerprints, financial records, texts, emails, computer, ballistics, weapon, 911
+  call); `_ev_status` gives each item what its own sentence says ("OBTAINED BY POLICE", "RECOVERED BY DEPUTIES", "MATCHED", "NEVER
+  RECOVERED", "SHOWN BY PROSECUTORS"); `MOVES_MORE` (headed to, walked to, got into, entered …) when the original moves make no route;
+  the incident's place/time from "between X Street and Y Avenue", "corner of", "just after 3:30 p.m." (incident sentences only); the
+  source line names the agency ("AS DESCRIBED BY SHERIFF’S OFFICE").
+- **Turning:** `_subject_age` reads word ages ("was fourteen", "fourteen-year-old Jevario"); `_elapsed` accepts "N days later", "after N
+  days" and "nearly / more than N months|years" — only when the dates agree (a span the dates do not confirm is never shown); the span is
+  then the narration's own words (`payload.span_label`, "MORE THAN FIVE MONTHS AFTER THE KILLING"). Sentenced / pleaded guilty / found
+  guilty are decisive too; the charge when the same two sentences say it.
+- `story.ROLE_TITLES` + Circuit Judge, District Judge, Magistrate (Judge), Trooper, Undersheriff.
+- **Known limit (not changed):** a date without its year resolves to the latest one up to the recording date unless that is > 400 days
+  from the story's last date. A case told within ~13 months ("March 3, 2025 … On March 4" recorded Nov 2026) gets the recording year.
+  Javits depends on this rule (its "October 29" is the anniversary, 2026), so the fixture states its years.
+- **Third script:** `tests/fixtures/sheriff-script.md` (fictional). Before: timeline + legal. After: all six placed.
+- **Bismilah:** gains Findings ("What detectives said": records, social media messages, notes, search history — FOUND; Moore —
+  IMPLICATED); turning reads age 14; digital moves one beat later (the findings take its window).
+- `cinematic.ENGINE` 5. **Tests:** `tests/test_truecrime_wider.py` (17).

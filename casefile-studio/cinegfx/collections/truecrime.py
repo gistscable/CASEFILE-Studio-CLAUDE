@@ -15,6 +15,8 @@ from ..core import Category, Collection, Graphic, register
 from ..theme import Theme
 
 INVESTIGATORS = re.compile(r"detective|police|investigator|prosecutor|district attorney|sheriff|officer|fbi|nypd", re.I)
+RANKS = re.compile(r"^(?:chief|police chief|commissioner|lieutenant|sergeant|captain|deputy|agent|special agent|trooper|marshal|"
+                   r"sheriff's|undersheriff|inspector|coroner|medical examiner)$", re.I)  # v0.4.66: a rank alone as the role
 FAMILY_ROLES = {"father", "mother", "sister", "brother", "uncle", "aunt", "son", "daughter", "wife", "husband", "family"}
 STOP = set("the a an and or of to in on at by for with was were is are be been had has have that this those these it its "
            "he she they his her their them him who which did does not no never would could should said says told".split())
@@ -83,11 +85,67 @@ STATUS_PATTERNS = [
 ]
 
 
+# v0.4.66 more ways a script states a finding. Tried only on a claim (or an investigators' sentence) the patterns above
+# find nothing in, so a graphic that already worked keeps exactly its items; the words are still the script's own.
+_NAME = r"[A-Z][\w'’.-]+(?:\s+[A-Z][\w'’.-]+){0,2}"
+_EVIDENCE_NOUN = (r"(?:records?|evidence|video|footage|messages|text messages|DNA|fingerprints|weapon|gun|firearm|knife|vehicle|car|"
+                  r"phone|cellphone|shell casings?|casings?|blood)")
+STATUS_MORE = [
+    (r"(?:^|(?:called|named|considered|described|identified)\s+)(?P<items>(?:the\s+)?[\w'’-]+(?:\s+[\w'’-]+){0,2}?)\s+(?:as\s+)?(?:a\s+|the\s+)?"
+     r"persons?\s+of\s+interest", "PERSON OF INTEREST", "open"),
+    (r"(?:do|does|did)\s+not\s+believe\s+(?:that\s+)?(?P<items>[\w'’-]+(?:\s+[\w'’-]+){0,3}?)\s+(?:was|were|is|are)\s+(?:involved|connected|related|linked|responsible)",
+     "NOT BELIEVED INVOLVED", "ruled"),
+    (r"\bcleared\s+(?P<items>" + _NAME + r")", "CLEARED", "ruled"),
+    (r"(?P<items>[\w'’-]+(?:\s+[\w'’-]+){0,3}?)\s+(?:remains?|remained)\s+under\s+investigation", "UNDER INVESTIGATION", "open"),
+    (r"\bidentified\s+(?P<items>" + _NAME + r")\s+as\b", "IDENTIFIED", "found"),
+    (r"\bimplicated\s+(?P<items>" + _NAME + r")", "IMPLICATED", "found"),
+    (r"\bconfirmed\s+(?:that\s+)?(?P<items>(?:the\s+)?[\w'’-]+(?:\s+[\w'’-]+){0,2}?)\s+(?:was|were|is|are|had)\b", "CONFIRMED", "found"),
+    # "a detail about the killing that had not been publicly released"
+    (r"(?P<items>(?:a|an|the)\s+[\w-]+(?:\s+about\s+the\s+[\w-]+)?)\s+(?:that|which)\s+had\s+not\s+been\s+(?:publicly\s+)?(?:released|disclosed|announced)",
+     "NOT RELEASED", "open"),
+    # "found records of communications ..., along with social media messages, notes and search history" (status = the verb)
+    (r"\b(?P<v>found|finding|recovered|recovering|obtained|located|seized)\s+(?:a\s+|an\s+|the\s+)?(?P<items>" + _EVIDENCE_NOUN +
+     r"(?:\s+of\s+[a-z][\w-]+)?)(?P<more>[^.;]*?,\s+along\s+with\s+[^.;]+)?", "=", "found"),
+]
+_VERB_STATUS = {"finding": "FOUND", "recovering": "RECOVERED"}
+# an investigators' own sentence, not a quote: "In December, police identified Moore as one of them."
+_ACTION = re.compile(r"(?:^|,\s*)(?:[A-Z][a-z]+\s+)?(?P<src>police|investigators|detectives|officers|deputies|agents|the FBI|the sheriff[’']s office)"
+                     r"\s+(?:also\s+|later\s+|then\s+)?(?P<rest>(?:identified|found|recovered|located|cleared|called|named|considered|obtained|"
+                     r"ruled out)\b[^.;]*)", re.I)
+
+
+def _items_from(content, source, patterns, s):
+    out = []
+    if source and source == source.lower():  # "police" and "Police" are the same source
+        source = source.capitalize()
+    for pat, status, kind in patterns:
+        m = re.search(pat, content, re.I if patterns is STATUS_PATTERNS else 0)
+        if not m:
+            continue
+        if status == "=":
+            status = _VERB_STATUS.get(m.group("v"), m.group("v").upper())
+        found = [m.group("items")]
+        if "more" in m.groupdict() and m.group("more"):
+            found += re.split(r",\s*|\s+and\s+", m.group("more").split("along with", 1)[1])
+        for grp in found:
+            for it in re.split(r",\s*|\s+and\s+", grp) if patterns is STATUS_PATTERNS else [grp]:
+                it = it.strip()
+                label = re.sub(r"^(?:the|a|an)\s+", "", it, flags=re.I) if patterns is STATUS_MORE else it
+                if it and len(label.split()) <= 4 and it in s.text:
+                    out.append({"label": label.upper(), "status": status, "kind": kind, "phrase": it, "source": source,
+                                "evidence": content})
+    return out
+
+
 def _finding_items(story, s):
     out = []
     for c in s.claims:
         src_role = story.role_of(c.source) or c.source
-        if not INVESTIGATORS.search(src_role) and not INVESTIGATORS.search(c.source):
+        if not INVESTIGATORS.search(src_role) and not INVESTIGATORS.search(c.source) and not RANKS.search(src_role):
+            continue
+        got = []
+        if not INVESTIGATORS.search(src_role) and not INVESTIGATORS.search(c.source):  # v0.4.66: "Chief Lee Bercaw" (more ranks)
+            out += _items_from(c.content, c.source, STATUS_MORE, s)
             continue
         for pat, status, kind in STATUS_PATTERNS:
             m = re.search(pat, c.content, re.I)
@@ -95,10 +153,18 @@ def _finding_items(story, s):
                 for it in re.split(r",\s*|\s+and\s+", m.group("items")):
                     it = it.strip()
                     if it and len(it.split()) <= 4:
-                        out.append({"label": it.upper(), "status": status, "kind": kind, "phrase": it, "source": c.source,
+                        got.append({"label": it.upper(), "status": status, "kind": kind, "phrase": it, "source": c.source,
                                     "evidence": c.content})
+        out += got or _items_from(c.content, c.source, STATUS_MORE, s)  # v0.4.66
+    if not out and not any(INVESTIGATORS.search(story.role_of(c.source) or c.source) for c in s.claims):
+        a = _ACTION.search(s.text)  # v0.4.66: what investigators did, told as fact by the narration
+        if a:
+            src = re.sub(r"^the\s+", "", a.group("src"), flags=re.I)
+            out += _items_from(a.group("rest"), src, STATUS_PATTERNS, s) or _items_from(a.group("rest"), src, STATUS_MORE, s)
     # unattributed status lines: "No motive had been publicly announced as of November 13."
     m = re.match(r"No\s+(\w+)\s+had\s+been\s+(?:publicly\s+)?(\w+)", s.text)
+    if not m:  # v0.4.66: also inside a sentence ("At that point, no arrest had been announced.")
+        m = re.search(r"(?<=, )no\s+(\w+)\s+(?:had|has|have)\s+been\s+(?:publicly\s+)?(\w+)", s.text)
     if m:
         note = f"AS OF {short_date(s.dates[0].date)}" if s.dates else ""
         out.append({"label": m.group(1).upper(), "status": "NOT " + m.group(2).upper(), "kind": "open", "phrase": m.group(0)[:len("No " + m.group(1))],
@@ -116,6 +182,12 @@ def detect_findings(story, a, b):
             m = re.search(r"characterized\s+\w+\s+as\s+(the [^,.;]+)", c.content)
             if m:
                 quotes.append({"quote": m.group(1), "by": c.content.split()[0], "via": c.source})
+        if not quotes:  # v0.4.66: "Chief Lee Bercaw described the shooting as a targeted attack."
+            m = re.search(r"\b(" + _NAME + r")\s+(?:described|characterized|called)\s+(?:it|the\s+[\w-]+|him|her|them)\s+(?:as\s+)?“([^”]{4,60}?)[.,]?”",
+                          s.text)  # only words the script itself puts in quotation marks become a quote
+            who = m and next((n for n in [m.group(1)] + list(s.people) if n.split()[-1] == m.group(1).split()[-1] and story.role_of(n)), m.group(1))
+            if m and INVESTIGATORS.search(story.role_of(who) or ""):
+                quotes.append({"quote": m.group(2), "by": m.group(1).split()[-1], "via": ""})
     if len(items) < 3 or not sources:
         return None
     lead = max(set(sources), key=sources.count)
@@ -126,9 +198,15 @@ def detect_findings(story, a, b):
             break
     score = 0.45 + 0.12 * len(items) + (0.1 if quotes else 0)
     agency = "NYPD" if any(lead in s.people and "NYPD" in s.text for s in story.sentences) else "POLICE"
+    if agency == "POLICE":  # v0.4.66: the agency the script names for the lead (a sheriff's office, the FBI, state police)
+        r = (story.role_of(lead) or lead).lower()
+        agency = ("SHERIFF’S OFFICE" if "sheriff" in r or "deput" in r else "FBI" if "fbi" in r or "agent" in r
+                  else "STATE POLICE" if "state police" in r or "trooper" in r else "POLICE")
     payload = {"source": lead, "role": story.role_of(lead), "items": items[:5], "quote": quotes[0] if quotes else None,
                "briefing": briefing.isoformat() if briefing else None, "agency": agency, "chapter": story.chapters[story.sentences[a].chapter].title,
                "chapter_no": story.chapters[story.sentences[a].chapter].number}
+    if lead not in story.people:  # v0.4.66: "Police" / "Detectives" as the source: no portrait to ask for
+        payload["person"] = False
     return score, payload, [f"{len(items)} investigator findings with explicit status from {lead}"]
 
 
@@ -183,7 +261,7 @@ class FindingsGraphic(Graphic):
                 D.rect(c, px0, py0, px0 + D.measure(cr, "mono", 14)[0] + 28, py0 + 34, "#000000", 0.55 * en * e_out)
                 D.text(c, cr, "mono", 14, "#FFFFFF", px0 + 14, py0 + 9, 0.85 * en * e_out)
         # --- heading
-        x0 = 96 if flip else 856
+        x0 = (96 if flip else 856) if self.photo_key else 476  # v0.4.66: no portrait -> the findings centre
         ek = A.ease(t, 0.12, A.FAST)
         kicker = f"CHAPTER {p['chapter_no']} · {p['chapter'].upper()}" if p.get("chapter_no") else p["chapter"].upper()
         D.text(c, kicker, th.label, 20, th.muted, x0 + 30 * (1 - ek), 112, ek * e_out, tracking=0.16)
@@ -205,7 +283,9 @@ class FindingsGraphic(Graphic):
                 continue
             D.text(c, f"{i + 1:02d}", "mono", 22, th.accent, x0, y + 22, er * e_out)
             lx = x0 + 70 + 40 * (1 - er)
-            D.text(c, r["label"], th.heading, 56, th.ink, lx, y, e_out, clip=(x0 + 60, y - 10, x0 + 70 + 700 * er, y + D.lead(th.heading, 90)))
+            room = 968 - _chip(r["status"], th, r["kind"]).width - 70 - 24  # v0.4.66: a long label never runs under its chip
+            ls = D.fit_size(r["label"], th.heading, room, 56, 34)
+            D.text(c, r["label"], th.heading, ls, th.ink, lx, y + (56 - ls) * 0.5, e_out, clip=(x0 + 60, y - 10, x0 + 70 + 700 * er, y + D.lead(th.heading, 90)))
             sub = r.get("note") or (f"{r['source'].split()[-1]} said" if r.get("source") else "")
             if r["kind"] == "ruled" and r.get("evidence"):
                 sub = "“" + r["evidence"] + "”"
@@ -234,7 +314,7 @@ class FindingsGraphic(Graphic):
                 part = shown[start:start + len(line)]
                 D.text(c, part, "caladea", 44, th.ink, x0 + 34, qy + 4 + j * 54, e_out)
             nl = len(D.wrap("“" + q["quote"] + "”", "caladea", 44, 900))
-            D.text(c, f"{q['by'].upper()}, AS REPORTED BY {q['via'].upper()}", th.label, 18, th.muted,
+            D.text(c, q["by"].upper() + (f", AS REPORTED BY {q['via'].upper()}" if q.get("via") else ""), th.label, 18, th.muted,
                    x0 + 36, qy + 22 + nl * 54, A.ease(t, self.q1 or 0, A.FAST) * e_out, tracking=0.12)
 
 
@@ -276,7 +356,8 @@ def _grid(color, step):
 
 # ============================================================ 2. CHRONOLOGICAL TIMELINE
 
-EVENT_SPLIT = re.compile(r"\b(came|took place|was held|were held|ended|began|happened)\b")
+EVENT_SPLIT = re.compile(r"\b(came|took place|was held|were held|ended|began|happened|"
+                         r"occurred|was reported|was found|were found|was discovered|was last seen)\b")  # v0.4.66: + occurred ... last seen
 
 
 def _events(story, a, b):
@@ -304,7 +385,7 @@ def _events(story, a, b):
                     rel = {"date": d.date.isoformat(), "span": m.group(1), "dir": m.group(2), "event": m.group(3),
                            "phrase_span": m.group(1) + " " + m.group(2), "phrase_anchor": d.text + " " + m.group(3)}
             label = label.replace(main.text, "")
-            label = re.sub(r"^\s*(?:and\s+)?(?:on\s*,?\s*)?", "", label)
+            label = re.sub(r"^\s*(?:and\s+)?(?:[Oo]n\s*,?\s*)?", "", label)  # v0.4.66: "On March 3, 2025, ..." too
             label = re.sub(r"\s+on\s*$", "", label.strip(" ,;."))
             label = re.sub(r"^(?:The|the)\s+(?=\w)", "The ", label)
             label = re.sub(r"\s{2,}", " ", label).strip(" ,")
@@ -341,19 +422,26 @@ def _clock_events(story, a, b):
         m = CLOCK.search(s.text)
         if not m or re.search(r"\b(?:shortly|about|around|approximately|just)\s+(?:after|before)?\s*$", s.text[:m.start()]):
             continue
-        h1 = (m.group(3) or m.group(6) or half or "").lower()
+        h1 = (m.group(3) or m.group(6) or "").lower()
+        end, said = m.end(), m.group(0).replace("between ", "")
+        if not h1:  # v0.4.66: "at 9:30 that morning", "at 11:40 that night" (the words stay in the label's place)
+            w = re.match(r"\s*(?:that|in the|on that)\s+(morning|afternoon|evening|night)\b", s.text[end:])
+            if w:
+                h1 = "a.m." if w.group(1) == "morning" else "p.m."
+                end += w.end()
+        h1 = h1 or half
         half = h1 or half
         ampm = "AM" if h1.startswith("a") else "PM" if h1.startswith("p") else ""
         t1 = f"{int(m.group(1))}:{m.group(2)}"
         clock = t1 + (f"–{int(m.group(4))}:{m.group(5)}" if m.group(4) else "")
         # the clause around the time, without the time and the attribution
-        label = (s.text[:m.start()] + s.text[m.end():]).strip()
+        label = (s.text[:m.start()] + s.text[end:]).strip()
         label = re.sub(r"^(?:At|at|By|Around)\s*,?\s*", "", label)
-        label = re.sub(r",?\s*(?:police|prosecutors|investigators|detectives|officials)\s+said,?", "", label)
+        label = re.sub(r",?\s*(?:police|prosecutors|investigators|detectives|officials|deputies|authorities|agents|troopers|witnesses)\s+said,?", "", label)
         label = re.sub(r"^(?:According to [^,]+,\s*)", "", label)
         label = re.sub(r"\s+(?:toward|towards|near)\b.*$", "", label.strip(" ,.;"))
         label = re.sub(r"\s{2,}", " ", label).strip(" ,.;")
-        evs.append({"date": day.date.isoformat(), "clock": clock, "ampm": ampm, "label": headline(label), "sub": "", "phrase_date": m.group(0).replace("between ", ""),
+        evs.append({"date": day.date.isoformat(), "clock": clock, "ampm": ampm, "label": headline(label), "sub": "", "phrase_date": said,
                     "phrase_clause": s.text.strip(" ,;")[:40], "rel": None, "sent": s.i, "people": [], "tag": ""})
     return evs
 
@@ -530,15 +618,23 @@ def _side(story, claim):
 
 
 # accounts that oppose each other without a negation: a deliberate killing against self-defense or an accident
-OPPOSED = [(r"\bdeliberate(?:ly)?\b|\bplanned\b|\bintentional(?:ly)?\b|\bpremeditated\b", r"\bself-defen[cs]e\b|\baccident(?:al(?:ly)?)?\b")]
+OPPOSED = [(r"\bdeliberate(?:ly)?\b|\bplanned\b|\bintentional(?:ly)?\b|\bpremeditated\b", r"\bself-defen[cs]e\b|\baccident(?:al(?:ly)?)?\b",
+            "deliberate|self-defense"),
+           # v0.4.66: more ways two accounts can oppose without a "not"
+           (r"\balone\b|\bby (?:him|her|them)sel(?:f|ves)\b", r"\btogether\b|\bwith (?:two|three|other|another|someone|friends|others|a friend)\b", "alone|with others"),
+           (r"\bunarmed\b|\bno (?:gun|weapon|knife)\b|\bempty-handed\b", r"\barmed\b|\bhad a (?:gun|knife|weapon|firearm)\b|\b(?:pulled|drew|carried) a (?:gun|knife|weapon)\b",
+            "unarmed|armed"),
+           (r"\b(?:fled|ran away|ran off|drove off|left the scene)\b", r"\b(?:stayed|remained at the scene|waited for (?:police|officers|help)|called 911)\b", "fled|stayed"),
+           (r"\bstrangers?\b|\bnever met\b", r"\b(?:knew each other|friends|had known|were acquainted|dated|in a relationship)\b", "strangers|knew each other"),
+           (r"\bat home\b", r"\bat the scene\b|\bnear the scene\b", "at home|at the scene")]
 
 
 def _opposed(c1, c2):
-    for a, b in OPPOSED:
+    for a, b, name in OPPOSED:
         if (re.search(a, c1.content, re.I) and re.search(b, c2.content, re.I) and not re.search(b, c1.content, re.I)) or \
                 (re.search(b, c1.content, re.I) and re.search(a, c2.content, re.I) and not re.search(b, c2.content, re.I)):
-            return True
-    return False
+            return name
+    return None
 
 
 def detect_contradiction(story, a, b):
@@ -549,9 +645,10 @@ def detect_contradiction(story, a, b):
             if c1.source == c2.source:
                 continue
             if c1.negated == c2.negated:
-                if _side(story, c1) == _side(story, c2) or not _opposed(c1, c2):
+                pair = _side(story, c1) != _side(story, c2) and _opposed(c1, c2)
+                if not pair:
                     continue
-                ov = (content_words(c1.content) & content_words(c2.content)) | {"deliberate|self-defense"}
+                ov = (content_words(c1.content) & content_words(c2.content)) | {pair}
             else:
                 ov = content_words(c1.content) & content_words(c2.content)
             if ov and (not best or len(ov) > best[0]):
@@ -586,6 +683,14 @@ def detect_contradiction(story, a, b):
         if re.search(r"fight|fighting|suspended|incident", s.text) and "“" in s.text and s.claims:
             q = re.search(r"“([^”]+)”", s.text)
             if q:
+                context = {"quote": q.group(1).rstrip("."), "by": s.claims[0].source}
+                break
+    words = [w for w in ov if "|" not in w and len(w) > 3]
+    if not context and not defense and words:  # v0.4.66: else the earliest quoted account of what the accounts are about
+        for s in story.sentences[:a]:
+            q = re.search(r"“([^”]+)”", s.text)
+            if q and s.claims and len(q.group(1).split()) <= 30 and \
+                    sum(bool(re.search(r"\b" + re.escape(w) + r"\b", q.group(1), re.I)) for w in words) >= min(2, len(words)):
                 context = {"quote": q.group(1).rstrip("."), "by": s.claims[0].source}
                 break
 
@@ -770,7 +875,19 @@ class ContradictionGraphic(Graphic):
 
 # ============================================================ 4. LEGAL OUTCOME
 
-CRIMES = r"(?:(?:first|second|third)-degree\s+)?(?:attempted\s+)?(?:murder|manslaughter|homicide|assault|robbery|kidnapping|arson|burglary)"
+CRIMES = (r"(?:(?:first|second|third)-degree\s+)?(?:attempted\s+)?(?:aggravated\s+)?(?:murder|manslaughter|homicide|assault|robbery|kidnapping|arson|burglary|"
+          r"carjacking|battery|sexual assault|stalking|child abuse)")  # v0.4.66: + aggravated, carjacking ... child abuse
+# v0.4.66 more ways a script states the charge, the outcome and the hearing; each tried only when the forms above find nothing
+CHARGE_MORE = [r"\bpleaded\s+(?:guilty|not guilty|no contest)\s+to\s+(?:charges?\s+of\s+)?([^.,;]+?)(?=\s+(?:in|on|at|before|and|under|after|for|as)\b|[.,;])",
+               r"\bindicted\s+on\s+(?:charges?\s+of\s+|an?\s+)?([^.,;]+?)(?:\s+charges?)?(?=\s+(?:in|on|at|before|and|under|after|for|as)\b|[.,;])",
+               r"\bconvicted\s+of\s+([^.,;]+?)(?=\s+(?:in|on|at|before|and|under|after|for|as)\b|[.,;])",
+               r"\baccused\s+of\s+(" + CRIMES + r")",
+               r"\b(" + CRIMES + r")\s+charges?\b"]
+OUTCOME_MORE = (r"\b(pleaded (?:guilty|not guilty|no contest)|held without bond|held on \$[\d,.]+(?: million)? (?:bond|bail)|"
+                r"released on (?:his own |her own |their own )?recognizance|mistrial|(?:were|was) dismissed|"
+                r"plea (?:deal|agreement|bargain))\b")
+JUDGE_ROLE = re.compile(r"^(?:(?:Circuit|District|Superior Court|County|Family Court|Chief|Presiding|Magistrate|Federal|U\.S\. District)\s+)?"
+                        r"(?:Judge|Justice|Magistrate)$")
 WORD_AGES = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
                                         "sixteen seventeen eighteen nineteen twenty".split())}
 
@@ -784,6 +901,10 @@ def detect_legal(story, a, b):
         re.search(r"\b(?:was|were|is|are|been|being)\s+(?:arrested\s+and\s+)?charged with ([^.,;]+)", txt) or \
         re.search(r"\bannounced\s+(?:an?\s+)?(?:additional\s+|new\s+)?((?:[\w-]+\s){0,2}?[\w-]+)\s+charges?\b", txt) or \
         re.search(rf"\bguilty of ({CRIMES})", txt) or re.search(rf"\b(?:in|for) the ({CRIMES})(?:\s+case)?\b", txt)
+    for pat in ([] if m else CHARGE_MORE):
+        m = re.search(pat, txt)
+        if m:
+            break
     if not m:
         return None
     charges = [x.strip() for x in re.split(r",\s*|\s+and\s+(?=[a-z])", m.group(1)) if x.strip()]
@@ -792,16 +913,31 @@ def detect_legal(story, a, b):
         return None
     court = next((pl for s in sents for pl in s.places if re.search(r"Court", pl)), None)
     judge = next((n for s in sents for n in s.people if story.role_of(n) in ("Judge", "Justice")), None)
+    title = None
+    if not judge:  # v0.4.66: "Circuit Judge ...", "Magistrate ..."
+        judge = next((n for s in sents for n in s.people if JUDGE_ROLE.match(story.role_of(n) or "")), None)
+        if judge:
+            role = story.role_of(judge)
+            title = role.split()[-1] if ("Judge " + judge) not in txt else None
     outcome = re.search(r"\b(remanded without bail|held without bail|released on bail|convicted|acquitted|sentenced to [^.]+)", txt)
     verdict = None
     if not outcome:  # "found Moore guilty", "sentenced Moore to fifty-five years in prison": the outcome without the name
         g = re.search(r"\bfound\s+(?:\w+\s+){1,2}?(guilty|not guilty)\b", txt)
         sn = re.search(r"\bsentenced\s+(?:\w+\s+){1,2}?to\s+([^.,;]+?)(?:\s+for\b|[.,;])", txt)
         verdict = ("found " + g.group(1)) if g else ("sentenced to " + sn.group(1)) if sn else None
+        if not verdict:  # v0.4.66: a plea, a bond, a recognizance release, a mistrial, a dismissal
+            mo = re.search(OUTCOME_MORE, txt)
+            if mo:
+                verdict = re.sub(r"^(?:were|was)\s+", "", mo.group(1))
+                bond = re.match(r"held on (\$[\d,.]+(?: million)?) (bond|bail)", verdict)
+                if bond:
+                    verdict = f"{bond.group(2)} {bond.group(1)}"  # the stamp: BOND / $250,000
     date = next((d for s in sents for d in s.dates if not d.back), None)
     hearing = re.search(r"\b(arraigned|indicted|sentenced|convicted|acquitted)\b", txt)
     if not hearing and verdict and verdict.startswith("found"):
         hearing = re.search(r"\b(verdict|jury)\b", "verdict")
+    if not hearing:  # v0.4.66
+        hearing = re.search(r"\b(sentencing|plea|bond hearing|trial|mistrial)\b", txt)
     attrib = re.search(r",\s*(police said|prosecutors said)", txt)
     n = sum(bool(x) for x in (court, judge, outcome or verdict, date))
     if n < 2:
@@ -811,11 +947,19 @@ def detect_legal(story, a, b):
         wa = re.search(r"\b(" + "|".join(WORD_AGES) + r")-year-old\b", txt, re.I)
         if wa:
             age = re.search(r"(.*)", f"{WORD_AGES[wa.group(1).lower()]}-year-old")
+    if not age:  # v0.4.66: an adult the narration names with an adult age ("41-year-old Thomas Reed") is named here
+        for nm in [n for s in sents for n in s.people]:
+            if any(re.search(rf"\b(\d{{2}})-year-old {re.escape(nm)}\b", s.text) and int(re.search(rf"\b(\d{{2}})-year-old {re.escape(nm)}\b", s.text).group(1)) >= 18
+                   for s in story.sentences) and not JUDGE_ROLE.match(story.role_of(nm) or ""):
+                age = re.search(r"(.*)", nm)
+                break
     out = outcome.group(1) if outcome else verdict
     payload = {"charges": charges, "court": court, "judge": judge, "outcome": out,
                "date": date.date.isoformat() if date else None, "date_phrase": date.text if date else None,
                "hearing": hearing.group(1) if hearing else None, "attrib": attrib.group(1) if attrib else None,
                "defendant": age.group(0) if age else "defendant"}
+    if title:
+        payload["judge_title"] = title
     return 0.5 + 0.1 * n + 0.04 * len(charges), payload, [f"charges {charges}; court={court}; judge={judge}; outcome={out}"]
 
 
@@ -832,7 +976,7 @@ class LegalGraphic(Graphic):
         self.t_attr = self.at(p["attrib"], default=None) if p.get("attrib") else None
         self.t_date = self.at(p["date_phrase"], default=0.5) if p.get("date_phrase") else 0.5
         self.t_court = self.at(p["court"], default=self.t_date) if p.get("court") else self.t_date
-        self.t_judge = self.at("Judge " + p["judge"], default=None) if p.get("judge") else None
+        self.t_judge = self.at(p.get("judge_title", "Judge") + " " + p["judge"], default=None) if p.get("judge") else None
         self.t_out = self.at(p["outcome"].split()[0], default=None) if p.get("outcome") else None
         self.court_key, _ = self.assets.find(place=p.get("court") or "")
         self.cue(0.0, "paper-1", -6, "docket in")
@@ -892,7 +1036,7 @@ class LegalGraphic(Graphic):
         x0 = 120 if flip else 790
         ed = A.ease(t, 0.25, A.FAST)
         D.text(c, "DEFENDANT", th.label, 20, th.accent, x0, 230, ed * e_out, tracking=0.2)
-        dfd = p["defendant"].upper()
+        dfd = p["defendant"].upper() if p["defendant"] != "defendant" else ""  # v0.4.66: never "DEFENDANT  DEFENDANT"
         D.text(c, dfd, th.heading, D.fit_size(dfd, th.heading, 790, 46, 28), th.ink, x0 + 220, 214, ed * e_out)
         D.rect(c, x0, 282, x0 + 1010 * A.ease(t, 0.3, 0.5), 284, th.ink, 0.4 * e_out)
         D.text(c, "CHARGES", th.label, 20, th.accent, x0, 316, ed * e_out, tracking=0.2)
@@ -913,7 +1057,7 @@ class LegalGraphic(Graphic):
             yj = max(668, y + (D.lead(th.label, 24) + 56 if self.t_attr else 32))  # v0.4.64: below the charges when they are taller
             D.rect(c, x0, yj - 24, x0 + 1010 * ej, yj - 22, th.ink, 0.4 * e_out)
             D.text(c, "BEFORE", th.label, 20, th.accent, x0, yj + 8, ej * e_out, tracking=0.2)
-            jt = "JUDGE " + p["judge"].upper()
+            jt = p.get("judge_title", "Judge").upper() + " " + p["judge"].upper()
             D.text(c, jt, th.heading, D.fit_size(jt, th.heading, 790, 46, 28), th.ink, x0 + 220, yj - 6, e_out,
                    clip=(x0 + 220, yj - 20, x0 + 220 + 800 * ej, yj + D.lead(th.heading, 70)))
         # the stamp
@@ -985,10 +1129,50 @@ EVIDENCE = [
     (r"records of (?:[\w’']+\s){0,3}?communicat\w+|communications? records?", "COMMUNICATION RECORDS"),
     (r"social media (?:messages?|posts?)", "SOCIAL MEDIA MESSAGES"), (r"search history", "SEARCH HISTORY"), (r"\bnotes\b", "NOTES"),
     (r"(?<!media )\bmessages\b", "MESSAGES"),
+    # v0.4.66
+    (r"doorbell camera|dashcam|dash camera|body[- ]?camera|bodycam", "CAMERA FOOTAGE"), (r"fingerprints?", "FINGERPRINTS"),
+    (r"bank records|financial records|receipts?", "FINANCIAL RECORDS"), (r"\btext messages|\btexts\b", "TEXT MESSAGES"),
+    (r"\bemails?\b", "EMAILS"), (r"laptop|computer", "COMPUTER"), (r"ballistics?|bullets?", "BALLISTICS"),
+    (r"\b(?:the |a )?(?:murder )?weapon\b|\bthe gun\b|\bhandgun\b|\bfirearm\b", "WEAPON"), (r"911 call", "911 CALL"),
 ]
 ROUTELESS_MIN = 3   # an evidence log with no route: at least this many distinct kinds of evidence
 UNRELEASED = r"had not been (?:publicly )?released|not been made public|was not (?:publicly )?disclosed"
 MOVES = r"(went through|boarded|jumped|tracked into|fled to|drove to|ran to|took)"
+# v0.4.66: more ways a script moves someone (tried only when the moves above make no route)
+MOVES_MORE = (r"(went through|boarded|jumped|tracked into|fled to|drove to|ran to|took|headed to|headed toward|walked to|walked toward|"
+              r"got into|left in|was seen at|were seen at|entered|exited|returned to)")
+ACTORS = r"(?P<actor>police|detectives|investigators|officers|deputies|agents|prosecutors|troopers|the FBI|the sheriff[’']s office)"
+# what was done with a piece of evidence, as the script says it: the verb, and the named actor when there is one
+EV_VERBS = r"(?P<v>obtained|reviewed|released|collected|seized|recovered|gathered|tested|analy[sz]ed|retrieved|found|presented|showed)"
+EV_PASSIVE = (r"(?:was|were|had been|has been|have been)\s+(?P<neg>never\s+|not\s+)?(?P<v>recovered|found|tested|matched|linked|collected|seized|"
+              r"released|retrieved|analy[sz]ed)\b(?:\s+by\s+" + ACTORS + r")?")
+EV_STATE = r"\b(?P<v>missing|never (?:recovered|found)|disputed)\b"
+
+
+_PARTICIPLE = {"showed": "SHOWN"}
+
+
+def _ev_status(text, phrase):
+    """The status of one piece of evidence from its own sentence: "Police obtained footage" -> OBTAINED BY POLICE,
+    "The phone was never recovered" -> NEVER RECOVERED. Nothing when the sentence says nothing about it."""
+    i = text.lower().find(phrase.lower())
+    if i < 0:
+        return None
+    before, after = text[:i], text[i + len(phrase):]
+    m = re.search(r"\b" + ACTORS + r"\s+(?:also\s+|later\s+|then\s+)?" + EV_VERBS + r"\b[^.;,]*$", before, re.I)
+    if m:
+        actor = re.sub(r"^the\s+", "", m.group("actor"), flags=re.I).upper().replace("'", "’")
+        return f"{_PARTICIPLE.get(m.group('v').lower(), m.group('v').upper())} BY {actor}", m.group(0).split()[0] + " " + m.group("v")
+    m = re.match(r"[^.;]{0,40}?" + EV_PASSIVE, after, re.I)
+    if m:
+        v = ("NOT " if m.group("neg") and m.group("neg").strip() == "not" else "NEVER " if m.group("neg") else "") + m.group("v").upper()
+        if m.group("actor"):
+            v += " BY " + re.sub(r"^the\s+", "", m.group("actor"), flags=re.I).upper()
+        return v, m.group("v")
+    m = re.match(r"[^.;]{0,30}?" + EV_STATE, after, re.I) or re.search(EV_STATE + r"[^.;]{0,30}$", before, re.I)
+    if m:
+        return m.group("v").upper(), m.group("v")
+    return None
 
 
 def detect_digital(story, a, b):
@@ -1010,6 +1194,14 @@ def detect_digital(story, a, b):
     for s in sents:
         for m in re.finditer(rf"{MOVES}\s+(?:a\s+|the\s+)?((?:No\.\s*\d+|[^,;.])+?)(?=,|;|\.| and were| and |$)", s.text):
             route.append({"verb": m.group(1), "what": m.group(2).strip(), "phrase": m.group(0)[:28]})
+    if len(route) < 2:  # v0.4.66: the wider moves
+        more = []
+        for s in sents:
+            for m in re.finditer(rf"{MOVES_MORE}\s+(?:a\s+|the\s+|an\s+)?((?:No\.\s*\d+|[^,;.])+?)(?=,|;|\.| and were| and |$)", s.text):
+                if len(m.group(2).split()) <= 6:
+                    more.append({"verb": m.group(1), "what": m.group(2).strip(), "phrase": m.group(0)[:28]})
+        if len(more) >= 2:
+            route = more
     if len(route) < 2:
         if len(items) < ROUTELESS_MIN:
             return None
@@ -1031,6 +1223,22 @@ def detect_digital(story, a, b):
             part = m.group(3) or ""
             ampm = "AM" if half.startswith("a") or part == "morning" else "PM" if half.startswith("p") or part in ("afternoon", "evening", "night") else ""
             time = (m.group(1) + (" " + ampm if ampm else "")).strip()
+    incident_s = [s for s in story.sentences[:a] if re.search(r"\b(?:shot|shooting|killed|killing|gunfire|stabbed|stabbing|murder|body|died)\b", s.text, re.I)]
+    for s in ([] if loc else incident_s):  # v0.4.66: the place of the incident, in more of the ways a script names it
+        m = re.search(r"\b(?:near|at|on) the corner of ([A-Z][\w.]*(?: [A-Z][\w.]*)* and [A-Z][\w.]*(?: [A-Z][\w.]*)*)", s.text) or \
+            re.search(r"\bbetween ([A-Z][\w.]*(?: [A-Z][\w.]*)* (?:Street|Avenue|Boulevard|Road|Drive|Lane|Place)) and "
+                      r"([A-Z][\w.]*(?: [A-Z][\w.]*)* (?:Street|Avenue|Boulevard|Road|Drive|Lane|Place))", s.text) or \
+            re.search(r"\bnear ([A-Z][\w.]*(?: [A-Z][\w.]*)* (?:Street|Avenue|Boulevard|Road|Drive|Lane|Place)(?: and [A-Z][\w.]*(?: [A-Z][\w.]*)*)?)", s.text)
+        if m:
+            loc = m.group(1) + (" and " + m.group(2) if m.lastindex == 2 else "")
+            break
+    for s in ([] if time else incident_s):
+        m = re.search(r"\b(?:at|about|approximately|just after|shortly after|just before|shortly before)\s+(\d{1,2}:\d{2})\s*(a\.m\.|am|p\.m\.|pm)?"
+                      r"(?:\s+(?:that|in the)\s+(morning|afternoon|evening|night))?", s.text)
+        if m and (m.group(2) or m.group(3)):
+            half, part = (m.group(2) or "").lower(), m.group(3) or ""
+            time = m.group(1) + (" AM" if half.startswith("a") or part == "morning" else " PM")
+            break
     inc = story.incident_date()
     briefing = None
     for s in story.sentences:
@@ -1058,6 +1266,10 @@ def detect_digital(story, a, b):
                 status.setdefault(label, ("DISPUTED BY THE DEFENSE", "disputed"))
     for it in items:
         it["status"], it["status_phrase"] = status.get(it["label"], ("", ""))
+        if not it["status"]:  # v0.4.66: what the item's own sentence says was done with it
+            st = _ev_status(story.sentences[it["sent"]].text, it["phrase"])
+            if st:
+                it["status"], it["status_phrase"] = st
         s = story.sentences[it["sent"]]
         if it["label"] == "SURVEILLANCE VIDEO":
             m = re.search(r"showing ([^.;]+)", s.text)
@@ -1071,8 +1283,14 @@ def detect_digital(story, a, b):
     place = next((r["what"] for r in route if re.search(r"\b(?:station|Station|Street|Avenue|Park|Square|Bridge)\b", r["what"])), None)
     nyc = bool(NYC.search(" ".join(s.text for s in story.sentences)))
     by_police = bool(re.search(r"\bpolice\b", txt, re.I)) or any(INVESTIGATORS.search(story.role_of(c.source) or c.source) for s in sents for c in s.claims)
+    by = "POLICE" if by_police else ""
+    if by and not re.search(r"\bpolice\b", txt, re.I) and re.search(r"sheriff|deput", " ".join(s.text for s in story.sentences), re.I):
+        by = "SHERIFF’S OFFICE"  # v0.4.66: investigators of a sheriff’s office are not "police"
+    if not by:  # v0.4.66: the agency the script names
+        by = ("SHERIFF’S OFFICE" if re.search(r"sheriff|deput", txt, re.I) else "FBI" if re.search(r"\bFBI\b|federal agents", txt)
+              else "INVESTIGATORS" if re.search(r"investigators|detectives", txt, re.I) else "")
     payload = {"items": items, "route": route, "origin": origin, "origin_loc": loc, "time": time, "date": inc.isoformat() if inc else None,
-               "briefing": briefing, "place": place, "nyc": nyc, "by": "POLICE" if by_police else "", "incident": incident_noun(story)}
+               "briefing": briefing, "place": place, "nyc": nyc, "by": by, "incident": incident_noun(story)}
     score = 0.55 + 0.08 * len(items) + 0.06 * len(route) + (0.04 * sum(bool(i["status"]) for i in items) if not route else 0)
     return score, payload, [f"evidence {[i['label'] for i in items]} + route of {len(route)} moves"]
 
@@ -1125,7 +1343,7 @@ class DigitalGraphic(Graphic):
         D.text(c, "EVIDENCE ANALYSIS", "mono", 24, th.accent, 60, 18, eh * e_out)
         if p.get("briefing"):
             b = dt.date.fromisoformat(p["briefing"])
-            src = "SOURCE: POLICE ACCOUNT · " if p.get("by", "POLICE") else ""
+            src = f"SOURCE: {p.get('by', 'POLICE')} ACCOUNT · " if p.get("by", "POLICE") else ""
             D.text(c, f"{src}BRIEFING {short_date(b)}, {b.year}", "mono", 18, th.muted, 1860, 22, eh * e_out, anchor="r")
         D.rect(c, 0, 64, D.W * A.ease(t, 0.05, 0.5), 66, th.accent, 0.8 * e_out)
         tc = max(0.0, t)
@@ -1163,7 +1381,7 @@ class DigitalGraphic(Graphic):
         rx0 = 960
         er = A.ease(t, self.t_route0, A.FAST)
         if er > 0:
-            D.text(c, "ROUTE · AS DESCRIBED BY POLICE" if p.get("by", "POLICE") else "ROUTE · AS DESCRIBED", "mono", 20, th.muted, rx0, 112, er * e_out)
+            D.text(c, f"ROUTE · AS DESCRIBED BY {p.get('by', 'POLICE')}" if p.get("by", "POLICE") else "ROUTE · AS DESCRIBED", "mono", 20, th.muted, rx0, 112, er * e_out)
             D.text(c, "SCHEMATIC — NOT TO SCALE", "mono", 16, th.muted, 1860, 114, er * e_out * 0.8, anchor="r")
         nodes = self._nodes()
         # draw the path progressively: each step reaches its node when narrated
@@ -1251,7 +1469,54 @@ class DigitalGraphic(Graphic):
 
 # ============================================================ 6. CASE TURNING POINT
 
-TURN_VERBS = r"\b(arrested|charged|convicted|acquitted|identified|confessed|indicted|found|announced|died|won|lost|signed|retired)\b"
+TURN_VERBS = r"\b(arrested|charged|convicted|acquitted|identified|confessed|indicted|found|announced|died|won|lost|signed|retired|pleaded|sentenced)\b"
+STRONG_MORE = r"\b(sentenced|pleaded guilty|found guilty)\b"  # v0.4.66: decisive too, tried after the original five
+NUM_WORDS = dict(WORD_AGES, **{w: n for n, w in [(30, "thirty"), (40, "forty"), (50, "fifty"), (60, "sixty"), (70, "seventy"), (80, "eighty"),
+                                                 (90, "ninety")]})
+
+
+def _num(w):
+    """A number as the script writes it: "231", "eight", "ninety"; None for anything else."""
+    w = w.lower()
+    return int(w) if w.isdigit() else NUM_WORDS.get(w)
+
+
+def _subject_age(story):
+    age = None
+    for s in story.sentences:
+        mm = re.search(rf"{re.escape(story.subject)} was (\d+)\b", s.text) if story.subject else None
+        if mm:
+            age = int(mm.group(1))
+            break
+    if age is None and story.subject:  # v0.4.66: "Jevario Buie was fourteen", "fourteen-year-old Jevario Buie"
+        first = re.escape(story.subject.split()[0])
+        for s in story.sentences:
+            mm = re.search(rf"{re.escape(story.subject)} was ({'|'.join(WORD_AGES)})\b(?!-)", s.text, re.I) or \
+                re.search(rf"\b(\d{{1,2}}|{'|'.join(WORD_AGES)})-year-old {first}\b", s.text, re.I)
+            if mm:
+                age = _num(mm.group(1))
+                break
+    return age
+
+
+def _elapsed(text, days):
+    """The narration's own count of the time between the incident and the event, when it agrees with the dates:
+    ("It had been 231 days", None), or ("eight months later", "eight months") for months and years."""
+    m = re.search(r"\b(?:[Ii]t had been|[Ii]t took|[Ii]t was)\s+(\d+)\s+days\b", text)
+    if m:
+        return (m.group(0), None) if int(m.group(1)) == days else None
+    m = re.search(r"\b(?:(?:[Ii]t had been|[Ii]t took|[Ii]t was|[Aa]fter)\s+)?(\w+)\s+days\s*(?:later|after)?\b", text)
+    if m and _num(m.group(1)) is not None and re.search(r"[Ii]t had been|[Ii]t took|[Ii]t was|[Aa]fter|later|after", m.group(0)):
+        return (m.group(0), None) if _num(m.group(1)) == days else None
+    m = re.search(r"\b(?:(?:[Ii]t had been|[Ii]t took|[Ii]t was|[Aa]fter)\s+)?((?i:nearly|almost|about|roughly|more than|over|just over|just under)\s+)?"
+                  r"(\w+)\s+(months?|years?)(?:\s+later)?\b", text)
+    if m and _num(m.group(2)) and re.search(r"[Ii]t had been|[Ii]t took|[Ii]t was|[Aa]fter|later", m.group(0)):
+        n, unit = _num(m.group(2)), 30.44 if m.group(3).startswith("month") else 365.25
+        q = (m.group(1) or "").strip().lower()
+        lo, hi = (n - 1, n) if q in ("nearly", "almost", "just under") else (n, n + 1) if q in ("more than", "over", "just over") else (n - 0.5, n + 0.5)
+        if lo <= days / unit <= hi:
+            return m.group(0), " ".join(x for x in (q, m.group(2), m.group(3)) if x)
+    return None
 
 
 def detect_turning(story, a, b):
@@ -1268,12 +1533,7 @@ def detect_turning(story, a, b):
     inc = story.incident_date()
     days = (ans.dates[0].date - inc).days if inc else None
     m = re.search(r"(a\s+)?([\w-]+(?:-year-old)?)\s+had been (arrested)(?: and (charged with \w+))?", ans.text)
-    age = None
-    for s in story.sentences:
-        mm = re.search(rf"{re.escape(story.subject)} was (\d+)\b", s.text) if story.subject else None
-        if mm:
-            age = int(mm.group(1))
-            break
+    age = _subject_age(story)
     payload = {"subject": story.subject, "age": age, "question": q.text, "incident": incident_noun(story), "date": ans.dates[0].date.isoformat(), "date_phrase": ans.dates[0].text, "days": days,
                "who": m.group(2) if m else "", "event": m.group(3) if m else "", "charge": m.group(4) if m and m.group(4) else "",
                "event_phrase": "had been arrested" if m else ans.text.split()[2]}
@@ -1284,26 +1544,28 @@ def _turning_elapsed(story, ev, el):
     """No question: a dated decisive event, then the narration's own count of how long it took
     ("... arrested fifteen-year-old Jahmir Moore ..." / "It had been 231 days since April 17.")."""
     dates = [d for d in ev.dates if not d.back]
-    strong = re.search(r"\b(arrested|charged|convicted|acquitted|indicted)\b", ev.text)
-    m = re.search(r"\b(?:[Ii]t had been|[Ii]t took|[Ii]t was)\s+(\d+)\s+days\b", el.text)
+    strong = re.search(r"\b(arrested|charged|convicted|acquitted|indicted)\b", ev.text) or re.search(STRONG_MORE, ev.text)
     inc = story.incident_date()
-    if not dates or not strong or not m or not inc:
+    if not dates or not strong or not inc:
         return None
     days = (dates[0].date - inc).days
-    if days != int(m.group(1)):
-        return None  # the narration counts differently: never show a number it does not say
+    got = _elapsed(el.text, days)  # v0.4.66: "N days later", "after N days", "nearly eight months later" ...
+    if not got:
+        return None  # the narration counts differently (or not at all): never show a number it does not say
+    elapsed_phrase, span_label = got
     who = re.search(rf"\b{strong.group(1)}\s+(?:a\s+|the\s+)?(\d{{1,2}}|" + "|".join(WORD_AGES) + r")-year-old\b", ev.text, re.I)
-    age = None
-    for s in story.sentences:
-        mm = re.search(rf"{re.escape(story.subject)} was (\d+)\b", s.text) if story.subject else None
-        if mm:
-            age = int(mm.group(1))
-            break
+    age = _subject_age(story)
     n = who.group(1) if who else ""
     n = str(WORD_AGES.get(n.lower(), n)) if n else ""
     payload = {"subject": story.subject, "age": age, "question": "", "incident": incident_noun(story), "date": dates[0].date.isoformat(),
                "date_phrase": dates[0].text, "days": days, "who": f"{n}-year-old" if n else "", "event": strong.group(1), "charge": "",
-               "event_phrase": strong.group(1), "elapsed_phrase": m.group(0)}
+               "event_phrase": strong.group(1), "elapsed_phrase": elapsed_phrase}
+    if span_label:
+        payload["span_label"] = span_label
+    ch = re.search(r"\bcharged with ([^.,;]+?)(?=[.,;]|\s+(?:and|in|on|after)\b)", ev.text + " " + el.text) or \
+        re.search(rf"\b(?:an?\s+)?({CRIMES})\s+charges?\b", ev.text + " " + el.text)
+    if ch:  # v0.4.66: the charge, when the same two sentences say it
+        payload["charge"] = ch.group(0) if ch.group(0).startswith("charged") else ch.group(1) + " charge"
     return 0.85, payload, [f"dated {strong.group(1)}, {days} days after the incident, as the narration counts"]
 
 
@@ -1397,7 +1659,8 @@ class TurningGraphic(Graphic):
         D.text(c, str(d.year), "mono", 28, th.muted, tx + 12, 130, A.ease(tc, 0.1, A.FAST) * e_out)
         if p.get("days"):
             ed = A.ease(tc, 0.7, A.FAST)
-            D.text(c, f"{p['days']} DAYS AFTER THE {(p.get('incident') or 'incident').upper()}", th.label, 30, th.accent, tx + 8, 468, ed * e_out, tracking=0.16,
+            span = p["span_label"].upper() if p.get("span_label") else f"{p['days']} DAYS"  # v0.4.66: the narration's own span
+            D.text(c, f"{span} AFTER THE {(p.get('incident') or 'incident').upper()}", th.label, 30, th.accent, tx + 8, 468, ed * e_out, tracking=0.16,
                    clip=(tx, 450, tx + 1000 * ed, 450 + D.lead(th.label, 70)))
         ea = A.ease(t, self.t_arrest - 0.05, A.FAST)
         if ea > 0:
@@ -1534,7 +1797,9 @@ def _person(name, label=None):
 
 
 def slots_findings(p):
-    return [_person(p["source"], f"Photo of {p['source']} (who gave the findings)")] if p.get("source") else []
+    if not p.get("source") or p.get("person") is False:  # v0.4.66: "police" as the source is not a person with a photo
+        return []
+    return [_person(p["source"], f"Photo of {p['source']} (who gave the findings)")]
 
 
 def slots_timeline(p):
