@@ -15,7 +15,7 @@ import StickerDialog from "./StickerDialog.jsx";
 import StickerPanel from "./StickerPanel.jsx";
 import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
-import { graphicAt, normaliseMotion } from "./motion.js";
+import { graphicAt, graphicsAt, normaliseMotion } from "./motion.js";
 import SoundPanel from "./SoundPanel.jsx";
 import { SfxPreview, SFX, schedule as sfxSchedule, normaliseSound, editItem as editSfx, decodeDuck } from "./sound.js";
 import { MusicPreview, musicLayout, normaliseMusic, timelineTotal, approxDuck, MUSIC_DUCK_RATIO } from "./music.js";
@@ -2293,11 +2293,12 @@ function App() {
             selectedId={motionId}
             onSelect={setMotionId}
             onChange={(m) => queueSave({ motion: m })}
-            onSuggest={async () => {
+            onSuggest={async (body = {}) => {
               await flushSave();
-              const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", {});
+              const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", body);
               acceptProject(r.project);
-              notify(r.added ? `${r.added} motion graphic${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : "Nothing in the narration calls for a motion graphic.", "info");
+              const what = body.engine === "cinematic" ? "cinematic graphic" : "motion graphic";
+              notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
             }}
             onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
             onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
@@ -3307,13 +3308,15 @@ function App() {
                   />
                   {(() => {
                     // v0.4.52 a motion graphic: the one you are editing, else the approved ones
-                    const g = graphicAt(project.motion, time, inspectorTab === "motion" ? motionId : null);
-                    return g ? (
-                      <div className={`motion-wrap ${g.exported ? "" : "draft"}`}>
-                        <MotionLayer projectId={project.id} item={g.item} time={time} width={frameSize.width} height={frameSize.height} playing={playing} onStatus={setMotionStatus} />
+                    // (v0.4.62 stacked as the export stacks them: a cinematic graphic fades in over the one before)
+                    const gs = graphicsAt(project.motion, time, inspectorTab === "motion" ? motionId : null);
+                    return gs.map((g, k) => (
+                      <div key={g.item.id} className={`motion-wrap ${g.exported ? "" : "draft"}`}>
+                        <MotionLayer projectId={project.id} item={g.item} time={time} width={frameSize.width} height={frameSize.height} playing={playing}
+                          onStatus={k === gs.length - 1 ? setMotionStatus : undefined} />
                         {!g.exported && <span className="motion-draft-tag">{g.item.status === "approved" ? "Approved · export is off" : "Preview · not approved"}</span>}
                       </div>
-                    ) : null;
+                    ));
                   })()}
                   {(() => {
                     // v0.4.36 your logo watermark, where the export puts it.

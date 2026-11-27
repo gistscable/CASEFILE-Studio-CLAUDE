@@ -1,5 +1,5 @@
-"""Engine tests for cinegfx (kept beside the demos until the engine is approved for integration; they move
-to tests/ with it). Run: PATH=$PWD/.venv/bin:$PATH .venv/bin/python -m pytest qa/cinegfx-demos/test_engine.py -q"""
+"""Engine tests for cinegfx (v0.4.61; moved here from qa/cinegfx-demos/ when the engine was integrated in v0.4.62).
+The fixtures are the approved Javits demo material in qa/cinegfx-demos/ (script, narration, photos)."""
 import datetime as dt
 import hashlib
 import json
@@ -9,14 +9,13 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
+HERE = ROOT / "qa" / "cinegfx-demos"
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(HERE))
 
 from cinegfx import core, render, story as S, timing as TM  # noqa: E402
 import make_demos as M  # noqa: E402
-
-HERE = Path(__file__).resolve().parent
 
 
 @pytest.fixture(scope="module")
@@ -74,9 +73,18 @@ def test_each_demo_window_is_classified_as_its_category_and_only_that(key, story
 def test_selection_is_sparse_spaced_and_varied(story, coll):
     beats = core.select(story, coll)
     assert 3 <= len(beats) <= 8
+    run = 1
     for x, y in zip(beats, beats[1:]):
-        assert y.a >= x.b + 2  # never back-to-back
+        assert y.a >= x.b  # never overlapping
+        if y.a - x.b < 2:  # back-to-back only as a sequence of two strong graphics of different categories
+            assert y.a == x.b and x.score >= 0.85 and y.score >= 0.85 and x.category != y.category
+            run += 1
+            assert run <= 3
+        else:
+            run = 1
     assert len({b.category for b in beats}) == len(beats)  # no repeated composition in one episode this short
+    # v0.4.62: on the full Javits script every one of the six categories is placed (none lost to spacing)
+    assert {b.category for b in beats} == {"findings", "timeline", "contradiction", "legal", "digital", "turning"}
 
 
 def test_new_niche_registers_without_touching_core(story):

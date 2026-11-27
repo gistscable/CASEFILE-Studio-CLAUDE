@@ -1,5 +1,5 @@
 import React from "react";
-import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle } from "lucide-react";
+import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle, Film } from "lucide-react";
 import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel } from "./motion.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 import { planFor } from "./MotionLayer.jsx";
@@ -48,12 +48,116 @@ function Swatches({ label, value, options, onChange, disabled }) {
   );
 }
 
+// v0.4.62 The story-aware graphics' collections (niches) and categories, from the server (loaded once).
+let CATALOG = null;
+function useCatalog() {
+  const [cat, setCat] = React.useState(CATALOG);
+  React.useEffect(() => {
+    if (CATALOG) return;
+    let live = true;
+    fetch("/api/motion/catalog", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((d) => { CATALOG = d; if (live) setCat(d); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, []);
+  return cat;
+}
+const categoryOf = (catalog, it) => {
+  const c = (catalog?.collections || []).find((x) => x.key === it.collection);
+  return c?.categories.find((k) => k.key === it.category) || null;
+};
+const itemName = (catalog, x) => (x.template === "cinematic" ? x.label || categoryOf(catalog, x)?.label || "Cinematic graphic" : x.title || TEMPLATES[x.template].label);
+const kindName = (catalog, x) => (x.template === "cinematic" ? `Cinematic · ${categoryOf(catalog, x)?.label || x.category}` : TEMPLATES[x.template].label);
+
+// v0.4.62 A story-aware graphic: its words, design and timing come from the narration (it is drawn in
+// sync with the words, so it is moved by choosing another passage, not by dragging). You choose its
+// category, the photos of its slots (only your own, with the credit you type) and the captions.
+function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, onPlayFrom, onRemove, onRemake, previewStatus }) {
+  const cat = categoryOf(catalog, sel);
+  const coll = (catalog?.collections || []).find((x) => x.key === sel.collection);
+  const slots = info && info.id === sel.id ? info.slots || [] : null;
+  const setPhoto = (key, patch) => {
+    const cur = sel.photos[key] || { asset_id: "", credit: "", month: "", auto: false };
+    update(sel.id, { photos: { ...sel.photos, [key]: { ...cur, ...patch, auto: false } } });
+  };
+  return (
+    <div className="st-edit">
+      <div className="section-label sub">
+        <span>{(cat?.label || "Cinematic graphic").toUpperCase()}</span>
+        <small className={`mg-badge ${sel.status}`}>{STATUS[sel.status]}</small>
+      </div>
+      {cat?.about && <p className="micro-note block">{cat.about}</p>}
+      {sel.reason && <p className="micro-note block">Why here: {sel.reason}</p>}
+      <div className="st-actions">
+        <button className="btn" disabled={disabled} onClick={() => onPlayFrom(Math.max(0, sel.start - 0.5))}>
+          <Play size={12} /> Play it
+        </button>
+        {sel.status !== "approved" ? (
+          <button className="btn primary" disabled={disabled} onClick={() => update(sel.id, { status: "approved" })}>
+            <Check size={12} /> Approve
+          </button>
+        ) : (
+          <button className="btn" disabled={disabled} onClick={() => update(sel.id, { status: "draft" })}>Unapprove</button>
+        )}
+        <button className="btn danger" disabled={disabled} onClick={onRemove}>
+          {sel.status === "suggested" ? <><X size={12} /> Reject</> : <><Trash2 size={12} /> Remove</>}
+        </button>
+      </div>
+      {previewStatus === "preparing" && <p className="micro-note">Preparing the preview…</p>}
+      {coll && (
+        <Choice label="Category" value={sel.category} options={coll.categories.map((k) => [k.key, k.label])} disabled={disabled || !!busy}
+          onChange={(v) => v !== sel.category && onRemake(sel, v)} />
+      )}
+      <p className="micro-note block">
+        It covers {clock(sel.start)}–{clock(sel.end)} and follows the narration word by word; every word on it is from your script.
+        To place it elsewhere, make one from another passage.
+      </p>
+      <label className="cs-check">
+        <input type="checkbox" checked={sel.hide_captions} disabled={disabled} onChange={(e) => update(sel.id, { hide_captions: e.target.checked })} />
+        Hide captions while it is on screen
+      </label>
+
+      <div className="section-label sub"><span>PHOTOS</span></div>
+      {slots === null && <p className="micro-note">Reading the graphic…</p>}
+      {slots && !slots.length && <p className="micro-note block">This graphic uses no photos.</p>}
+      {slots && slots.length > 0 && (
+        <p className="micro-note block">Only photos from your project, with the credit you give them. An empty slot is simply not drawn; nothing is searched for or made up.</p>
+      )}
+      {(slots || []).map((sl) => {
+        const v = sel.photos[sl.key] || { asset_id: "", credit: "", month: "" };
+        return (
+          <div key={sl.key} className="mg-line">
+            <div className="mg-line-head"><b>{sl.label}</b>{v.auto && v.asset_id ? <small> · matched by file name</small> : null}</div>
+            <select aria-label={sl.label} value={v.asset_id} disabled={disabled} onChange={(e) => setPhoto(sl.key, { asset_id: e.target.value })}>
+              <option value="">No photo</option>
+              {images.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            {v.asset_id && (
+              <div className="mg-row">
+                <input aria-label={`Credit for ${sl.label}`} placeholder="Credit (e.g. Courtesy of the family)" key={sel.id + sl.key + "c" + v.credit} defaultValue={v.credit}
+                  maxLength={120} disabled={disabled} onBlur={(e) => e.target.value !== v.credit && setPhoto(sl.key, { credit: e.target.value })} />
+                <input aria-label={`Month for ${sl.label}`} placeholder="Month (optional)" key={sel.id + sl.key + "m" + v.month} defaultValue={v.month}
+                  maxLength={30} disabled={disabled} onBlur={(e) => e.target.value !== v.month && setPhoto(sl.key, { month: e.target.value })} />
+              </div>
+            )}
+            {v.asset_id && info?.id === sel.id && !sl.filled && <p className="micro-note mg-warn">That photo's file is missing: the slot is left empty.</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // v0.4.52 Motion tab of the inspector: suggestions from the narration, graphics you make from a
 // passage you choose, and everything about the selected graphic. Only approved graphics go into
 // the export, and only while "Add to the export" is on (off by default).
 export default function MotionPanel({ project, time, playing, selectedId, onSelect, onChange, onSuggest, onDraft, onSeek, onPlayFrom, disabled, previewStatus }) {
   const m = normaliseMotion(project.motion);
   const sel = m.items.find((x) => x.id === selectedId);
+  const catalog = useCatalog();
+  const [collection, setCollection] = React.useState("");
+  const coll = (catalog?.collections || []).find((c) => c.key === (collection || catalog?.default)) || catalog?.collections?.[0];
   const images = (project.assets || []).filter((a) => a.kind === "image");
   const [busy, setBusy] = React.useState("");
   const [narration, setNarration] = React.useState(null);
@@ -113,11 +217,20 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const create = () =>
     run("draft", async () => {
       const a = sentences[Math.min(pick.from, pick.to)], b = sentences[Math.max(pick.from, pick.to)];
-      const item = await onDraft({ template: pick.template, start: a.start, end: b.end });
+      const item = pick.template === "cinematic"
+        ? await onDraft({ template: "cinematic", collection: coll?.key, category: pick.category || "auto", start: a.start, end: b.end })
+        : await onDraft({ template: pick.template, start: a.start, end: b.end });
       setItems([...m.items, item]);
       onSelect(item.id);
       setPick(null);
       onSeek(item.start);
+    });
+
+  // v0.4.62 the same passage made again as another category (it says what the passage lacks if it cannot be)
+  const remake = (it, category) =>
+    run("regen", async () => {
+      const fresh = await onDraft({ template: "cinematic", collection: it.collection, category, start: it.start, end: it.end, window: it.window, id: it.id });
+      update(it.id, { ...fresh, id: it.id, status: "draft", source: it.source, reason: it.reason, hide_captions: it.hide_captions });
     });
 
   const regenerate = (it, template = it.template) =>
@@ -151,11 +264,32 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           <Plus size={12} /> New from a passage
         </button>
       </div>
+      <div className="section-label sub"><span>CINEMATIC (STORY-AWARE)</span></div>
+      <p className="micro-note block">
+        Premium graphics that read the whole story: {coll ? coll.categories.map((k) => k.label.toLowerCase()).join(", ") : "…"}. Placed only where the script supports one,
+        each drawn in its own design from your script's own words, in sync with the narration.
+      </p>
+      {catalog && catalog.collections.length > 1 && (
+        <Choice label="Kind of story" value={coll?.key || ""} options={catalog.collections.map((c) => [c.key, c.label])} disabled={disabled} onChange={setCollection} />
+      )}
+      <div className="st-actions">
+        <button className="btn" disabled={disabled || !!busy || !coll} onClick={() => run("cine", () => onSuggest({ engine: "cinematic", collection: coll.key }))}>
+          <Film size={12} /> {busy === "cine" ? "Reading the story…" : "Suggest cinematic graphics"}
+        </button>
+        <button className="btn" disabled={disabled || !!busy || !coll} onClick={() => setPick(pick ? null : { template: "cinematic", category: "auto", from: null, to: null })}>
+          <Plus size={12} /> Cinematic from a passage
+        </button>
+      </div>
       {error && <p className="micro-note block mg-error">{error}</p>}
 
       {pick && (
         <div className="mg-pick">
-          <Choice label="Template" value={pick.template} options={MG.templates.map((t) => [t.id, t.label])} disabled={disabled} onChange={(v) => setPick({ ...pick, template: v })} />
+          <Choice label="Template" value={pick.template} options={[...MG.templates.map((t) => [t.id, t.label]), ...(coll ? [["cinematic", "Cinematic (story-aware)"]] : [])]} disabled={disabled}
+            onChange={(v) => setPick({ ...pick, template: v, category: "auto" })} />
+          {pick.template === "cinematic" && coll && (
+            <Choice label="Category" value={pick.category || "auto"} options={[["auto", "Automatic (what the passage supports)"], ...coll.categories.map((k) => [k.key, k.label])]} disabled={disabled}
+              onChange={(v) => setPick({ ...pick, category: v })} />
+          )}
           <p className="micro-note">Click the first and the last sentence of the passage{narration && !narration.exact ? " (times from the captions)" : ""}.</p>
           <div className="mg-sentences">
             {!narration && <p className="micro-note">Reading the narration…</p>}
@@ -174,7 +308,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           </div>
           <div className="st-actions">
             <button className="btn primary" disabled={disabled || pick.from === null || !!busy} onClick={create}>
-              {busy === "draft" ? "Making…" : `Make ${TEMPLATES[pick.template].label.toLowerCase()}`}
+              {busy === "draft" ? "Making…" : pick.template === "cinematic" ? "Make cinematic graphic" : `Make ${TEMPLATES[pick.template].label.toLowerCase()}`}
             </button>
             <button className="text-link" onClick={() => setPick(null)}>Cancel</button>
           </div>
@@ -189,8 +323,8 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           <button key={x.id} className={`st-item mg-item ${x.id === selectedId ? "on" : ""} ${time >= x.start && time < x.end ? "now" : ""}`}
             onClick={() => { onSelect(x.id); if (!(time >= x.start && time < x.end)) onSeek(x.start); }}>
             <i className={`mg-badge ${x.status}`}>{STATUS[x.status]}</i>
-            <span>{x.title || TEMPLATES[x.template].label}</span>
-            <small>{TEMPLATES[x.template].label} · {clock(x.start)} · {(x.end - x.start).toFixed(1)} s</small>
+            <span>{itemName(catalog, x)}</span>
+            <small>{kindName(catalog, x)} · {clock(x.start)} · {(x.end - x.start).toFixed(1)} s</small>
           </button>
         ))}
       </div>
@@ -198,7 +332,11 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
         <p className="micro-note block mg-warn">Approved graphics are not exported until “Add approved graphics to the export” is on.</p>
       )}
 
-      {sel && (
+      {sel && sel.template === "cinematic" && (
+        <CinematicEditor sel={sel} info={info} images={images} catalog={catalog} disabled={disabled} busy={busy} update={update} onPlayFrom={onPlayFrom}
+          onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remake} previewStatus={previewStatus} />
+      )}
+      {sel && sel.template !== "cinematic" && (
         <div className="st-edit">
           <div className="section-label sub">
             <span>{TEMPLATES[sel.template].label.toUpperCase()}</span>

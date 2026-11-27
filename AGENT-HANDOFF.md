@@ -1180,14 +1180,41 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
 * **Bug fixed** (commit `197602b`, revertable alone): loudnorm stamps frames 0.1 s apart, so trims and fades after it cut soundbites short by up to 0.1 s. `RESTAMP` now follows loudnorm.
 * **QA:** `tail_check_long.py` has `guide-12min-10-odd-soundbites[-voice-only]`; `duck_bench.py inserts` reports peak FFmpeg RSS.
 
-## cinegfx — story-aware cinematic graphics engine (demo stage, not integrated)
+## cinegfx — story-aware cinematic graphics (integrated in v0.4.62)
 
-`casefile-studio/cinegfx/` (see its README) is a new engine, independent of `motion.py`, which it never imports.
-- **Demos:** six true-crime category demo MP4s plus a reel (`all-six-demos.mp4`) are in `casefile-studio/qa/cinegfx-demos/`.
-  - Build with `make_demos.py`; remix sound only with `remix.py`.
-  - View with `serve.py` (gallery on :8001, Range-capable).
-- **Tests:** 20 engine tests in `qa/cinegfx-demos/test_engine.py`. They move to `tests/` on integration.
-- **Not wired into the app or the Motion panel** until the user approves the demos. Kit extraction for Storyroom comes after approval.
-- **Photo provenance** is in `qa/cinegfx-demos/photos/sources.json`. Two crops were made for the editing guide:
-  - vigil photo cropped below faces;
-  - Freeman St photo cropped so the No. 2 train isn't presented as the No. 5.
+`casefile-studio/cinegfx/` (see its README) is the engine; it never imports `motion.py` or any app module.
+`casefile-studio/cinematic.py` is the only bridge between it and the app.
+- **In the app:** Motion → "Cinematic (story-aware)". The item template is `"cinematic"`.
+  - `motion.normalise_item`, `describe`, `photo_files`, `preview_plan`, `preview_frame` and `prepare` dispatch to `cinematic`.
+  - The classic four templates are unchanged and live side by side with cinematic items.
+- **Routes:** `GET /api/motion/catalog`; `POST /api/projects/{id}/motion/options {start, end, collection}`;
+  `/motion/draft {template: "cinematic", category: "auto"|key, start, end, window?, id?}` (422 with an explanation when the
+  passage has no such category); `/motion/suggest {engine: "cinematic", collection}` (replaces only same-engine suggestions).
+- **The server owns the content:** words, payload, timing and length (`end = start + frames_of/24`) come from the narration.
+  The editor changes status, category (a remake of the same sentences, `window`), hide-captions and photo slots
+  (project images only, with credit and month).
+- **Back to back** (allowed since v0.4.62's selection fix): `cinematic.handoffs` runs in `motion.normalise`.
+  - The next *approved* cinematic graphic covers the earlier one: it fades in fully opaque over it.
+  - The earlier one gets `cut` (frames = cover start + 0.2 s): no exit fade, and no cues after the cover.
+  - `suggest` shortens the later graphic's lead-in (≥ 0.1 s) so the earlier last word holds about 0.7 s.
+  - The editor preview stacks both, as the export does (`graphicsAt`).
+- **Timing:** each graphic holds its last word at least 1.0 s (`LAST_HOLD`) before its exit.
+- **Same code for preview and export:** frames are drawn at 1920×1080 and resized (Lanczos). Export goes through qtrle via a spawn
+  Pool: workers = cores − 1, at most 6, 1 when ≤ 2 CPUs or < 96 frames; override with `CASEFILE_CINEMATIC_WORKERS`.
+  - The cache key covers the engine versions, the content, the size and the photo files.
+  - `tests/test_cinematic.py` checks exported frames against preview frames (lossless) and parallel output against serial (identical).
+- **Sound:** `sound._cine_events` sends each designed cue through `sound.plan` with its exact library id (`sid`) and designed gain.
+  - Your intensity setting still offsets the gain (0 at the default 0.4).
+  - One graphic is one `layer`: its own cues are exempt from the spacing between them.
+  - Typed labels become one typed run at the designed key level.
+  - Over a sensitive sentence or victim picture (a cue that would play), the whole graphic is treated as sensitive:
+    reveals are softened (muted clicks, quieter keys) and hits are dropped. A graphic is never half loud.
+- **Export encoder:** `CASEFILE_VIDEO_ENCODER=videotoolbox` uses `h264_videotoolbox` for the scene clips. It is probed with a tiny test
+  encode, and if that fails the export uses libx264 with a warning. The render report names the encoder.
+- **Tests:** `tests/test_cinegfx_engine.py` (20, moved from `qa/cinegfx-demos/`), `tests/test_cinematic.py` (11) and
+  `tests/js/motion.test.mjs` (3).
+  - The approved Javits stills must stay pixel-identical. Check with `make_demos.py --stills` against a saved baseline.
+- **Demos, photo provenance and crops:** `qa/cinegfx-demos/`; provenance in `photos/sources.json`.
+  - The vigil photo is cropped below faces.
+  - The Freeman St photo is cropped so the No. 2 train isn't presented as the No. 5.
+- **Kit extraction for Storyroom** comes after the user approves the integrated version.
