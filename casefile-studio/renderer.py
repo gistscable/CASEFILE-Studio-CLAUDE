@@ -1520,10 +1520,10 @@ def render(
                 sfx_index, sfx_placed = None, []
         volume = min(0.5, max(0, float(project.get("music_volume", 0.12))))
         af = []
-        prepared = bool(soundbites)
-        vgraph = voice_graph(project, scenes, total, voice_index, insert_inputs, prepared=prepared)
+        bites_cached = bool(soundbites)  # not `prepared`: that name holds the timing mark above
+        vgraph = voice_graph(project, scenes, total, voice_index, insert_inputs, prepared=bites_cached)
         if voice_index is not None and (music_index is not None or sfx_index is not None) and (
-                prepared or any("loudnorm" in g for g in vgraph)):
+                bites_cached or any("loudnorm" in g for g in vgraph)):
             # v0.4.59 The voice bus is made first, in its own pass. loudnorm hands over its last 3 s
             # only when its input ends; mixed in the same graph as the music or the effects, the
             # compressors and amix ended with the other inputs, and the export's whole audio
@@ -1537,7 +1537,7 @@ def render(
             for i in sorted(insert_inputs):
                 pre += ["-i", str(soundbites.get(i, clip_paths[i]))]
             bus = work / "voice.wav"
-            pre += ["-filter_complex", ";".join(voice_graph(project, scenes, total, 0, nin, prepared=prepared)) + ";[voice]aresample=48000,"
+            pre += ["-filter_complex", ";".join(voice_graph(project, scenes, total, 0, nin, prepared=bites_cached)) + ";[voice]aresample=48000,"
                     "aformat=sample_fmts=flt:sample_rates=48000:channel_layouts=stereo,apad,"
                     f"atrim=end_sample={round(total * 48000)}[vbus]", "-map", "[vbus]", "-c:a", "pcm_f32le", str(bus)]
             run(pre, cancelled)

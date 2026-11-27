@@ -730,3 +730,61 @@ Render times on the 2-CPU sandbox: 185 s, 263 s, 240 s.
 * Memory: see the table above; the soundbite loudnorm cost is the one large item (proposal above).
 * The preview's work in the browser is unchanged: effects are scheduled ahead on the audio clock,
   music on two media elements; nothing new runs per frame except one multiplication (music anchor).
+
+## v0.4.61 — soundbite memory (approved proposal) + soundbite length fix
+
+You approved the v0.4.60 proposal on condition that samples, sync, narration integrity and export quality are preserved. **Not finally approved**: these are measurements for your review.
+
+### 1. Each soundbite is normalised once, in its own pass, and cached
+
+**v0.4.60:** every soundbite's `loudnorm` ran inside the single voice-bus FFmpeg process. Each instance costs about 110 MB, so with 10 soundbites the process held about 1.1 GB, and every analysis repeated all ten.
+
+**v0.4.61:** `renderer.prepare_soundbites` runs `soundbite_chain` (the same filters in the same order) per soundbite, at most 2 at a time (`SOUNDBITE_JOBS`). Each result is written as 32-bit float to `DATA/cache/soundbites/<hash>.f32`, and the voice bus reads those files in place of the in-graph loudnorm.
+- The cache key covers everything that affects the samples: source, in/out points, gain, fades and `SOUNDBITE_V`.
+- `voice_graph(..., prepared=True)` keeps the voice-bus pre-pass on: the pre-pass condition now includes `prepared`.
+
+Results on the 25-minute "inserts" bench (10 soundbites), as wall time / peak FFmpeg memory:
+
+| step | v0.4.60 | v0.4.61 |
+|---|---|---|
+| first analysis | 18.79 s / 1095 MB | 16.62 s / 256 MB |
+| one scene edited (middle) | 19.17 s / 1095 MB | 14.97 s / 44 MB (soundbites from cache) |
+| narration volume changed | 6.95 s / 32 MB | 7.03 s / 32 MB |
+
+**Export** (6-minute guide, 10 soundbites): the voice-bus step falls from 1065 MB to 128 MB per soundbite pass, then 20 MB for the bus and 40 MB for the mix.
+
+**Identity** (same audio as v0.4.60):
+
+| Check | Hash |
+|---|---|
+| Duck curve | `0fa4cc93531ac365` |
+| Music curve | `0ecb5a724100d83a` |
+| Voice-bus PCM | `7fbc5685b0ca82f5` |
+| Export audio, 3-min guide, integer-length bites | `3e2961f1fb6fcc39` |
+| Export audio, 3-min guide, odd-length bites | `bca68a2fd56db541` |
+| 6-min mix | `c8c8085070d6f1b2` |
+
+**Test:** `test_cached_soundbites_give_the_voice_bus_exactly_the_in_graph_samples`.
+
+### 2. Soundbites were cut up to 0.1 s short (bug, in v0.4.60 and earlier) — fixed
+
+`loudnorm` stamps its output frames 0.1 s apart even when the last frame is shorter. The `atrim` and fades that follow went by those timestamps, so a soundbite whose length was not a whole number of 0.1 s frames lost up to 0.1 s at its end. The narration after it then started early.
+- In a guide export with soundbites and no music or effects, the shortfall could get the export refused as too short.
+- **Fix:** `{RESTAMP}` (`asetpts=N/SR/TB`) runs right after `loudnorm` in `soundbite_chain`, and `SOUNDBITE_V=2` invalidates caches made before the fix.
+- This commit is separate (`197602b`), so it can be reverted on its own. It changes the audio only where v0.4.60 was wrong.
+
+`tail_check_long.py guide-12min-10-odd-soundbites` (12:55, 10 soundbites of odd length):
+
+| | narration windows | soundbite windows |
+|---|---|---|
+| v0.4.60 | 1197 / 1224 | 62 / 65 |
+| v0.4.61 | **1224 / 1224** | **65 / 65** |
+| v0.4.60, voice only (no music/effects) | export refused | — |
+| v0.4.61, voice only | **1224 / 1224** | **65 / 65** |
+
+The long cases all stay complete on v0.4.61:
+- guide 25:52: 2550 / 2550, soundbites 68 / 68;
+- sliced 25:12: 2550 / 2550;
+- guide 31:03: 3060 / 3060, soundbites 76 / 76.
+
+In every case, 0 windows played the wrong part of the recording.
