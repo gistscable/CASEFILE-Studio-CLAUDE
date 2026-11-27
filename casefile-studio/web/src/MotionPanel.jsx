@@ -131,6 +131,114 @@ function ColourPick({ label, value, onChange, disabled, follow, own }) {
   );
 }
 
+// v0.4.64 Type and layout: a font style, the text size, the layout mirrored (photo and text swap sides) and the
+// layout's size and place in the frame. The server checks every choice against what the category's layout holds.
+const PLACES = [[-1, -1], [0, -1], [1, -1], [-1, 0], [0, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
+const PLACE_NAMES = { "-1,-1": "Top left", "0,-1": "Top", "1,-1": "Top right", "-1,0": "Left", "0,0": "Centre", "1,0": "Right",
+  "-1,1": "Bottom left", "0,1": "Bottom", "1,1": "Bottom right" };
+const FULL = { scale: 1, x: 0, y: 0 };
+const r2 = (v) => Math.round(v * 100) / 100;
+
+function Placement({ value, onChange, disabled, range }) {
+  const p = { ...FULL, ...(value || {}) };
+  const [lo, hi] = range || [0.8, 1];
+  const set = (patch) => onChange({ ...p, ...patch });
+  return (
+    <div className="mg-place-box">
+      <Step label="Layout size" value={p.scale} display={pct(p.scale)} step={0.05} min={lo} max={hi} disabled={disabled} onChange={(x) => set({ scale: r2(x) })} />
+      <div className="mg-place-row">
+        <span>Position</span>
+        <div className="mg-place" role="group" aria-label="Position in the frame">
+          {PLACES.map(([x, y]) => {
+            const on = Math.round(p.x) === x && Math.round(p.y) === y && Math.abs(p.x - x) < 0.01 && Math.abs(p.y - y) < 0.01;
+            return <button key={`${x},${y}`} className={on ? "on" : ""} disabled={disabled} aria-pressed={on} title={PLACE_NAMES[`${x},${y}`]}
+              aria-label={PLACE_NAMES[`${x},${y}`]} onClick={() => set({ x, y })}><i /></button>;
+          })}
+        </div>
+      </div>
+      <Step label="Nudge across" value={p.x} display={p.x === 0 ? "centre" : `${p.x < 0 ? "←" : "→"} ${Math.round(Math.abs(p.x) * 100)}`} step={0.1} min={-1} max={1}
+        disabled={disabled} onChange={(x) => set({ x: r2(x) })} />
+      <Step label="Nudge up/down" value={p.y} display={p.y === 0 ? "centre" : `${p.y < 0 ? "↑" : "↓"} ${Math.round(Math.abs(p.y) * 100)}`} step={0.1} min={-1} max={1}
+        disabled={disabled} onChange={(y) => set({ y: r2(y) })} />
+    </div>
+  );
+}
+
+function ProjectType({ look, set, catalog, cats, disabled }) {
+  const ty = catalog?.type || { styles: [], size: [0.85, 1.15], place: [0.8, 1] };
+  const mirrorable = cats.filter((k) => k.looks?.mirror);
+  const placeable = cats.filter((k) => k.looks?.place);
+  const fixed = cats.filter((k) => !k.looks?.place);
+  return (
+    <>
+      <div className="mg-sets-head">Type and layout</div>
+      <Choice label="Font" value={look.font || ""} disabled={disabled} options={[["", "Each design's own"], ...ty.styles.map((s) => [s.key, s.label])]}
+        onChange={(v) => set({ font: v || undefined })} />
+      {look.font && <p className="micro-note block">Fonts bundled with the app. A layout a font does not fit keeps its own (that graphic says so).</p>}
+      <Step label="Text size" value={look.size ?? 1} display={pct(look.size ?? 1)} step={0.05} min={ty.size[0]} max={ty.size[1]} disabled={disabled}
+        onChange={(x) => set({ size: Math.abs(x - 1) < 0.001 ? undefined : r2(x) })} />
+      <p className="micro-note block">Headings, labels and body text. The big dates and headlines are composed for each design and fitted to their space.</p>
+      {mirrorable.length > 0 && (
+        <label className="cs-check">
+          <input type="checkbox" checked={!!look.mirror} disabled={disabled} onChange={(e) => set({ mirror: e.target.checked || undefined })} />
+          Mirror the layouts that can be ({mirrorable.map((k) => k.label.toLowerCase()).join(", ")}): photo and text swap sides
+        </label>
+      )}
+      {placeable.length > 0 && (
+        <>
+          <Placement value={look.place} range={ty.place} disabled={disabled}
+            onChange={(pl) => set({ place: pl.scale === 1 && pl.x === 0 && pl.y === 0 ? undefined : pl })} />
+          <p className="micro-note block">
+            Smaller, the layout sits where you put it and its background still fills the frame.
+            {fixed.length ? ` ${fixed.map((k) => k.label).join(", ")} fill${fixed.length === 1 ? "s" : ""} the screen and keep${fixed.length === 1 ? "s" : ""} size and position.` : ""}
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
+function GraphicType({ own, setLook, cat, style, catalog, disabled }) {
+  const lk = cat?.looks || {};
+  const ty = style?.type || {};
+  const from = style?.from || {};
+  const fonts = lk.fonts || [{ key: "design", label: "As designed" }];
+  const fontName = (k) => fonts.find((f) => f.key === k)?.label || "as designed";
+  const [lo, hi] = lk.size || [1, 1];
+  const proj = (k, text) => `Project${style && from[k] !== "graphic" ? ` (${text})` : ""}`;
+  const placeRange = catalog?.type?.place || [0.8, 1];
+  return (
+    <>
+      <div className="mg-sets-head">Type and layout</div>
+      {fonts.length > 1 && (
+        <Choice label="Font" value={own.font || ""} disabled={disabled}
+          options={[["", proj("font", fontName(ty.font).toLowerCase())], ...fonts.map((f) => [f.key, f.label])]}
+          onChange={(v) => setLook({ font: v || undefined })} />
+      )}
+      {hi > lo && (
+        <div className="mg-row-inline">
+          <Step label="Text size" value={own.size ?? ty.size ?? 1} display={pct(own.size ?? ty.size ?? 1)} step={0.05} min={lo} max={hi} disabled={disabled}
+            onChange={(x) => setLook({ size: r2(x) })} />
+          {own.size !== undefined && <button className="text-link" disabled={disabled} onClick={() => setLook({ size: undefined })}>project</button>}
+        </div>
+      )}
+      {lk.mirror && (
+        <Choice label="Layout" value={own.mirror === true ? "mirror" : own.mirror === false ? "design" : ""} disabled={disabled}
+          options={[["", proj("mirror", ty.mirror ? "mirrored" : "as designed")], ["design", "As designed"], ["mirror", `Mirrored: ${lk.mirror.toLowerCase()}`]]}
+          onChange={(v) => setLook({ mirror: v === "" ? undefined : v === "mirror" })} />
+      )}
+      {lk.place ? (
+        <>
+          <Placement value={own.place || ty.place || FULL} range={placeRange} disabled={disabled} onChange={(pl) => setLook({ place: pl })} />
+          {own.place && <button className="text-link" disabled={disabled} onClick={() => setLook({ place: undefined })}>Use the project's size and position</button>}
+        </>
+      ) : (
+        <p className="micro-note block">{cat?.label || "This graphic"} fills the screen: it keeps its size and position.</p>
+      )}
+    </>
+  );
+}
+
 // The project look: every cinematic graphic follows it unless you change that graphic (select it, then LOOK).
 function ProjectLook({ project, look, coll, catalog, images, disabled, onChange }) {
   const set = (patch) => onChange(cleanLook({ ...look, ...patch }));
@@ -168,6 +276,7 @@ function ProjectLook({ project, look, coll, catalog, images, disabled, onChange 
             {noPicture.map((k) => k.looks.backdrop_note).join(" ")}
             {cats.some((k) => k.looks?.palettes?.[0]?.light) ? " A design on paper uses its dark version over a picture, so the text stays light." : ""}
             {look.background === "footage" ? " See-through: back to back, the earlier graphic fades out under the next one." : ""}
+            {look.dim === undefined ? cats.filter((k) => k.looks?.dim && Math.abs(k.looks.dim - dimD.default) > 0.001).map((k) => ` ${k.label} is darkened ${pct(k.looks.dim)} unless you set it: its small labels need it.`).join("") : ""}
           </p>
         </>
       )}
@@ -182,6 +291,7 @@ function ProjectLook({ project, look, coll, catalog, images, disabled, onChange 
           follow={look.vary ? "Automatic" : null} disabled={disabled}
           onChange={(v) => set({ palettes: { ...(look.palettes || {}), [k.key]: v === k.looks?.palettes?.[0]?.key && !look.vary ? undefined : v || undefined } })} />
       ))}
+      <ProjectType look={look} set={set} catalog={catalog} cats={cats} disabled={disabled} />
       {changed && (
         <button className="text-link" disabled={disabled} onClick={() => onChange({})}>Back to each design's approved look</button>
       )}
@@ -311,6 +421,7 @@ function CinematicEditor({ sel, info, images, catalog, disabled, busy, update, o
         </p>
       )}
       {style && style.background === "footage" && <p className="micro-note block">See-through: your footage plays under it, darkened. Back to back, the graphic before it fades out under it.</p>}
+      <GraphicType own={own} setLook={setLook} cat={cat} style={style} catalog={catalog} disabled={disabled} />
       {(style?.notes || []).map((n, i) => <p key={i} className="micro-note block mg-warn">{n}</p>)}
     </div>
   );

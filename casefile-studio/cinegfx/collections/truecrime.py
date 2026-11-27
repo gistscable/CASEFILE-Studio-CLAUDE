@@ -162,31 +162,36 @@ class FindingsGraphic(Graphic):
         e_out = 1 - A.out_cubic(A.prog(t, self.out, A.EXIT))
         # faint case-board grid
         D.blit(c, _grid(th.c("ink", 9), 64), 0, 0, e_out)
-        # --- photo panel
-        px0, py0, pw, ph = 96, 96, 680, 888
+        # --- photo panel (v0.4.64: "mirror" puts it on the right, the findings on the left)
+        flip = th.traits.get("mirror")
+        px0, py0, pw, ph = (1144 if flip else 96), 96, 680, 888
         if self.photo_key:
             e = A.ease(t, 0.0, 0.5, A.out_expo)
             img = D.photo(self.assets.path(self.photo_key), pw, ph, focus=(0.77, 0.42), zoom=A.drift(t, self.duration, 0.07), sat=0.92, contrast=1.06)
             reveal = py0 + ph * (1 - e)
             D.blit(c, img, px0, py0, e_out, clip=(px0, reveal, px0 + pw, py0 + ph))
             D.blit(c, D.gradient(pw, 360, th.c("bg", 0), th.c("bg", 245)), px0, py0 + ph - 360, e * e_out)  # v0.4.63: was the navy (11, 17, 32) = the approved bg
-            D.rect(c, px0 + pw - 6, reveal, px0 + pw, py0 + ph, th.accent, e_out)
+            ax = px0 if flip else px0 + pw - 6  # the accent edge faces the findings
+            D.rect(c, ax, reveal, ax + 6, py0 + ph, th.accent, e_out)
             en = A.ease(t, 0.3, A.FAST)
             name = p["source"].upper()
-            D.text(c, name, th.display, 64, th.ink, px0 + 40 - 30 * (1 - en), py0 + ph - 170, en * e_out)
+            ns = D.fit_size(name, th.display, pw - 80, 64, 36)  # v0.4.64: a long name (or a wider font) fits the panel
+            D.text(c, name, th.display, ns, th.ink, px0 + 40 - 30 * (1 - en), py0 + ph - 170 + (64 - ns) * 0.6, en * e_out)
             D.text(c, (p["role"] or "").upper(), th.label, 22, th.accent, px0 + 42, py0 + ph - 88, en * e_out, tracking=0.14)
             cr = self.assets.credit(self.photo_key)
             if cr:
                 D.rect(c, px0, py0, px0 + D.measure(cr, "mono", 14)[0] + 28, py0 + 34, "#000000", 0.55 * en * e_out)
                 D.text(c, cr, "mono", 14, "#FFFFFF", px0 + 14, py0 + 9, 0.85 * en * e_out)
         # --- heading
-        x0 = 856
+        x0 = 96 if flip else 856
         ek = A.ease(t, 0.12, A.FAST)
         kicker = f"CHAPTER {p['chapter_no']} · {p['chapter'].upper()}" if p.get("chapter_no") else p["chapter"].upper()
         D.text(c, kicker, th.label, 20, th.muted, x0 + 30 * (1 - ek), 112, ek * e_out, tracking=0.16)
         eh = A.ease(t, 0.2, 0.34)
         surname = p["source"].split()[-1].upper()
-        D.text(c, f"WHAT {surname} SAID", th.display, 92, th.ink, x0, 140, e_out, clip=(x0, 140, x0 + 960 * eh, 280))
+        title = f"WHAT {surname} SAID"
+        ts = D.fit_size(title, th.display, 960, 92, 56)  # v0.4.64: fits its 960 px (a long surname, a wider font)
+        D.text(c, title, th.display, ts, th.ink, x0, 140 + (92 - ts) * 0.5, e_out, clip=(x0, 140, x0 + 960 * eh, 280))
         if p.get("briefing"):
             b = dt.date.fromisoformat(p["briefing"])
             D.text(c, f"{p.get('agency') or 'POLICE'} BRIEFING · {long_date(b).upper()}", "mono", 20, th.accent, x0 + 2, 268, A.ease(t, 0.45, A.FAST) * e_out)
@@ -196,16 +201,16 @@ class FindingsGraphic(Graphic):
         for i, r in enumerate(self.rows):
             er = A.ease(t, r["t"], A.FAST)
             if er <= 0:
-                y += 112
+                y += D.lead(th.heading, 74) + D.lead(th.body, 30) + 8
                 continue
             D.text(c, f"{i + 1:02d}", "mono", 22, th.accent, x0, y + 22, er * e_out)
             lx = x0 + 70 + 40 * (1 - er)
-            D.text(c, r["label"], th.heading, 56, th.ink, lx, y, e_out, clip=(x0 + 60, y - 10, x0 + 70 + 700 * er, y + 90))
+            D.text(c, r["label"], th.heading, 56, th.ink, lx, y, e_out, clip=(x0 + 60, y - 10, x0 + 70 + 700 * er, y + D.lead(th.heading, 90)))
             sub = r.get("note") or (f"{r['source'].split()[-1]} said" if r.get("source") else "")
             if r["kind"] == "ruled" and r.get("evidence"):
                 sub = "“" + r["evidence"] + "”"
             sub = sub if len(sub) < 70 else sub[:67].rsplit(" ", 1)[0] + "…”"
-            D.text(c, sub, th.body, 20, th.muted, x0 + 72, y + 74, A.ease(t, r["t"] + 0.2, A.FAST) * e_out)
+            D.text(c, sub, th.body, 20, th.muted, x0 + 72, y + D.lead(th.heading, 74), A.ease(t, r["t"] + 0.2, A.FAST) * e_out)
             # status chip
             ec = A.prog(t, r["t"] + 0.14, A.SNAP)
             if ec > 0:
@@ -214,13 +219,14 @@ class FindingsGraphic(Graphic):
                 cw, ch = max(1, int(chip.width * s)), max(1, int(chip.height * s))
                 ci = chip.resize((cw, ch), Image.BICUBIC) if s != 1 else chip
                 D.blit(c, ci, x0 + 968 - chip.width + (chip.width - cw) / 2, y + 14 + (chip.height - ch) / 2, min(1, ec * 3) * e_out)
-            D.rect(c, x0, y + 104, x0 + 968 * A.ease(t, r["t"], 0.5), y + 105, th.ink, 0.12 * e_out)
-            y += 112
+            rule = y + D.lead(th.heading, 74) + D.lead(th.body, 30)
+            D.rect(c, x0, rule, x0 + 968 * A.ease(t, r["t"], 0.5), rule + 1, th.ink, 0.12 * e_out)
+            y = rule + 8
         # --- pull quote, typed in time with the narration
         q = p.get("quote")
         if q and self.q0 is not None:
             eq = A.ease(t, self.q0 - 0.1, A.FAST)
-            qy = 812
+            qy = max(812, y + 24)  # v0.4.64: under the rows when a larger text size makes them taller
             D.rect(c, x0, qy, x0 + 8, qy + (60 + 54 * len(D.wrap("“" + q["quote"] + "”", "caladea", 44, 900))) * eq, th.accent, e_out)
             shown = A.typed_until("“" + q["quote"] + "”", t, self.q0, self.q1)
             for j, line in enumerate(D.wrap("“" + q["quote"] + "”", "caladea", 44, 900)):
@@ -385,6 +391,11 @@ class TimelineGraphic(Graphic):
             self.events.append(ev)
         # positions: a broken axis — the anchor event (incident) at left, then the run of events evenly
         self.xs = [640 + i * (1690 - 640) / max(1, len(self.events) - 1) for i in range(len(self.events))]
+        # v0.4.64: five or more events are closer than a 330 px card: the cards, their labels and the big dates narrow to
+        # the spacing (with a gap), so neighbouring labels never run into each other. Up to four events: as designed.
+        step = (self.xs[1] - self.xs[0]) if len(self.xs) > 1 else 1050
+        self.crowded = step < 330 + 16
+        self.card_w = 330 if not self.crowded else int(step - 32)
         # a card shows a photo of a person it names (assigned by the producer), or of the vigil / memorial it is
         # about when it is the last card; never the subject's own photo on someone else's card
         self.card_photo = {}
@@ -409,7 +420,9 @@ class TimelineGraphic(Graphic):
         ek = A.ease(t, 0.05, A.FAST)
         D.text(c, f"CHAPTER {p['chapter_no']}" if p.get("chapter_no") else "", th.label, 20, th.accent, 120, 96, ek * e_out, tracking=0.2)
         eh = A.ease(t, 0.12, 0.4)
-        D.text(c, p["chapter"].upper(), th.display, 72, th.ink, 120, 124, e_out, clip=(120, 120, 120 + 1700 * eh, 240))
+        chap = p["chapter"].upper()
+        cs = D.fit_size(chap, th.display, 1680, 72, 44)  # v0.4.64: a long chapter title (or a wider font) fits the width
+        D.text(c, chap, th.display, cs, th.ink, 120, 124 + (72 - cs) * 0.5, e_out, clip=(120, 120, 120 + 1700 * eh, 240))
         first = dt.date.fromisoformat(p["incident"]) if p.get("incident") else dt.date.fromisoformat(self.events[0]["date"])
         lastd = dt.date.fromisoformat(self.events[-1]["date"])
         if p.get("clock"):  # one day: the date once, then the clock span
@@ -465,13 +478,18 @@ class TimelineGraphic(Graphic):
             if ed > 0:
                 dy = ry - 120 + 30 * (1 - A.out_expo(ed))
                 big = e.get("clock") or short_date(d)
-                size = D.fit_size(big, th.display, 390, 92, 48) if e.get("clock") else 92
-                D.text(c, big, th.display, size, th.ink, x, dy - 20 + (92 - size) * 0.5, e_out, anchor="c", clip=(x - 200, ry - 150, x + 200, ry - 12))
+                if self.crowded:  # v0.4.64: the date fits its narrower column
+                    size = D.fit_size(big, th.display, self.card_w, 92, 40)
+                    half = self.card_w / 2 + 8
+                else:
+                    size = D.fit_size(big, th.display, 390, 92, 48) if e.get("clock") else 92
+                    half = 200
+                D.text(c, big, th.display, size, th.ink, x, dy - 20 + (92 - size) * 0.5, e_out, anchor="c", clip=(x - half, ry - 150, x + half, ry - 12))
                 if e.get("ampm"):
                     D.text(c, e["ampm"], th.label, 20, th.accent, x, ry - 150 - 8, min(1, ed * 2) * e_out, anchor="c", tracking=0.2)
             # card below the rail
             cy = ry + 40
-            card_w = 330
+            card_w = self.card_w
             cx0 = x - card_w / 2
             D.rect(c, cx0, cy, cx0 + card_w * ee, cy + 4, th.accent if e.get("rel") else th.ink, e_out)
             yy = cy + 24
@@ -483,12 +501,15 @@ class TimelineGraphic(Graphic):
                 D.blit(c, img, cx0, yy, e_out, clip=(cx0, yy, cx0 + card_w, yy + ph * A.ease(t, e["t"] + 0.05, 0.35)))
                 D.text(c, self.assets.credit(photo_key), "mono", 12, th.muted, cx0, yy + ph + 6, ee * e_out)
                 yy += ph + 30
-            for j, line in enumerate(D.wrap(e["label"], th.heading, 34, card_w)):
-                D.text(c, line, th.heading, 34, th.ink, cx0 + 24 * (1 - ee), yy + j * 42, ee * e_out)
-            yy += 42 * len(D.wrap(e["label"], th.heading, 34, card_w)) + 6
+            ls = 34 if not self.crowded else 30  # v0.4.64: a narrower card: a size down, so a label keeps to about three lines
+            lh = D.lead(th.heading, 42 if not self.crowded else 38)
+            lines = D.wrap(e["label"], th.heading, ls, card_w)
+            for j, line in enumerate(lines):
+                D.text(c, line, th.heading, ls, th.ink, cx0 + 24 * (1 - ee), yy + j * lh, ee * e_out)
+            yy += lh * len(lines) + D.lead(th.heading, 6)
             if e.get("sub"):
                 for j, line in enumerate(D.wrap(e["sub"], th.body, 22, card_w)):
-                    D.text(c, line, th.body, 22, th.muted, cx0, yy + j * 30, A.ease(t, e["t"] + 0.2, A.FAST) * e_out)
+                    D.text(c, line, th.body, 22, th.muted, cx0, yy + j * D.lead(th.body, 30), A.ease(t, e["t"] + 0.2, A.FAST) * e_out)
 
 
 # ============================================================ 3. CONTRADICTORY STATEMENTS
@@ -650,8 +671,9 @@ class ContradictionGraphic(Graphic):
             y = ys[k["side"]]
             ek = A.ease(t, k["t"], A.FAST)
             lines = D.wrap(k["text"], th.heading, 44, 760)
+            lh = D.lead(th.heading, 58)  # v0.4.64: line steps follow the text size
             if ek <= 0:
-                ys[k["side"]] += 100 + 58 * len(lines) + 60
+                ys[k["side"]] += 100 + lh * len(lines) + 60
                 continue
             who = k["who"]
             if k.get("via"):
@@ -665,8 +687,10 @@ class ContradictionGraphic(Graphic):
                 av.putalpha(mask.split()[3])
                 D.blit(c, av, x0, y - 14, ek * e_out)
                 ax += 82
-            for j, line in enumerate(D.wrap(who, th.label, 20, 760 - (ax - x0), 0.12)):
-                D.text(c, line, th.label, 20, accent, ax + 20 * (1 - ek), y + j * 28, ek * e_out, tracking=0.12)
+            who_lines = D.wrap(who, th.label, 20, 760 - (ax - x0), 0.12)
+            for j, line in enumerate(who_lines):
+                D.text(c, line, th.label, 20, accent, ax + 20 * (1 - ek), y + j * D.lead(th.label, 28), ek * e_out, tracking=0.12)
+            top = y + 56 + max(0, len(who_lines) * D.lead(th.label, 28) - 56)  # a two-line attribution pushes the statement down
             # statement words appear as they are spoken (the script's own words)
             body = k["text"]
             lines = D.wrap(body, th.heading, 44, 760)
@@ -681,11 +705,12 @@ class ContradictionGraphic(Graphic):
                 for w in vis:
                     neg = re.fullmatch(r"(not|no|never|didn’t|did)", w.strip(",.").lower()) and k["negated"]
                     colr = th.ink if not neg else accent
-                    wpx = D.text(c, w + " ", th.heading, 44, colr, lx, y + 56 + j * 58, e_out)
+                    wpx = D.text(c, w + " ", th.heading, 44, colr, lx, top + j * lh, e_out)
                     if neg:
-                        D.rect(c, lx, y + 56 + j * 58 + 60, lx + wpx - 14, y + 56 + j * 58 + 64, accent, e_out)
+                        u = top + j * lh + D.lead(th.heading, 60)
+                        D.rect(c, lx, u, lx + wpx - 14, u + 4, accent, e_out)
                     lx += wpx
-            ys[k["side"]] += 100 + 58 * len(lines) + 60
+            ys[k["side"]] += 100 + lh * len(lines) + 60 + (top - y - 56)
         # the earlier incident, as the family described it — context the narration only points at ("that incident")
         fam = [k for k in self.cards if k["side"] == "family"]
         ctx = p.get("context")
@@ -791,20 +816,24 @@ class LegalGraphic(Graphic):
     def draw(self, c, t):
         th, p = self.th, self.p
         e_out = 1 - A.out_cubic(A.prog(t, self.out, A.EXIT))
+        flip = th.traits.get("mirror")  # v0.4.64: the docket on the left, the courthouse on the right
         D.blit(c, _ruled(th), 0, 0, e_out)
         # header band
         eb = A.ease(t, 0.0, 0.4, A.out_quint)
         D.rect(c, 0, 0, D.W, 150 * eb, th.accent, e_out)
         head = (p.get("court") or "COURT").upper() if (self.court_key or not p.get("court")) else "COURT RECORD"  # no photo: the plate names it
-        D.text(c, head, th.display, 64, th.bg, 120, 40, A.ease(t, 0.2, A.FAST) * e_out, clip=(0, 0, D.W, 150 * eb))
+        lbl = ""
         if p.get("date"):
             d = dt.date.fromisoformat(p["date"])
             lbl = f"{(p.get('hearing') or 'hearing').upper().replace('ARRAIGNED', 'ARRAIGNMENT')} · {long_date(d).upper()}"
+        hs = D.fit_size(head, th.display, 1680 - (D.measure(lbl, "mono", 24)[0] + 60 if lbl else 0), 64, 36)  # v0.4.64: never into the date
+        D.text(c, head, th.display, hs, th.bg, 120, 40 + (64 - hs) * 0.5, A.ease(t, 0.2, A.FAST) * e_out, clip=(0, 0, D.W, 150 * eb))
+        if lbl:
             D.text(c, lbl, "mono", 24, th.bg, 1800, 62, A.ease(t, self.t_court, A.FAST) * e_out, anchor="r")
         # courthouse photo, printed look: white border, hard offset shadow (no blur)
         if self.court_key:
             ep = A.ease(t, 0.15, 0.45)
-            x0, y0, s = 120, 250, 540
+            x0, y0, s = (1240 if flip else 120), 250, 540
             D.rect(c, x0 + 14, y0 + 14, x0 + s + 34, y0 + s + 34, "#000000", 0.18 * ep * e_out)
             D.rect(c, x0, y0, x0 + s + 20, y0 + s + 20, "#FFFFFF", ep * e_out)
             img = D.photo(self.assets.path(self.court_key), s, s, focus=(0.5, 0.45), zoom=A.drift(t, self.duration, 0.05), headroom=1.06)
@@ -815,7 +844,7 @@ class LegalGraphic(Graphic):
         elif p.get("court"):
             # no photo of the court: a printed plate of what the narration says about it (nothing invented)
             ep = A.ease(t, 0.15, 0.45)
-            x0, w = 120, 540
+            x0, w = (1240 if flip else 120), 540
             court = p["court"].upper()
             size = D.fit_size(court, th.display, w, 84, 40, lines=3)
             D.text(c, "COURT", th.label, 20, th.accent, x0, 250, ep * e_out, tracking=0.2)
@@ -825,10 +854,11 @@ class LegalGraphic(Graphic):
                 y += int(size * 1.08)
             D.rect(c, x0, y + 34, x0 + w * ep, y + 36, th.ink, 0.4 * e_out)
         # docket
-        x0 = 790
+        x0 = 120 if flip else 790
         ed = A.ease(t, 0.25, A.FAST)
         D.text(c, "DEFENDANT", th.label, 20, th.accent, x0, 230, ed * e_out, tracking=0.2)
-        D.text(c, p["defendant"].upper(), th.heading, 46, th.ink, x0 + 220, 214, ed * e_out)
+        dfd = p["defendant"].upper()
+        D.text(c, dfd, th.heading, D.fit_size(dfd, th.heading, 790, 46, 28), th.ink, x0 + 220, 214, ed * e_out)
         D.rect(c, x0, 282, x0 + 1010 * A.ease(t, 0.3, 0.5), 284, th.ink, 0.4 * e_out)
         D.text(c, "CHARGES", th.label, 20, th.accent, x0, 316, ed * e_out, tracking=0.2)
         y = 350
@@ -837,17 +867,20 @@ class LegalGraphic(Graphic):
             if ec > 0:
                 D.text(c, str(i + 1), "mono", 30, th.accent, x0, y + 16, e_out)
                 txt = ch.upper()
-                D.text(c, txt, th.heading, 52, th.ink, x0 + 60, y, e_out, clip=(x0 + 60, y - 10, x0 + 60 + D.measure(txt, th.heading, 52)[0] * A.out_cubic(ec) + 4, y + 80))
-            y += 78
+                cs = D.fit_size(txt, th.heading, 950, 52, 30)  # v0.4.64: a long charge (or a wider font) fits the docket
+                D.text(c, txt, th.heading, cs, th.ink, x0 + 60, y + (52 - cs) * 0.5, e_out,
+                       clip=(x0 + 60, y - 10, x0 + 60 + D.measure(txt, th.heading, cs)[0] * A.out_cubic(ec) + 4, y + D.lead(th.heading, 80)))
+            y += D.lead(th.heading, 78)
         if self.t_attr:
             D.text(c, "— " + p["attrib"].upper(), th.label, 20, th.muted, x0 + 60, y + 4, A.ease(t, self.t_attr, A.FAST) * e_out, tracking=0.16)
         if self.t_judge:
             ej = A.ease(t, self.t_judge, A.FAST)
-            yj = 668
+            yj = max(668, y + (D.lead(th.label, 24) + 56 if self.t_attr else 32))  # v0.4.64: below the charges when they are taller
             D.rect(c, x0, yj - 24, x0 + 1010 * ej, yj - 22, th.ink, 0.4 * e_out)
             D.text(c, "BEFORE", th.label, 20, th.accent, x0, yj + 8, ej * e_out, tracking=0.2)
-            D.text(c, "JUDGE " + p["judge"].upper(), th.heading, 46, th.ink, x0 + 220, yj - 6, e_out,
-                   clip=(x0 + 220, yj - 20, x0 + 220 + 800 * ej, yj + 70))
+            jt = "JUDGE " + p["judge"].upper()
+            D.text(c, jt, th.heading, D.fit_size(jt, th.heading, 790, 46, 28), th.ink, x0 + 220, yj - 6, e_out,
+                   clip=(x0 + 220, yj - 20, x0 + 220 + 800 * ej, yj + D.lead(th.heading, 70)))
         # the stamp
         if self.t_out:
             es = A.prog(t, self.t_out, 0.13)
@@ -856,19 +889,22 @@ class LegalGraphic(Graphic):
                 sc = 0.74 * (1.0 + 0.9 * (1 - A.out_expo(es)))
                 w, h = int(st.width * sc), int(st.height * sc)
                 img = st.resize((w, h), Image.BICUBIC) if sc != 1 else st
-                cx, cy = 1450, 905
+                cx = 780 if flip else 1450
+                yj_end = max(668, y + (D.lead(th.label, 24) + 56 if self.t_attr else 32)) if self.t_judge else 668
+                cy = min(905 + (yj_end - 668), D.H - 20 - st.height * 0.74 / 2)  # v0.4.64: under the judge when larger text pushes it down
                 shake = 4 * (1 - A.prog(t, self.t_out + 0.13, 0.12)) if es >= 1 else 0
                 D.blit(c, img, cx - w / 2 + shake, cy - h / 2, min(1, es * 2.5) * e_out)
 
 
 def _ruled(th):
-    key = ("ruled", th.name)
+    key = ("ruled", th.name, bool(th.traits.get("mirror")))
     if key not in _CACHE:
         im = Image.new("RGBA", (D.W, D.H), (0, 0, 0, 0))
         col = th.c("muted", 22)
         for y in range(190, D.H, 52):
             im.paste(col, (0, y, D.W, y + 1))
-        im.paste(th.c("accent", 60), (740, 150, 742, D.H))
+        rx = D.W - 742 if th.traits.get("mirror") else 740  # v0.4.64: the margin rule between docket and photo
+        im.paste(th.c("accent", 60), (rx, 150, rx + 2, D.H))
         _CACHE[key] = im
     return _CACHE[key]
 
@@ -1124,7 +1160,7 @@ class DigitalGraphic(Graphic):
             lx = x + (110 if n.get("train") else 40)
             D.text(c, n["label"], th.heading, 34, th.ink, lx, yy - 26, e_out, clip=(lx, yy - 40, lx + 600 * A.out_expo(min(1, en * 1.4)), yy + 30))
             if n.get("sub"):
-                D.text(c, n["sub"], "mono", 16, th.muted, lx + 2, yy + 18, A.ease(t, n["t"] + 0.35, A.FAST) * e_out)
+                D.text(c, n["sub"], "mono", 16, th.muted, lx + 2, yy - 26 + D.lead(th.heading, 44), A.ease(t, n["t"] + 0.35, A.FAST) * e_out)
         # location tile with a crisp scan line
         if self.station_key:
             ts = self._t_station()
@@ -1138,7 +1174,8 @@ class DigitalGraphic(Graphic):
                 if 0 < sl < 1:
                     D.rect(c, x, y0 + h * sl, x + w, y0 + h * sl + 2, th.accent, e_out)
                 D.text(c, self.p["place"].upper().replace(" STREET ", " ST ").replace("STREET STATION", "ST STATION"), "mono", 14, th.ink, x, y0 + h + 10, ep * e_out)
-                D.text(c, self.assets.credit(self.station_key), "mono", 12, th.muted, x, y0 + h + 30, ep * e_out)
+                cr = self.assets.credit(self.station_key)  # v0.4.64: a long credit ends inside the frame (it ran off the edge)
+                D.text(c, cr, "mono", 12, th.muted, min(x, D.W - 40 - D.measure(cr, "mono", 12)[0]), y0 + h + 30, ep * e_out)
 
     def _nodes(self):
         if hasattr(self, "_n"):
@@ -1263,23 +1300,32 @@ class TurningGraphic(Graphic):
     def draw(self, c, t):
         th, p = self.th, self.p
         e_out = 1 - A.out_cubic(A.prog(t, self.out, A.EXIT))
+        flip = th.traits.get("mirror")  # v0.4.64: the photograph on the left, the words on the right
         if t < self.t_cut:
             # phase 1 — the question, word by word over his photograph (B/W, sharp)
             if self.photo_key:
                 e = A.ease(t, 0.0, 0.4)
                 img = D.photo(self.assets.path(self.photo_key), 1100, 1080, focus=(0.48, 0.3), zoom=1.0 + 0.06 * A.clamp(t / self.t_cut),
                               sat=0.0, contrast=1.12, bright=0.85)
-                D.blit(c, img, 820, 0, e, clip=(820 + 1100 * (1 - e), 0, 1920, 1080))
-                D.blit(c, D.gradient(420, 1080, (0, 0, 0, 255), (0, 0, 0, 0), vertical=False), 820, 0)
                 cr = self.assets.credit(self.photo_key)
-                if cr:
-                    cw = D.measure(cr, "mono", 14)[0]
-                    D.rect(c, 1890 - cw - 14, 1030, 1904, 1064, "#000000", 0.6 * e)
-                    D.text(c, cr, "mono", 14, "#FFFFFF", 1890, 1039, 0.85 * e, anchor="r")
-            lines = _break_question(p["question"].upper())
+                if flip:
+                    D.blit(c, img, 0, 0, e, clip=(0, 0, 1100 * e, 1080))
+                    D.blit(c, D.gradient(420, 1080, (0, 0, 0, 0), (0, 0, 0, 255), vertical=False), 680, 0)
+                    if cr:
+                        cw = D.measure(cr, "mono", 14)[0]
+                        D.rect(c, 16, 1030, 30 + cw + 14, 1064, "#000000", 0.6 * e)
+                        D.text(c, cr, "mono", 14, "#FFFFFF", 30, 1039, 0.85 * e)
+                else:
+                    D.blit(c, img, 820, 0, e, clip=(820 + 1100 * (1 - e), 0, 1920, 1080))
+                    D.blit(c, D.gradient(420, 1080, (0, 0, 0, 255), (0, 0, 0, 0), vertical=False), 820, 0)
+                    if cr:
+                        cw = D.measure(cr, "mono", 14)[0]
+                        D.rect(c, 1890 - cw - 14, 1030, 1904, 1064, "#000000", 0.6 * e)
+                        D.text(c, cr, "mono", 14, "#FFFFFF", 1890, 1039, 0.85 * e, anchor="r")
+            lines = _break_question(p["question"].upper(), th.display)
             k, y = 0, 300
             for line in lines:
-                x = 120
+                x = 1040 if flip else 120
                 for wtxt in line.split():
                     w = self.qwords[k] if k < len(self.qwords) else None
                     tw = w.start - 0.03 if w else 0.3
@@ -1310,34 +1356,36 @@ class TurningGraphic(Graphic):
         start = d - dt.timedelta(days=p["days"] or 0)
         roll = A.out_cubic(A.prog(tc, 0.1, 0.55))
         shown = start + dt.timedelta(days=int(round((p["days"] or 0) * roll)))
-        D.text(c, short_date(shown), th.display, 250, th.ink, 120, 150, e_out)
-        D.text(c, str(d.year), "mono", 28, th.muted, 132, 130, A.ease(tc, 0.1, A.FAST) * e_out)
+        tx = 660 if (flip and self.photo_key) else 120  # where the words start
+        D.text(c, short_date(shown), th.display, 250, th.ink, tx, 150, e_out)
+        D.text(c, str(d.year), "mono", 28, th.muted, tx + 12, 130, A.ease(tc, 0.1, A.FAST) * e_out)
         if p.get("days"):
             ed = A.ease(tc, 0.7, A.FAST)
-            D.text(c, f"{p['days']} DAYS AFTER THE {(p.get('incident') or 'incident').upper()}", th.label, 30, th.accent, 128, 468, ed * e_out, tracking=0.16,
-                   clip=(120, 450, 120 + 1000 * ed, 520))
+            D.text(c, f"{p['days']} DAYS AFTER THE {(p.get('incident') or 'incident').upper()}", th.label, 30, th.accent, tx + 8, 468, ed * e_out, tracking=0.16,
+                   clip=(tx, 450, tx + 1000 * ed, 450 + D.lead(th.label, 70)))
         ea = A.ease(t, self.t_arrest - 0.05, A.FAST)
         if ea > 0:
             txt = f"{p['who']} {p['event']}".upper().strip()
             size = D.fit_size(txt, th.display, (1380 - 180) if self.photo_key else 1680, 120, 60)
-            D.text(c, txt, th.display, size, th.ink, 120, 580 + (120 - size) * 0.6, e_out, clip=(120, 570, 120 + 1700 * ea, 740))
+            D.text(c, txt, th.display, size, th.ink, tx, 580 + (120 - size) * 0.6, e_out, clip=(tx, 570, tx + 1700 * ea, 740))
         if self.t_charge:
             ec = A.prog(t, self.t_charge, A.SNAP)
             if ec > 0:
                 txt = p["charge"].upper()
                 w, _ = D.measure(txt, th.label, 44, 0.08)
                 s = A.out_back(ec, 1.8)
-                bw, bh = int((w + 60) * s), int(84 * s)
-                D.rect(c, 120, 780, 120 + max(2, bw), 780 + max(2, bh), th.accent, e_out)
+                bw, bh = int((w + 60) * s), int(D.lead(th.label, 84) * s)
+                D.rect(c, tx, 780, tx + max(2, bw), 780 + max(2, bh), th.accent, e_out)
                 if s > 0.6:
-                    D.text(c, txt, th.label, 44, "#FFFFFF", 150, 795, min(1, ec * 2) * e_out, tracking=0.08)
+                    D.text(c, txt, th.label, 44, "#FFFFFF", tx + 30, 795, min(1, ec * 2) * e_out, tracking=0.08)
         if self.photo_key:
             ep = A.ease(tc, 0.35, 0.45, A.out_quint)
-            px, pw = 1380, 540
+            px, pw = (0 if flip else 1380), 540
             img = D.photo(self.assets.path(self.photo_key), pw, 1052, focus=(0.48, 0.3), zoom=1.0 + 0.04 * A.clamp(tc / 6),
                           sat=0.0, contrast=1.12, bright=0.9, headroom=1.08)
             D.blit(c, img, px, 14, e_out, clip=(px, 14, px + pw, 14 + 1052 * ep))
-            D.rect(c, px - 6, 14, px, 14 + 1052 * ep, th.accent, e_out)
+            ex = px + pw if flip else px - 6  # the accent edge faces the words
+            D.rect(c, ex, 14, ex + 6, 14 + 1052 * ep, th.accent, e_out)
             cap = (p.get("subject") or "").upper() + (f" · {p['age']}" if p.get("age") else "")
             ec = A.ease(tc, 0.7, A.FAST)
             D.rect(c, px, 940, px + pw, 1066, "#000000", 0.6 * ec * e_out)
@@ -1347,14 +1395,14 @@ class TurningGraphic(Graphic):
             D.rect(c, 0, 0, D.W, D.H, "#FFFFFF", fl * 0.9)
 
 
-def _break_question(q):
+def _break_question(q, key="inter-black"):
     words = q.split()
     if len(words) <= 3:
         return [q]
     lines, cur = [], []
     for w in words:
         cur.append(w)
-        if D.measure(" ".join(cur), "inter-black", 132)[0] > 760 and len(cur) > 1:
+        if D.measure(" ".join(cur), key, 132)[0] > 760 and len(cur) > 1:
             lines.append(" ".join(cur[:-1]))
             cur = [w]
     lines.append(" ".join(cur))
@@ -1389,38 +1437,48 @@ def _set(*colors):
 
 
 _PICTURES = ("own", "footage", "still", "photo")
+# v0.4.64 type and layout: the font styles and the text size range each layout was checked with (tests/cinegfx_layout.py:
+# no text running into other text, cut by its box or off the frame, on the approved Javits graphics and the app's own)
+_TYPE = {"size": (0.85, 1.15)}
 LOOKS = {
     "findings": {"palettes": [
         ("A", "Navy & amber", None),
         ("B", "Graphite & red", _set("#101214", "#1A1D21", "#F2F2F0", "#8A9099", "#E5484D", "#F2B33D")),
         ("C", "Forest & brass", _set("#0C1512", "#13201B", "#EFF3EE", "#86A096", "#D9B45B", "#E07A5F")),
-        ("L", "Light version", _set("#F3F1EC", "#E7E3DA", "#14161C", "#666B78", "#B7791F", "#D2483A"))]},
+        ("L", "Light version", _set("#F3F1EC", "#E7E3DA", "#14161C", "#666B78", "#B7791F", "#D2483A"))],
+        **_TYPE, "fonts": ("sans", "serif", "geometric"), "mirror": "Photo on the right", "place": True},
     "timeline": {"palettes": [
         ("A", "Black & red", None),
         ("B", "Navy & gold", _set("#0B1220", "#131C2E", "#F4F1EA", "#8E9AB3", "#E8B04B", "#E8B04B")),
         ("C", "Charcoal & teal", _set("#111416", "#1A1F22", "#EEF2F1", "#87918F", "#2BB3A3", "#2BB3A3")),
-        ("L", "Light version", _set("#F2EFE8", "#E6E2D8", "#15161A", "#6B6862", "#C62828", "#C62828"))]},
+        ("L", "Light version", _set("#F2EFE8", "#E6E2D8", "#15161A", "#6B6862", "#C62828", "#C62828"))],
+        **_TYPE, "fonts": ("condensed", "sans", "serif", "geometric"), "place": True},
     "contradiction": {"palettes": [
         ("A", "Blue vs orange", None),
         ("B", "Teal vs coral", _set("#0B1416", "#1A1410", "#F3F5F2", "#8F9A96", "#39C3B5", "#FF7A59")),
         ("C", "Silver vs red", _set("#111214", "#1C1213", "#F4F2EE", "#96918C", "#C9D1DC", "#E5484D")),
         ("L", "Light version", _set("#F2F1EE", "#ECE6DF", "#15171A", "#6E6A64", "#2F6FD0", "#C9731C"))],
         "backdrops": ("own",),
-        "backdrop_note": "Conflicting accounts keeps its own background: its two account columns fill the screen, so no picture would show."},
+        "backdrop_note": "Conflicting accounts keeps its own background: its two account columns fill the screen, so no picture would show.",
+        **_TYPE, "fonts": ("condensed", "sans", "serif")},
     "legal": {"palettes": [
         ("A", "Cream & oxblood", None),
         ("B", "Cool paper & navy", _set("#ECEEF0", "#E1E4E8", "#121417", "#5F6670", "#1F3A68", "#1F3A68")),
         ("C", "Cream & green stamp", _set("#EFEBDF", "#E4DFD0", "#14150F", "#666452", "#1E5B3A", "#1E5B3A")),
-        ("D", "Dark docket", _set("#15130F", "#1E1B16", "#F1EBDD", "#9C9282", "#D0503F", "#D0503F"))]},
+        ("D", "Dark docket", _set("#15130F", "#1E1B16", "#F1EBDD", "#9C9282", "#D0503F", "#D0503F"))],
+        **_TYPE, "fonts": ("condensed", "sans", "mono"), "mirror": "Courthouse photo on the right", "place": True,
+        "dim": 0.75},  # v0.4.64: its small red labels over a picture: 2.8:1 at the general 62%, 3.5:1 at 75%
     "digital": {"palettes": [
         ("A", "Cyan terminal", None),
         ("B", "Amber terminal", _set("#0A0804", "#15110A", "#FFF6E5", "#8C7A5A", "#FFB000", "#FF4D5E")),
-        ("C", "Green phosphor", _set("#040A06", "#0A160E", "#E9FFF1", "#5C8C6E", "#39FF88", "#FF4D5E"))]},
+        ("C", "Green phosphor", _set("#040A06", "#0A160E", "#E9FFF1", "#5C8C6E", "#39FF88", "#FF4D5E"))],
+        **_TYPE, "fonts": ("condensed", "sans", "geometric"), "place": True},
     "turning": {"palettes": [
         ("A", "Black & red", None),
         ("B", "Black & burnt orange", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#D4500F", "#D4500F")),
         ("C", "Black & royal blue", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#1F6FEB", "#1F6FEB"))],
-        "on_accent": ("#FFFFFF",)},  # "CHARGED WITH MURDER" is white on the accent
+        "on_accent": ("#FFFFFF",),  # "CHARGED WITH MURDER" is white on the accent
+        **_TYPE, "fonts": ("condensed", "serif", "geometric"), "mirror": "Photo on the left", "place": True},
 }
 
 

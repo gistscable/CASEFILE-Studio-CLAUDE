@@ -7246,3 +7246,17 @@ body.resizing-row * {
   font-size: 10.5px;
   color: #dfe3e8;
 }
+
+/* v0.4.64 type and layout of the cinematic graphics */
+.mg-place-box { display: grid; gap: 6px; margin: 4px 0 6px; }
+.mg-place-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.mg-place-row > span { min-width: 92px; color: var(--muted, #9aa0a6); }
+.mg-place { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 14px); gap: 3px;
+  padding: 4px; border: 1px solid var(--line, #33363c); border-radius: 4px; background: rgba(255, 255, 255, 0.03); }
+.mg-place button { padding: 0; border: 1px solid var(--line, #3a3d44); border-radius: 2px; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; }
+.mg-place button i { width: 8px; height: 5px; border-radius: 1px; background: var(--muted, #6b7078); }
+.mg-place button.on { border-color: var(--accent, #f2b33d); }
+.mg-place button.on i { background: var(--accent, #f2b33d); }
+.mg-place button:disabled { cursor: default; opacity: 0.5; }
+.mg-row-inline { display: flex; align-items: center; gap: 8px; }

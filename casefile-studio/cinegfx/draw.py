@@ -13,8 +13,27 @@ W, H = 1920, 1080
 SS = 3
 
 
+def scale_of(key: str) -> float:
+    """v0.4.64: a font key may carry a text-size scale ("inter-bold@1.1": the look's Text size). 1.0 without one."""
+    if "@" not in key:
+        return 1.0
+    try:
+        return float(key.split("@", 1)[1])
+    except ValueError:
+        return 1.0
+
+
+def lead(key: str, n: float) -> int:
+    """A distance that follows the size of `key`'s text (line steps, the gap under a line): `n` at 100%."""
+    s = scale_of(key)
+    return n if s == 1.0 else int(round(n * s))
+
+
 @lru_cache(maxsize=256)
 def font(key: str, size: int) -> ImageFont.FreeTypeFont:
+    if "@" in key:  # the look's Text size: the same font, scaled
+        base = key.split("@", 1)[0]
+        return ImageFont.truetype(font_path(base), max(6, int(round(size * scale_of(key)))))
     return ImageFont.truetype(font_path(key), size)
 
 
@@ -104,6 +123,9 @@ def blit(canvas: Image.Image, im: Image.Image, x: float, y: float, alpha: float 
     canvas.alpha_composite(with_alpha(part, alpha), (x + sx0, y + sy0))
 
 
+RECORD = None  # v0.4.64: a list to collect every text drawn (layout checks in the tests); None in use (no cost)
+
+
 def text(canvas, s, key, size, color, x, y, alpha=1.0, tracking=0.0, anchor="l", clip=None):
     if not s:
         return 0
@@ -113,6 +135,8 @@ def text(canvas, s, key, size, color, x, y, alpha=1.0, tracking=0.0, anchor="l",
     elif anchor == "r":
         x -= sp.width
     blit(canvas, sp, x, y, alpha, clip)
+    if RECORD is not None and alpha > 0.002:
+        RECORD.append((s, key, size, x, y, sp, clip, alpha))
     return sp.width
 
 

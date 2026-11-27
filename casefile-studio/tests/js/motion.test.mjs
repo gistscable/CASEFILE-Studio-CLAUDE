@@ -50,3 +50,13 @@ test("the project look survives the editor's normalise, keeping only the choices
   assert.deepEqual(cleanLook({ background: "photo", photo_id: "a", still_at: 3 }), { background: "photo", photo_id: "a" });
   assert.deepEqual(cleanLook({ background: "still", still_at: 3, photo_id: "a", text: "own" }), { background: "still", still_at: 3, text: "own" });
 });
+
+// v0.4.64 type and layout
+test("type and layout choices survive, and a graphic's 'as designed' choices are kept", () => {
+  const place = { scale: 0.85, x: 1, y: 0 };
+  const m = normaliseMotion({ enabled: true, items: [cine({ look: { font: "design", size: 1, mirror: false, place: { scale: 1, x: 0, y: 0 } } })],
+    look: { font: "serif", size: 1.1, mirror: true, place } });
+  assert.deepEqual(m.look, { font: "serif", size: 1.1, mirror: true, place });
+  assert.deepEqual(m.items[0].look, { font: "design", size: 1, mirror: false, place: { scale: 1, x: 0, y: 0 } });
+  assert.deepEqual(cleanLook({ font: "", size: undefined, mirror: undefined, place: "left" }), {});
+});

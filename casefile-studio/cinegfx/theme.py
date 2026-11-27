@@ -16,6 +16,7 @@ FONTS = {
 
 
 def font_path(key: str) -> str:
+    key = key.split("@", 1)[0]  # v0.4.64: "@1.1" is a text-size scale (draw.font), not a different file
     if key == "dm-sans":
         return str(FONT_DIR.parent / "dm-sans.ttf")
     return str(FONT_DIR / FONTS[key])

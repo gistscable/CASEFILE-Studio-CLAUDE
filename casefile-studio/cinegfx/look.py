@@ -8,6 +8,14 @@ Niche-agnostic: a collection declares each category's options as data on `Catego
      "backdrop_note": "why a backdrop is not offered",
      "on_accent": ("#FFFFFF",)}                           # colours the design writes ON the accent
 
+v0.4.64 adds the type and the layout (`resolve_type()`), declared the same way:
+
+    {"fonts": ("condensed", "serif", ...),   # the font styles (STYLES) tested on this category's layout
+     "size": (0.9, 1.1),                     # the Text size range its layout holds (reading text; display type is composed)
+     "mirror": "Photo on the right",         # the layout can be mirrored (photo and text swap sides); its label
+     "place": True,                          # it can be made smaller and placed in the frame
+     "dim": 0.75}                            # how much a picture behind it is darkened by default
+
 `resolve()` is a pure function of those choices, so the editor's preview and the export draw the same look.
 The first palette is the category's approved design: with no choices made, its Theme object is returned
 unchanged (the default look stays pixel-identical)."""
@@ -26,6 +34,21 @@ BACKDROPS = ("own", "footage", "still", "photo")
 PICTURE = ("footage", "still", "photo")
 DIM = (0.4, 0.85, 0.62)   # how much a picture behind a graphic is darkened: min, max, default
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+# v0.4.64 type: font styles over the type roles (fonts bundled with the app, nothing downloaded). A category offers the
+# ones its layout was checked with (tests/cinegfx_layout.py); "design" is always its own.
+STYLES = {
+    "condensed": ("Condensed", {"display": "oswald", "heading": "oswald-md", "body": "inter-bold", "label": "inter-bold"}),
+    "sans": ("Bold sans", {"display": "inter-black", "heading": "inter-bold", "body": "inter-bold", "label": "inter-bold"}),
+    "serif": ("Editorial serif", {"display": "caladea", "heading": "caladea", "body": "serif", "label": "inter-bold"}),
+    "geometric": ("Geometric", {"display": "poppins", "heading": "poppins", "body": "dm-sans", "label": "inter-bold"}),
+    "mono": ("Typewriter", {"display": "mono", "heading": "mono", "body": "dm-sans", "label": "mono"}),
+}
+TYPE_ROLES = ("display", "heading", "body", "label")
+SIZED = ("heading", "body", "label")   # Text size scales the reading text; display type (dates, headlines) is composed and fitted
+SIZE = (0.85, 1.15)                    # the widest Text size range offered (a category may hold less)
+PLACE = (0.8, 1.0)                     # how small the layout may be made when placed in the frame
+NUDGE = 0.015                          # at full size, how far it may be nudged (fraction of the frame), keeping the safe area
 
 
 def is_hex(v) -> bool:
@@ -90,21 +113,115 @@ def backdrops(cat):
     return tuple((cat.looks or {}).get("backdrops") or BACKDROPS)
 
 
+def default_dim(cat) -> float:
+    """How much a picture behind this category is darkened when nobody chose (v0.4.64: a category whose small
+    labels need it declares more; legal's red labels are 2.8:1 over a mid-grey picture at 62%, 3.5:1 at 75%)."""
+    try:
+        return round(max(DIM[0], min(DIM[1], float((cat.looks or {}).get("dim", DIM[2])))), 2)
+    except (TypeError, ValueError):
+        return DIM[2]
+
+
 def is_light(colors) -> bool:
     return luminance(colors["bg"]) > 0.4
 
 
-def theme_for(cat, colors):
-    """The Theme drawn with these colours: the category's own Theme object for its approved colours (same name,
-    same caches: pixel-identical), else a copy with a name unique to the colours (sprite caches key on it)."""
+def theme_for(cat, colors, type_=None):
+    """The Theme drawn with these colours (and v0.4.64 type: {fonts, size, mirror}): the category's own Theme object
+    for its approved look (same name, same caches: pixel-identical), else a copy with a name unique to the look
+    (sprite caches key on it)."""
     base = cat.theme
-    if not isinstance(colors, dict) or not all(is_hex(colors.get(r)) for r in ROLES):
+    change = {}
+    if isinstance(colors, dict) and all(is_hex(colors.get(r)) for r in ROLES):
+        colors = {r: colors[r].upper() for r in ROLES}
+        if colors != _theme_colors(base):
+            change.update(colors)
+    ty = type_ or {}
+    fonts = {r: getattr(base, r) for r in TYPE_ROLES}
+    if isinstance(ty.get("fonts"), dict):
+        fonts.update({r: ty["fonts"][r] for r in TYPE_ROLES if isinstance(ty["fonts"].get(r), str)})
+    size = ty.get("size") or 1.0
+    if size != 1.0:
+        fonts = {r: (f"{k}@{size:g}" if r in SIZED else k) for r, k in fonts.items()}
+    fonts = {r: k for r, k in fonts.items() if k != getattr(base, r)}
+    change.update(fonts)
+    if ty.get("mirror"):
+        change["traits"] = dict(base.traits, mirror=True)
+    if not change:
         return base
-    colors = {r: colors[r].upper() for r in ROLES}
-    if colors == _theme_colors(base):
-        return base
-    tag = hashlib.sha1(json.dumps(colors, sort_keys=True).encode()).hexdigest()[:10]
-    return dataclasses.replace(base, name=f"{base.name}~{tag}", **colors)
+    tag = hashlib.sha1(json.dumps({k: v for k, v in change.items()}, sort_keys=True, default=str).encode()).hexdigest()[:10]
+    return dataclasses.replace(base, name=f"{base.name}~{tag}", **change)
+
+
+def fonts_of(cat):
+    """[(key, label)] the font styles this category offers; the first is its own design."""
+    own = {r: getattr(cat.theme, r) for r in TYPE_ROLES}
+    out = [("design", "As designed")]
+    for k in (cat.looks or {}).get("fonts") or ():
+        if k in STYLES and STYLES[k][1] != own:
+            out.append((k, STYLES[k][0]))
+    return out
+
+
+def size_range(cat):
+    lo, hi = (cat.looks or {}).get("size") or (1.0, 1.0)
+    return max(SIZE[0], lo), min(SIZE[1], hi)
+
+
+def resolve_type(cat, font=None, size=None, mirror=None, place=None):
+    """The type and layout to draw: {font, fonts, size, mirror, place, notes}. Like `resolve`, every choice the
+    layout cannot hold is said in `notes` and replaced by the nearest it can."""
+    lk = cat.looks or {}
+    notes = []
+    offered = dict(fonts_of(cat))
+    key = "design"
+    if font and font != "design":
+        if font in offered:
+            key = font
+        elif font in STYLES:
+            notes.append(f"{cat.label} keeps its own font: {STYLES[font][0].lower()} does not fit its layout.")
+    out = {"font": key, "fonts": dict(STYLES[key][1]) if key != "design" else None, "size": 1.0, "mirror": False, "place": None, "notes": notes}
+    if size is not None:
+        try:
+            sz = float(size)
+        except (TypeError, ValueError):
+            sz = 1.0
+        lo, hi = size_range(cat)
+        fixed = round(max(lo, min(hi, sz)), 2)
+        if abs(fixed - sz) > 0.004:
+            notes.append(f"{cat.label} holds text sizes from {round(lo * 100)}% to {round(hi * 100)}%: drawn at {round(fixed * 100)}%.")
+        out["size"] = fixed
+    if mirror:
+        if lk.get("mirror"):
+            out["mirror"] = True
+        else:
+            notes.append(f"{cat.label} keeps its layout: it cannot be mirrored.")
+    if isinstance(place, dict) and place:
+        if lk.get("place"):
+            sc = _f(place.get("scale"), PLACE[0], PLACE[1], 1.0)
+            x, y = _f(place.get("x"), -1, 1, 0.0), _f(place.get("y"), -1, 1, 0.0)
+            if (sc, x, y) != (1.0, 0.0, 0.0):
+                out["place"] = {"scale": sc, "x": x, "y": y}
+        else:
+            notes.append(f"{cat.label} fills the screen: it keeps its size and position.")
+    return out
+
+
+def _f(v, lo, hi, default):
+    try:
+        return round(float(max(lo, min(hi, float(v)))), 3)
+    except (TypeError, ValueError):
+        return default
+
+
+def placement(place, W=1920, H=1080):
+    """Where a placed layout goes: (scale, dx, dy) in frame pixels. Smaller than the frame, x/y (-1..1) put it
+    anywhere in the room left; at any size it may also be nudged NUDGE of the frame."""
+    if not place:
+        return 1.0, 0, 0
+    sc = place["scale"]
+    room_x, room_y = (1 - sc) * W / 2 + NUDGE * W, (1 - sc) * H / 2 + NUDGE * H
+    return sc, round((1 - sc) * W / 2 + place["x"] * room_x), round((1 - sc) * H / 2 + place["y"] * room_y)
 
 
 def varied(cat, seed: str) -> str:
@@ -133,7 +250,7 @@ def resolve(cat, palette=None, accent=None, text=None, backdrop="own", dim=None)
         try:
             d = float(dim)
         except (TypeError, ValueError):
-            d = DIM[2]
+            d = default_dim(cat)
         d = round(max(DIM[0], min(DIM[1], d)), 2)
     colors = dict(by_key[key][1])
     if bd in PICTURE and is_light(colors):
