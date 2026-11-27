@@ -147,7 +147,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.60";
+const APP_VERSION = "0.4.65";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -2301,6 +2301,15 @@ function App() {
               notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
             }}
             onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
+            onPresent={async (body = {}) => {
+              await flushSave();
+              const r = await api(`/api/projects/${project.id}/motion/present`, "POST", body);
+              if (r.project) {
+                acceptProject(r.project);
+                notify(r.applied ? `Presentation applied to ${r.applied} graphic${r.applied > 1 ? "s" : ""}. Undo puts them back.` : "Nothing to change.", "info");
+              }
+              return r;
+            }}
             onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
             onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
             previewStatus={motionStatus}

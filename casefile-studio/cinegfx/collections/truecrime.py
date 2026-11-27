@@ -166,7 +166,7 @@ class FindingsGraphic(Graphic):
         flip = th.traits.get("mirror")
         px0, py0, pw, ph = (1144 if flip else 96), 96, 680, 888
         if self.photo_key:
-            e = A.ease(t, 0.0, 0.5, A.out_expo)
+            e = A.ease(t, 0.0, 0.5, A.out_smooth)
             img = D.photo(self.assets.path(self.photo_key), pw, ph, focus=(0.77, 0.42), zoom=A.drift(t, self.duration, 0.07), sat=0.92, contrast=1.06)
             reveal = py0 + ph * (1 - e)
             D.blit(c, img, px0, py0, e_out, clip=(px0, reveal, px0 + pw, py0 + ph))
@@ -476,7 +476,7 @@ class TimelineGraphic(Graphic):
             d = dt.date.fromisoformat(e["date"])
             # big date above the rail, rises into place when spoken
             if ed > 0:
-                dy = ry - 120 + 30 * (1 - A.out_expo(ed))
+                dy = ry - 120 + 30 * (1 - A.out_smooth(ed))
                 big = e.get("clock") or short_date(d)
                 if self.crowded:  # v0.4.64: the date fits its narrower column
                     size = D.fit_size(big, th.display, self.card_w, 92, 40)
@@ -497,7 +497,7 @@ class TimelineGraphic(Graphic):
             if photo_key:
                 ph = 150
                 img = D.photo(self.assets.path(photo_key), card_w, ph, focus=focus,
-                              zoom=1 + 0.05 * A.prog(t, e["t"], 4.0), sat=0.95)
+                              zoom=1 + 0.05 * A.out_cubic(A.prog(t, e["t"], 3.0)), sat=0.95)  # v0.4.65: settles as it is read
                 D.blit(c, img, cx0, yy, e_out, clip=(cx0, yy, cx0 + card_w, yy + ph * A.ease(t, e["t"] + 0.05, 0.35)))
                 D.text(c, self.assets.credit(photo_key), "mono", 12, th.muted, cx0, yy + ph + 6, ee * e_out)
                 yy += ph + 30
@@ -634,6 +634,45 @@ class ContradictionGraphic(Graphic):
         self.cue(self.t_neq, "impact-tr-1", -9, "contradiction")
         self.cue(self.t_neq, "bass-hit-1", -14, "contradiction")
         self.cue(self.out, "rwhoosh-3", -9, "out")
+        self._fit()
+
+    # v0.4.65 the statements fill the columns: the largest statement size (44-56 px) at which the fuller column
+    # still fits above the bottom margin, and the block centred in the space left (no more empty lower half).
+    TOP, BOTTOM, FS = 220, 990, (56, 54, 52, 50, 48, 46, 44)
+
+    def _who(self, k):
+        who = k["who"]
+        if k.get("via"):
+            who = f"{k['who']} · AS RELAYED BY {k['via'].upper()}"
+        if k.get("cite"):
+            who = f"{k['who']} · CITING {k['cite'].upper()}"
+        return who
+
+    def _bottom(self, fs):
+        """Where the fuller column ends with every statement shown, at statement size fs (y0 = TOP)."""
+        th = self.th
+        lh = D.lead(th.heading, round(58 * fs / 44))
+        ys = {"family": self.TOP, "official": self.TOP}
+        ends = []
+        for k in self.cards:
+            av = 82 if k.get("via") and self.via_key.get(k["via"]) else 0
+            who_lines = D.wrap(self._who(k), th.label, 20, 760 - av, 0.12)
+            extra = max(0, len(who_lines) * D.lead(th.label, 28) - 56)
+            n = len(D.wrap(k["text"], th.heading, fs, 760))
+            ends.append(ys[k["side"]] + 56 + extra + lh * n)  # the last line's foot (the text box ends about there)
+            ys[k["side"]] += 100 + lh * n + 60 + extra
+        if self.p.get("context") and any(k["side"] == "family" for k in self.cards):
+            y = ys["family"] - 30
+            ends.append(y + max(150, 38 + 42 * len(D.wrap("“" + self.p["context"]["quote"] + ".”", "caladea", 32, 700))))
+        return max(ends) if ends else self.TOP
+
+    def _fit(self):
+        self.fs, self.dy = 44, 0
+        for fs in self.FS:
+            b = self._bottom(fs)
+            if b <= self.BOTTOM:
+                self.fs, self.dy = fs, int(min(140, max(0, (self.BOTTOM - b) / 2)))
+                return
 
     def _sentence_start(self, t):
         best = 0.0
@@ -664,22 +703,19 @@ class ContradictionGraphic(Graphic):
         D.text(c, labels.get("official", "OFFICIAL ACCOUNTS"), th.label, 22, th.accent, 1050, 110, A.ease(t, 0.35, A.FAST) * e_out, tracking=0.2)
         D.rect(c, 110, 150, 110 + 740 * es, 152, th.accent2, 0.6 * e_out)
         D.rect(c, 1050, 150, 1050 + 760 * es, 152, th.accent, 0.6 * e_out)
-        ys = {"family": 220, "official": 220}
+        fs = self.fs
+        ys = {"family": self.TOP + self.dy, "official": self.TOP + self.dy}
         for k in self.cards:
             x0 = 110 if k["side"] == "family" else 1050
             accent = th.accent2 if k["side"] == "family" else th.accent
             y = ys[k["side"]]
             ek = A.ease(t, k["t"], A.FAST)
-            lines = D.wrap(k["text"], th.heading, 44, 760)
-            lh = D.lead(th.heading, 58)  # v0.4.64: line steps follow the text size
+            lines = D.wrap(k["text"], th.heading, fs, 760)
+            lh = D.lead(th.heading, round(58 * fs / 44))  # v0.4.64: line steps follow the text size
             if ek <= 0:
                 ys[k["side"]] += 100 + lh * len(lines) + 60
                 continue
-            who = k["who"]
-            if k.get("via"):
-                who = f"{k['who']} · AS RELAYED BY {k['via'].upper()}"
-            if k.get("cite"):
-                who = f"{k['who']} · CITING {k['cite'].upper()}"
+            who = self._who(k)
             ax = x0
             if k.get("via") and self.via_key.get(k["via"]):
                 av = D.photo(self.assets.path(self.via_key[k["via"]]), 64, 64, focus=(0.55, 0.3), headroom=1.0)
@@ -693,7 +729,6 @@ class ContradictionGraphic(Graphic):
             top = y + 56 + max(0, len(who_lines) * D.lead(th.label, 28) - 56)  # a two-line attribution pushes the statement down
             # statement words appear as they are spoken (the script's own words)
             body = k["text"]
-            lines = D.wrap(body, th.heading, 44, 760)
             prog = A.clamp((t - k["tw0"]) / max(0.2, k["tw1"] - k["tw0"])) if t >= k["tw0"] else 0.0
             nshow = int(round(len(body.split()) * prog))
             shown, wi = 0, 0
@@ -705,10 +740,10 @@ class ContradictionGraphic(Graphic):
                 for w in vis:
                     neg = re.fullmatch(r"(not|no|never|didn’t|did)", w.strip(",.").lower()) and k["negated"]
                     colr = th.ink if not neg else accent
-                    wpx = D.text(c, w + " ", th.heading, 44, colr, lx, top + j * lh, e_out)
+                    wpx = D.text(c, w + " ", th.heading, fs, colr, lx, top + j * lh, e_out)
                     if neg:
-                        u = top + j * lh + D.lead(th.heading, 60)
-                        D.rect(c, lx, u, lx + wpx - 14, u + 4, accent, e_out)
+                        u = top + j * lh + D.lead(th.heading, round(60 * fs / 44))
+                        D.rect(c, lx, u, lx + wpx - round(14 * fs / 44), u + 4, accent, e_out)
                     lx += wpx
             ys[k["side"]] += 100 + lh * len(lines) + 60 + (top - y - 56)
         # the earlier incident, as the family described it — context the narration only points at ("that incident")
@@ -1112,7 +1147,7 @@ class DigitalGraphic(Graphic):
                 if not self.route and dl and dl[0] != it["detail"]:
                     dl = [dl[0].rstrip(",;: ")]  # a cut line never ends on a dangling comma
                 for j, line in enumerate(dl):
-                    D.text(c, line, th.body, 22, th.muted, x0 + 30, y + 104 + j * 30, A.ease(t, it["t"] + 0.4, A.FAST) * e_out)
+                    D.text(c, line, th.body, 23, th.muted, x0 + 30, y + 104 + j * 30, A.ease(t, it["t"] + 0.4, A.FAST) * e_out)
             if it.get("status"):
                 es = A.prog(t, it["ts"], A.SNAP)
                 if es > 0:
@@ -1158,16 +1193,17 @@ class DigitalGraphic(Graphic):
                 D.blit(c, D.disc(56, D.col(n.get("line") or th.accent2)), x - 28 + 60, yy - 28, min(1, en * 2) * e_out)
                 D.text(c, n.get("route_no") or "", "lib-sans", 40, "#FFFFFF", x + 60, yy - 24, min(1, en * 2) * e_out, anchor="c")
             lx = x + (110 if n.get("train") else 40)
-            D.text(c, n["label"], th.heading, 34, th.ink, lx, yy - 26, e_out, clip=(lx, yy - 40, lx + 600 * A.out_expo(min(1, en * 1.4)), yy + 30))
+            D.text(c, n["label"], th.heading, 34, th.ink, lx, yy - 26, e_out, clip=(lx, yy - 40, lx + 600 * A.out_smooth(min(1, en * 1.4)), yy + 30))
             if n.get("sub"):
-                D.text(c, n["sub"], "mono", 16, th.muted, lx + 2, yy - 26 + D.lead(th.heading, 44), A.ease(t, n["t"] + 0.35, A.FAST) * e_out)
+                D.text(c, n["sub"], "mono", 18, th.muted, lx + 2, yy - 26 + D.lead(th.heading, 44), A.ease(t, n["t"] + 0.35, A.FAST) * e_out)
         # location tile with a crisp scan line
         if self.station_key:
             ts = self._t_station()
             ep = A.ease(t, ts, 0.35)
             if ep > 0:
                 x, y0, w, h = 1610, 330, 220, 340
-                img = D.photo(self.assets.path(self.station_key), w, h, focus=(0.5, 0.5), headroom=1.04, sat=0.85, contrast=1.08)
+                img = D.photo(self.assets.path(self.station_key), w, h, focus=(0.5, 0.5), headroom=1.04, sat=0.85, contrast=1.08,
+                              zoom=1 + 0.04 * A.out_cubic(A.prog(t, ts, 2.5)))  # v0.4.65: a short push-in as the place is named
                 D.blit(c, img, x, y0, e_out, clip=(x, y0, x + w, y0 + h * ep))
                 D.outline(c, x - 2, y0 - 2, x + w + 2, y0 + h * ep + 2, th.accent, 2, e_out)
                 sl = A.prog(t, ts + 0.1, 0.8)
@@ -1333,7 +1369,7 @@ class TurningGraphic(Graphic):
                     if ew > 0:
                         is_last = k == len(self.qwords) - 1
                         colr = th.accent if is_last else th.ink
-                        dy = 26 * (1 - A.out_expo(ew))
+                        dy = 26 * (1 - A.out_smooth(ew))
                         x += D.text(c, wtxt + " ", th.display, 132, colr, x, y + dy, min(1, ew * 3), clip=(0, y - 10, 1920, y + 160))
                     else:
                         x += D.measure(wtxt + " ", th.display, 132)[0]
@@ -1420,7 +1456,7 @@ THEMES = {
                            display="poppins", heading="poppins", body="dm-sans", label="inter-bold"),
     "legal": Theme("legal", bg="#EFE9DC", bg2="#E6DFCF", ink="#16130F", muted="#6E665A", accent="#8E1B1B", accent2="#8E1B1B",
                    display="caladea", heading="caladea", body="serif", label="inter-bold"),
-    "digital": Theme("digital", bg="#05090B", bg2="#0A1418", ink="#E6FFFB", muted="#5E8C88", accent="#2EE6D6", accent2="#FF4D5E",
+    "digital": Theme("digital", bg="#05090B", bg2="#0A1418", ink="#E6FFFB", muted="#8DBDB7", accent="#2EE6D6", accent2="#FF4D5E",
                      display="mono", heading="mono", body="dm-sans", label="mono"),
     "turning": Theme("turning", bg="#000000", bg2="#0A0A0A", ink="#FFFFFF", muted="#8A8A8A", accent="#E10600", accent2="#E10600",
                      display="inter-black", heading="inter-black", body="inter-bold", label="inter-bold"),
@@ -1446,13 +1482,16 @@ LOOKS = {
         ("B", "Graphite & red", _set("#101214", "#1A1D21", "#F2F2F0", "#8A9099", "#E5484D", "#F2B33D")),
         ("C", "Forest & brass", _set("#0C1512", "#13201B", "#EFF3EE", "#86A096", "#D9B45B", "#E07A5F")),
         ("L", "Light version", _set("#F3F1EC", "#E7E3DA", "#14161C", "#666B78", "#B7791F", "#D2483A"))],
-        **_TYPE, "fonts": ("sans", "serif", "geometric"), "mirror": "Photo on the right", "place": True},
+        **_TYPE, "fonts": ("sans", "serif", "geometric"), "mirror": "Photo on the right", "place": True,
+        "present": {"prefer": "partial", "anchor": -1.0,
+                    "why": "a photo card and a few facts: it can sit beside the footage"}},
     "timeline": {"palettes": [
         ("A", "Black & red", None),
         ("B", "Navy & gold", _set("#0B1220", "#131C2E", "#F4F1EA", "#8E9AB3", "#E8B04B", "#E8B04B")),
         ("C", "Charcoal & teal", _set("#111416", "#1A1F22", "#EEF2F1", "#87918F", "#2BB3A3", "#2BB3A3")),
         ("L", "Light version", _set("#F2EFE8", "#E6E2D8", "#15161A", "#6B6862", "#C62828", "#C62828"))],
-        **_TYPE, "fonts": ("condensed", "sans", "serif", "geometric"), "place": True},
+        **_TYPE, "fonts": ("condensed", "sans", "serif", "geometric"), "place": True,
+        "present": {"prefer": "own", "why": "a rail of dated cards across the whole width"}},
     "contradiction": {"palettes": [
         ("A", "Blue vs orange", None),
         ("B", "Teal vs coral", _set("#0B1416", "#1A1410", "#F3F5F2", "#8F9A96", "#39C3B5", "#FF7A59")),
@@ -1460,25 +1499,29 @@ LOOKS = {
         ("L", "Light version", _set("#F2F1EE", "#ECE6DF", "#15171A", "#6E6A64", "#2F6FD0", "#C9731C"))],
         "backdrops": ("own",),
         "backdrop_note": "Conflicting accounts keeps its own background: its two account columns fill the screen, so no picture would show.",
-        **_TYPE, "fonts": ("condensed", "sans", "serif")},
+        **_TYPE, "fonts": ("condensed", "sans", "serif"),
+        "present": {"prefer": "own", "lock": True, "why": "two account columns fill the screen"}},
     "legal": {"palettes": [
         ("A", "Cream & oxblood", None),
         ("B", "Cool paper & navy", _set("#ECEEF0", "#E1E4E8", "#121417", "#5F6670", "#1F3A68", "#1F3A68")),
         ("C", "Cream & green stamp", _set("#EFEBDF", "#E4DFD0", "#14150F", "#666452", "#1E5B3A", "#1E5B3A")),
         ("D", "Dark docket", _set("#15130F", "#1E1B16", "#F1EBDD", "#9C9282", "#D0503F", "#D0503F"))],
         **_TYPE, "fonts": ("condensed", "sans", "mono"), "mirror": "Courthouse photo on the right", "place": True,
-        "dim": 0.75},  # v0.4.64: its small red labels over a picture: 2.8:1 at the general 62%, 3.5:1 at 75%
+        "dim": 0.75,
+        "present": {"prefer": "footage", "why": "a court record reads clearly over darkened footage"}},  # v0.4.64: its small red labels over a picture: 2.8:1 at the general 62%, 3.5:1 at 75%
     "digital": {"palettes": [
         ("A", "Cyan terminal", None),
-        ("B", "Amber terminal", _set("#0A0804", "#15110A", "#FFF6E5", "#8C7A5A", "#FFB000", "#FF4D5E")),
-        ("C", "Green phosphor", _set("#040A06", "#0A160E", "#E9FFF1", "#5C8C6E", "#39FF88", "#FF4D5E"))],
-        **_TYPE, "fonts": ("condensed", "sans", "geometric"), "place": True},
+        ("B", "Amber terminal", _set("#0A0804", "#15110A", "#FFF6E5", "#BCA67F", "#FFB000", "#FF4D5E")),
+        ("C", "Green phosphor", _set("#040A06", "#0A160E", "#E9FFF1", "#86BC98", "#39FF88", "#FF4D5E"))],
+        **_TYPE, "fonts": ("condensed", "sans", "geometric"), "place": True,
+        "present": {"prefer": "own", "lock": True, "why": "small evidence-log text needs its own dark screen"}},
     "turning": {"palettes": [
         ("A", "Black & red", None),
         ("B", "Black & burnt orange", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#D4500F", "#D4500F")),
         ("C", "Black & royal blue", _set("#000000", "#0A0A0A", "#FFFFFF", "#8A8A8A", "#1F6FEB", "#1F6FEB"))],
         "on_accent": ("#FFFFFF",),  # "CHARGED WITH MURDER" is white on the accent
-        **_TYPE, "fonts": ("condensed", "serif", "geometric"), "mirror": "Photo on the left", "place": True},
+        **_TYPE, "fonts": ("condensed", "serif", "geometric"), "mirror": "Photo on the left", "place": True,
+        "present": {"prefer": "own", "why": "a full-screen statement marks the turn in the story"}},
 }
 
 

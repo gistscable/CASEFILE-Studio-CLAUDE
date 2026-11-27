@@ -7249,8 +7249,9 @@ body.resizing-row * {
 
 /* v0.4.64 type and layout of the cinematic graphics */
 .mg-place-box { display: grid; gap: 6px; margin: 4px 0 6px; }
-.mg-place-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.mg-place-row > span { min-width: 92px; color: var(--muted, #9aa0a6); }
+/* v0.4.65 lined up with the steps above and below (label left, control over the − value + column) */
+.mg-place-row { display: grid; grid-template-columns: 1fr 136px; align-items: center; gap: 4px; font-size: 11.5px; }
+.mg-place-row > .mg-place { justify-self: center; }
 .mg-place { display: grid; grid-template-columns: repeat(3, 22px); grid-template-rows: repeat(3, 14px); gap: 3px;
   padding: 4px; border: 1px solid var(--line, #33363c); border-radius: 4px; background: rgba(255, 255, 255, 0.03); }
 .mg-place button { padding: 0; border: 1px solid var(--line, #3a3d44); border-radius: 2px; background: transparent; cursor: pointer;
@@ -7260,3 +7261,14 @@ body.resizing-row * {
 .mg-place button.on i { background: var(--accent, #f2b33d); }
 .mg-place button:disabled { cursor: default; opacity: 0.5; }
 .mg-row-inline { display: flex; align-items: center; gap: 8px; }
+.mg-row-inline > .cs-step { flex: 1; }
+
+/* v0.4.65 automatic presentation proposals */
+.mg-present { margin: 10px 0 4px; }
+.mg-prop { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+.mg-prop.same { opacity: 0.7; }
+.mg-prop-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mg-prop-name { background: none; border: 0; padding: 0; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.mg-prop-name:hover { text-decoration: underline; }
+.mg-prop-mode { margin-left: auto; font-size: 11px; opacity: 0.85; }
+.mg-prop-why { margin: 6px 0 0 18px; padding: 0; font-size: 11px; line-height: 1.45; opacity: 0.85; }

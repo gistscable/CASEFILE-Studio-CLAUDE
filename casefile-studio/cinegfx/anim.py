@@ -25,6 +25,13 @@ def out_expo(p):
     return 1.0 if p >= 1 else 1 - 2 ** (-10 * p)
 
 
+def out_smooth(p):
+    """v0.4.65 the standard reveal: as quick as before (same durations) but the travel is spread over more frames.
+    out_expo put about 65% of a move into the first frame at 24 fps and 95% by the third, which read as a jump;
+    this puts about 47% into the first frame and reaches 95% by the fifth (of a 0.28 s reveal), so a move is seen."""
+    return 1.0 if p >= 1 else (1 - 2 ** (-6 * p)) / (1 - 2 ** -6)
+
+
 def out_quint(p):
     return 1 - (1 - p) ** 5
 
@@ -47,11 +54,11 @@ def lerp(a, b, p):
     return a + (b - a) * p
 
 
-def ease(t, t0, dur=FAST, fn=out_expo):
+def ease(t, t0, dur=FAST, fn=out_smooth):
     return fn(prog(t, t0, dur))
 
 
-def window(t, t_in, t_out, din=FAST, dout=EXIT, fn=out_expo):
+def window(t, t_in, t_out, din=FAST, dout=EXIT, fn=out_smooth):
     """Entrance progress multiplied by exit progress (1 while held)."""
     return fn(prog(t, t_in, din)) * (1 - out_cubic(prog(t, t_out, dout)))
 

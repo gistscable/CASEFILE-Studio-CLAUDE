@@ -29,3 +29,8 @@ casefile-studio/data/history/
 
 # v0.4.56 sound design demos: intermediate files (remade by qa/sound-design/make_demos.py)
 casefile-studio/qa/sound-design/work/
+
+# v0.4.65 local QA output: UI screenshots, the demo stills and the motion check's review clips and reports
+casefile-studio/qa/_ui/
+casefile-studio/qa/cinegfx-demos/out/stills/
+casefile-studio/qa/motion-check/

@@ -1269,3 +1269,25 @@ Approved v0.4.60 proposal. Write-up and numbers: `casefile-studio/SOUND-DESIGN.m
 - `cinematic.ENGINE` 3 (cached frames remade). Approved Javits stills: 97/97 pixel-identical.
 - **Tests:** `tests/test_cinematic_type.py` (10), `tests/js/motion.test.mjs` (+1).
 - **Demo page:** `qa/cinegfx-demos/make_type.py` (`--clips` for 5 narrated MP4s) writes `qa/cinegfx-demos/type/`; served on port 8001 at `/type/`.
+
+### v0.4.65 Visual refinements, automatic presentation (optional), faster text layout, the motion check
+
+- **Smoother reveals, same speed:** `anim.out_smooth` is the default easing of `ease`/`window` (was `out_expo`). Same durations
+  (FAST 0.28 s): about 47% of a move lands in the first frame at 24 fps (was 65%), 95% by the fifth, so a move is seen, not a jump.
+  Settled frames are unchanged; only frames mid-entrance differ.
+- **Contradiction:** `_fit()` picks the largest statement size (44–56 px) at which the fuller column ends above y 990, and centres the
+  block in the space left (`dy`, at most 140 px). Very long statements: 44 px at the old top (as before).
+- **Digital:** muted text brighter (A `#8DBDB7` 9.6:1, B `#BCA67F`, C `#86BC98`; were about 5:1); detail 23 px; route sub-labels 18 px.
+- **Photo movement:** timeline thumbnails settle (`out_cubic` over 3 s, was linear over 4 s); the digital station tile gets a 4% push-in as
+  the place is named. Findings / legal / turning keep their push-ins.
+- **Automatic presentation** (`presentation.py`, `POST /api/projects/{id}/motion/present`): off unless `motion.present` is ticked in Motion.
+  Proposes full screen (`own`), over the footage, or partial (footage + place 0.86 to one side) per cinematic graphic, from the category's
+  `looks["present"]` (`prefer`, `lock`, `anchor`, `why`), the shots under it (picture or not, cuts ≥ 4 = busy, a whole scripted shot hidden
+  for ≥ 9 s) and the guide's chapter and Show notes (a graphic opening a chapter stays full screen when its design prefers it). Without
+  `apply` nothing is saved; `{"apply": [ids]}` writes it as each graphic's own look (checkpointed: Undo works). No content rules.
+- **Speed:** `draw.measure`, `draw.wrap` (via `_wrap`) and `draw.fit_size` are cached (pure). Legal fitted its lines on every frame:
+  71.5 → 8.7 ms per frame. Stills identical before/after the cache.
+- **Motion check:** `qa/motion_check.py [--project ID] [--apply] [--data DIR]` runs suggest → present → export layers → review MP4s on a real
+  project (a copy in memory, never saved) and writes `qa/motion-check/<id>/report.md` with every decision and timing. It is the M1 benchmark.
+- `cinematic.ENGINE` 4. `APP_VERSION` in `main.jsx` was stale (0.4.60); now follows the release.
+- **Tests:** `tests/test_presentation.py` (9).
