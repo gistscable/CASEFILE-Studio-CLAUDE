@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.67", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.68", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -705,6 +705,14 @@ async def update_project(id: str, request: Request):
                     for a in p["assets"]
                 ):
                     raise HTTPException(422, "Select an asset with an audio track.")
+                other = "music_id" if field == "narration_id" else "narration_id"
+                if value is not None and value == changes.get(other, p.get(other)):
+                    # v0.4.68: one file is never both the narration and the music
+                    raise HTTPException(422, "Narration and music must be different files.")
+                if value is not None:  # the file you choose for a role is sorted under it
+                    a = next(a for a in p["assets"] if a["id"] == value)
+                    a["audio_role"] = field[:-3]
+                    a.pop("sfx", None)
                 if value != p.get(field):
                     p[field] = value
                     if field == "narration_id" and value:
@@ -797,8 +805,15 @@ async def upload(
     id: str,
     files: list[UploadFile] = File(...),
     episode_role: Literal["narration", "music", "sources", "sfx"] | None = Form(default=None),
+    audio_role: Literal["narration", "music", "sfx"] | None = Form(default=None),
 ):
     p = project_or_404(id)
+    # v0.4.68: the Edit page's Audio tab imports into one kind of audio (narration, music or a
+    # sound effect). It only sorts the file: no episode, no timeline rebuild. "sfx" is the
+    # v0.4.56 sound-effect upload.
+    if audio_role == "sfx":
+        episode_role = episode_role or "sfx"
+    role_upload = audio_role in ("narration", "music") and not episode_role
     # v0.4.56: "sfx" = your own short sound effect for the sound design: added to the media only
     # (never rebuilds the timeline, never becomes narration or music)
     sfx_upload = episode_role == "sfx"
@@ -919,6 +934,11 @@ async def upload(
                 raise ValueError("A sound effect must be an audio file (WAV, MP3, M4A, OGG, FLAC) of up to 30 seconds.")
             if sfx_upload:
                 asset["sfx"] = True
+                asset["audio_role"] = "sfx"
+            if role_upload and not asset.get("has_audio"):
+                raise ValueError(f"{AUDIO_ROLE_NAMES[audio_role].capitalize()} must be an audio file (or a video with sound).")
+            if role_upload or episode_role in ("narration", "music"):
+                asset["audio_role"] = audio_role if role_upload else episode_role
             if episode_role == "sources" and asset["kind"] not in ("image", "video"):
                 raise ValueError(
                     "The source-file input accepts uploaded images and videos. Keep music and narration in their own cards."
@@ -939,7 +959,7 @@ async def upload(
     with LOCK:
         p = project_or_404(id)
         p["assets"].extend(added)
-        if sfx_upload:
+        if sfx_upload or role_upload:
             return save_project(p)
         if episode_role and not p.get("episode"):
             p["episode"] = copy.deepcopy(episode.state(p))
@@ -1012,6 +1032,32 @@ async def asset_preview(id: str, asset_id: str):
     return asset
 
 
+AUDIO_ROLE_NAMES = {"narration": "narration", "music": "music", "sfx": "a sound effect"}
+
+
+def set_audio_role(p, asset, role):
+    """v0.4.68 Sort an audio file as narration, music or a sound effect (None: not sorted).
+    The file a role uses now cannot move to another kind: narration, music and sound
+    effects stay separate files."""
+    if role not in (None, "narration", "music", "sfx"):
+        raise HTTPException(422, "Choose narration, music or a sound effect.")
+    if not asset.get("has_audio", asset.get("kind") == "audio"):
+        raise HTTPException(422, "Only a file with sound can be narration, music or a sound effect.")
+    for field, own in (("narration_id", "narration"), ("music_id", "music")):
+        if p.get(field) == asset["id"] and role != own:
+            raise HTTPException(422, f"This file is your {own} now. Stop using it as {own} first.")
+    if role == "sfx" and (asset.get("kind") != "audio" or float(asset.get("duration") or 0) > 30):
+        raise HTTPException(422, "A sound effect must be an audio file of up to 30 seconds.")
+    if role:
+        asset["audio_role"] = role
+    else:
+        asset.pop("audio_role", None)
+    if role == "sfx":
+        asset["sfx"] = True
+    else:
+        asset.pop("sfx", None)
+
+
 @app.patch("/api/projects/{id}/assets/{asset_id}")
 async def update_asset(id: str, asset_id: str, request: Request):
     body = await request.json()
@@ -1025,6 +1071,8 @@ async def update_asset(id: str, asset_id: str, request: Request):
             if key in body:
                 asset[key] = str(body[key])[: 1000 if key == "license" else 180]
                 p["review"]["rights"] = False
+        if "audio_role" in body:
+            set_audio_role(p, asset, body["audio_role"])
         if "sticker" in body and asset.get("kind") == "image":
             asset["sticker"] = body["sticker"] is True  # v0.4.49: listed under Stickers · Yours
         if "crop" in body:
@@ -1485,6 +1533,7 @@ def narrate(id: str, request: Request):
             with LOCK:
                 latest = project_or_404(id)
                 checkpoint(latest, "Narration")
+                asset["audio_role"] = "narration"
                 latest["assets"].append(asset)
                 latest.update(narration_id=asset["id"], scenes=scenes)
                 latest["review"]["disclosure"] = False
@@ -2474,6 +2523,9 @@ async def episode_options(id: str, request: Request):
                                 review.pop("narration_end", None)
                                 review["reviewed"] = False
                 p[role] = body[role]
+                if asset:  # v0.4.68 sorted under the role you chose
+                    asset["audio_role"] = role[:-3]
+                    asset.pop("sfx", None)
         if p.get("narration_id") and p.get("narration_id") == p.get("music_id"):
             raise HTTPException(422, "Narration and music must be different files.")
         if "music_volume" in body:
@@ -2966,7 +3018,7 @@ def import_audio(id, path, name, extra):
             final = f"{base}-{n}{Path(name).suffix}"
         asset = {"id": uid(), "name": final, "path": asset_reference(stored), "url": f"/media/{id}/{stored.name}",
                  "size": stored.stat().st_size, "generated": False, "license": "", "thumbnail": None,
-                 "kind": "audio", **info, "waveform": renderer.waveform(stored), **extra}
+                 "kind": "audio", **info, "waveform": renderer.waveform(stored), **extra, "audio_role": "narration"}
         p["assets"].append(asset)
         e = p.setdefault("episode", copy.deepcopy(episode.state(p)))
         if p.get("narration_id") != asset["id"]:

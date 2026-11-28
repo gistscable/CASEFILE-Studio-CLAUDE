@@ -48,7 +48,9 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
   const save = (patch) => onChange({ ...s, ...patch });
   const edit = (it, patch) => onChange(editItem(s, it, patch));
   const label = (sid) => (sid?.startsWith("a:") ? (project.assets || []).find((a) => a.id === sid.slice(2))?.name || "Your sound" : catalog?.byId[sid]?.label || sid);
-  const mine = (project.assets || []).filter((a) => a.kind === "audio" && (a.sfx || (a.duration || 99) <= 30));
+  // v0.4.68 your sound effects only: never the narration or the music (they are separate kinds of audio)
+  const mine = (project.assets || []).filter((a) => a.kind === "audio" && a.id !== project.narration_id && a.id !== project.music_id
+    && !["narration", "music"].includes(a.audio_role) && (a.sfx || a.audio_role === "sfx" || (!a.audio_role && (a.duration || 99) <= 30)));
 
   React.useEffect(() => {
     if (!s.enabled && !browse) return;

@@ -23,10 +23,13 @@ import MusicPanel from "./MusicPanel.jsx";
 import LiveRange from "./LiveRange.jsx";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
+import SearchPalette from "./SearchPalette.jsx";
+import { buildIndex } from "./searchIndex.js";
+import { AUDIO_ROLES, audioLists, audioRoleOf, roleBlock } from "./audioRoles.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel } from "./stickers.js";
 import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
-import { effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
+import { LOOKS, TRANSITIONS, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
 import { captionAt, captionCss, normaliseStyle, sceneCaptions, chunks as captionChunks, textUnit } from "./captionStyle.js";
 import {
   Sticker,
@@ -49,6 +52,7 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
+  Minimize2,
   Undo2,
   Redo2,
   Layers,
@@ -56,6 +60,7 @@ import {
   Settings2,
   Music2,
   AudioLines,
+  Zap,
   AudioWaveform,
   Film,
   Image as ImageIcon,
@@ -158,7 +163,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.67";
+const APP_VERSION = "0.4.68";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -454,7 +459,9 @@ function App() {
     [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
     [mediaId, setMediaId] = useState(null),
-    [frameSize, setFrameSize] = useState({ width: 640, height: 360 });
+    [frameSize, setFrameSize] = useState({ width: 640, height: 360 }),
+    [fullMode, setFullMode] = useState(""),
+    [searchOpen, setSearchOpen] = useState(false); // v0.4.68
   const historyRef = useRef(() => {}),
     historyBusy = useRef(false),
     gesture = useRef(false);
@@ -469,6 +476,8 @@ function App() {
     videoRef = useRef(null),
     screenRef = useRef(null),
     fileRef = useRef(null),
+    audioFileRef = useRef(null),
+    audioRoleRef = useRef(null),
     timelineRef = useRef(null),
     playingRef = useRef(false),
     timeRef = useRef(0),
@@ -832,12 +841,50 @@ function App() {
       clearInterval(timer);
     };
   }, [project?.id]);
+  // v0.4.68 Search opens with Ctrl+K / ⌘K on every page
+  useEffect(() => {
+    const k = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  // v0.4.68 the player in fullscreen ("native") or filling the window ("window", when fullscreen is blocked)
+  useEffect(() => {
+    const sync = () => {
+      const el = document.fullscreenElement || document.webkitFullscreenElement;
+      setFullMode((m) => (el && el === screenRef.current ? "native" : m === "native" ? "" : m));
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+  useEffect(() => {
+    if (fullMode !== "window") return;
+    const esc = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setFullMode("");
+      }
+    };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [fullMode]);
+  useEffect(() => {
+    if (tab !== "edit" && fullMode === "window") setFullMode("");
+  }, [tab]);
   useEffect(() => {
     if (!screenRef.current || tab !== "edit") return;
     const r = project?.aspect === "9:16" ? 9 / 16 : 16 / 9; // width / height
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      const full = document.fullscreenElement === entries[0].target || document.webkitFullscreenElement === entries[0].target;
+      const full = document.fullscreenElement === entries[0].target || document.webkitFullscreenElement === entries[0].target || entries[0].target.classList.contains("full-window");
       let w = full ? Math.min(width, height * r) : Math.min(width - 40, (height - 12) * r);
       setFrameSize({
         width: Math.max(r < 1 ? 90 : 180, w),
@@ -1163,8 +1210,9 @@ function App() {
       setBusy(false);
     }
   }
-  async function uploadFiles(files) {
+  async function uploadFiles(files, audioRole = null) {
     if (!files?.length) return;
+    const before = new Set((project.assets || []).map((a) => a.id));
     setUploading(true);
     try {
       validateUpload(files);
@@ -1177,6 +1225,7 @@ function App() {
       await flushSave();
       const form = new FormData();
       [...files].forEach((f) => form.append("files", f));
+      if (audioRole) form.append("audio_role", audioRole);
       const p = await api(
         `/api/projects/${project.id}/upload`,
         "POST",
@@ -1195,7 +1244,18 @@ function App() {
       );
       acceptProject(p);
       if ([...files].some((f) => /\.(txt|md)$/i.test(f.name))) setTab("script");
-      notify(`${files.length} file${files.length > 1 ? "s" : ""} imported.`);
+      const added = p.assets.filter((a) => !before.has(a.id));
+      const field = audioRole === "narration" ? "narration_id" : audioRole === "music" ? "music_id" : null;
+      if (field && !p[field] && added[0]) {
+        // v0.4.68 the first voice-over / music you import goes straight on its track
+        queueSave({ [field]: added[0].id });
+        notify(`${added[0].name} is your ${audioRole} now.`);
+      } else if (audioRole) {
+        notify(`${files.length} file${files.length > 1 ? "s" : ""} added to ${audioRole === "sfx" ? "your sound effects" : audioRole === "music" ? "your music" : "your narration"}.`);
+      } else {
+        const loose = added.filter((a) => a.kind === "audio").length;
+        notify(`${files.length} file${files.length > 1 ? "s" : ""} imported.${loose ? " Sort the audio in the Audio tab: narration, music or sound effects." : ""}`);
+      }
     } catch (e) {
       setUploadProgress((old) => (old ? { ...old, phase: "error" } : null));
       report(e);
@@ -1205,6 +1265,23 @@ function App() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (audioFileRef.current) audioFileRef.current.value = "";
+    }
+  }
+  function importAudio(role) {
+    // v0.4.68 import straight into one kind of audio
+    audioRoleRef.current = role;
+    audioFileRef.current?.click();
+  }
+  async function setAudioRole(a, role) {
+    const why = roleBlock(a, role, project);
+    if (why) return notify(why, "info");
+    try {
+      await flushSave();
+      acceptProject(await api(`/api/projects/${project.id}/assets/${a.id}`, "PATCH", { audio_role: role }));
+      notify(role ? `${a.name} moved to ${role === "sfx" ? "sound effects" : role}.` : `${a.name} is not sorted now.`);
+    } catch (e) {
+      report(e);
     }
   }
   function selectScene(scene, index) {
@@ -1838,10 +1915,80 @@ function App() {
     // v0.4.47 Fullscreen the monitor, not the frame: the monitor's size watcher then sizes the frame
     // for the whole screen (kept 16:9 or 9:16), so the watermark, CTA, captions and titles, which are
     // all placed from that size, grow with the picture instead of staying where the small frame was.
+    // v0.4.68 Where the page may not go fullscreen (an embedded preview, an iframe without
+    // permission), the player fills the whole window instead.
+    if (fullMode) return exitFull();
     const el = screenRef.current || document.querySelector(".monitor-screen");
-    const go = el && (el.requestFullscreen || el.webkitRequestFullscreen);
-    if (!go) return notify("Fullscreen is unavailable in this embedded preview.", "info");
-    Promise.resolve(go.call(el)).catch(() => notify("Fullscreen is unavailable in this embedded preview.", "info"));
+    const go = el && document.fullscreenEnabled !== false && (el.requestFullscreen || el.webkitRequestFullscreen);
+    if (!go) return setFullMode("window");
+    Promise.resolve(go.call(el)).catch(() => setFullMode("window"));
+  }
+  // v0.4.68 open what you found in Search
+  function goEdit() {
+    setHome(false);
+    if (tab !== "edit") setTab("edit");
+  }
+  function askDirector(q) {
+    setSearchOpen(false);
+    goEdit();
+    setCommand(q);
+    setLayout({ director: true });
+    setTimeout(() => document.getElementById("direction")?.focus(), 60);
+  }
+  function runSearch(r) {
+    const go = r.go || {};
+    setSearchOpen(false);
+    setMenuOpen(false);
+    if (go.left) {
+      goEdit();
+      openLeft(go.left[0], go.left[1]);
+    } else if (go.insp) {
+      goEdit();
+      setInspectorTab(go.insp[0]);
+      (go.insp[0] === "audio" ? setAudioSub : setVideoSub)(go.insp[1]);
+      if (!layout.showRight) setLayout({ showRight: true });
+    } else if (go.page) {
+      setHome(false);
+      setPlaying(false);
+      setTab(go.page);
+    } else if (go.scene != null) {
+      goEdit();
+      const sc = scenes[go.scene];
+      if (sc) selectVisualScene(sc, go.scene);
+    } else if (go.asset) {
+      setHome(false);
+      setMediaId(go.asset);
+      setModal("media");
+    } else if (go.action) {
+      const a = go.action;
+      if (a.startsWith("import:")) {
+        goEdit();
+        const role = a.slice(7);
+        openLeft("audio", role === "narration" ? "voice" : role);
+        importAudio(role);
+      } else if (a === "export") project.episode?.guide ? makeFirstDraft({ render: true }) : openTool("export", "review");
+      else if (a === "produce") openTool("production");
+      else if (a === "undo" || a === "redo") stepHistory(a);
+      else if (a === "split") { goEdit(); splitAtPlayhead(); }
+      else if (a === "addScene") { goEdit(); addScene(); }
+      else if (a === "importMedia") fileRef.current?.click();
+      else if (a === "director") askDirector("");
+      else if (a === "fullscreen") { goEdit(); setTimeout(fullscreen, 60); }
+      else if (a === "ratio") { setHome(false); setModal("format"); }
+      else if (a === "mediaLibrary") { setMediaId(null); setModal("media"); }
+      else if (a === "projects") { refreshProjects(); setModal("projects"); }
+      else if (a === "newProject") setModal("new");
+      else if (a === "backup") downloadProjectSnapshot(project, setDownloadGate);
+      else if (a === "home") { setPlaying(false); setHome(true); }
+      else if (a === "help") setModal("help");
+      else if (a === "settings") setModal("settings");
+    }
+  }
+  function exitFull() {
+    if (fullMode === "window") return setFullMode("");
+    const out = document.exitFullscreen || document.webkitExitFullscreen;
+    if (out) Promise.resolve(out.call(document)).catch(() => {});
+    setFullMode("");
   }
 
   if (!project)
@@ -2354,6 +2501,7 @@ function App() {
         <span className="cc-card-thumb" style={a.thumbnail ? { backgroundImage: `url("${a.thumbnail}")` } : undefined}>
           {!a.thumbnail && (a.kind === "audio" ? <AudioLines size={22} /> : <ImageIcon size={20} />)}
           {used && <b className="cc-badge">Added</b>}
+          {audioRoleOf(a, project) && <b className={`cc-role ${audioRoleOf(a, project)}`}>{{ narration: "Narration", music: "Music", sfx: "SFX" }[audioRoleOf(a, project)]}</b>}
           <i className="cc-dur">{a.duration ? tc(a.duration) : a.width ? `${a.width}×${a.height}` : a.kind}</i>
         </span>
         <span className="cc-card-name">{a.name}</span>
@@ -2365,9 +2513,12 @@ function App() {
     return (
       <div key={a.id} className={`cc-audio-row ${on ? "on" : ""}`}>
         <span className="cc-audio-icon">{field === "music_id" ? <Music2 size={15} /> : <Mic size={15} />}</span>
-        <span className="cc-audio-name">
+        <span className="cc-audio-name" title={a.name}>
           {a.name}
-          <small>{a.duration ? tc(a.duration) : a.kind}</small>
+          <span className="cc-audio-meta">
+            <small>{a.duration ? tc(a.duration) : a.kind}</small>
+            {kindPicker(a)}
+          </span>
         </span>
         <button
           className={`btn ${on ? "cc-in-use" : ""}`}
@@ -2380,13 +2531,62 @@ function App() {
       </div>
     );
   }
+  // v0.4.68 what an audio file is: narration, music or a sound effect
+  function kindPicker(a) {
+    const now = audioRoleOf(a, project) || "";
+    return (
+      <select
+        className="cc-kind"
+        aria-label={`What ${a.name} is`}
+        title="Narration, music and sound effects are kept apart. Move this file to another kind."
+        value={now}
+        disabled={locked}
+        onChange={(e) => setAudioRole(a, e.target.value || null)}
+      >
+        {!now && <option value="">Not sorted</option>}
+        {AUDIO_ROLES.map(([k, label]) => (
+          <option key={k} value={k} disabled={!!roleBlock(a, k, project)}>{label}</option>
+        ))}
+      </select>
+    );
+  }
+  // Audio imported elsewhere (the Media tab, an older project) waits here to be sorted.
+  function unsortedAudio(only) {
+    const loose = audioLists(project).unsorted;
+    if (!loose.length) return null;
+    return (
+      <div className="cc-unsorted">
+        <div className="section-label">
+          <span>NOT SORTED YET · {loose.length}</span>
+        </div>
+        <p className="micro-note block">Audio you imported from the Media tab. Say what each file is, so narration, music and sound effects stay apart.</p>
+        {loose.map((a) => (
+          <div key={a.id} className="cc-audio-row">
+            <span className="cc-audio-icon"><AudioLines size={15} /></span>
+            <span className="cc-audio-name">
+              {a.name}
+              <small>{a.duration ? tc(a.duration) : a.kind}</small>
+            </span>
+            <span className="cc-sort-btns">
+              {AUDIO_ROLES.filter(([k]) => !only || k === only).map(([k, label]) => (
+                <button key={k} className="btn" disabled={locked || !!roleBlock(a, k, project)} title={roleBlock(a, k, project) || `This is ${k === "sfx" ? "a sound effect" : k}`}
+                  aria-label={`Sort ${a.name} as ${label.toLowerCase()}`} onClick={() => setAudioRole(a, k)}>
+                  {k === "narration" ? <Mic size={12} /> : k === "music" ? <Music2 size={12} /> : <Zap size={12} />} {label}
+                </button>
+              ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
   function renderLeftPanel() {
     const def = LEFT_TABS.find((t) => t[0] === leftTab) || LEFT_TABS[0];
     const [key, , , subs] = def;
     const sub = subs ? (subs.some((x) => x[0] === leftSub[key]) ? leftSub[key] : subs[0][0]) : null;
     const q = mediaQuery.trim().toLowerCase();
     const used = new Set([...scenes.map((s) => s.asset_id), project.narration_id, project.music_id].filter(Boolean));
-    const audioFiles = assets.filter((a) => a.has_audio || a.kind === "audio");
+    const lists = audioLists(project);
     let content;
     if (key === "media") {
       const list = sub === "scenes" ? [] : assets.filter((a) => (sub === "all" || a.kind === sub) && (!q || a.name.toLowerCase().includes(q)));
@@ -2467,16 +2667,22 @@ function App() {
         </>
       );
     } else if (key === "audio") {
+      const role = sub === "music" ? "music" : "narration";
+      const mine = lists[role];
       content =
         sub === "sfx" ? (
-          soundPanel()
+          <>
+            {soundPanel()}
+            <div className="inspector-content">{unsortedAudio("sfx")}</div>
+          </>
         ) : (
           <div className="inspector-content">
             <div className="section-label">
               <span>{sub === "music" ? "BACKGROUND MUSIC" : "NARRATION (VOICE-OVER)"}</span>
+              <small>{mine.length} file{mine.length === 1 ? "" : "s"}</small>
             </div>
             <div className="cc-content-head">
-              <button className="cc-import" onClick={() => fileRef.current.click()} disabled={locked}>
+              <button className="cc-import" onClick={() => importAudio(role)} disabled={locked}>
                 <Upload size={13} /> {uploading ? "Uploading…" : sub === "music" ? "Import music" : "Import a voice-over"}
               </button>
               {sub === "voice" && (
@@ -2485,11 +2691,14 @@ function App() {
                 </button>
               )}
             </div>
-            {audioFiles.length ? (
-              audioFiles.map((a) => audioRow(a, sub === "music" ? "music_id" : "narration_id", sub === "music" ? "music" : "narration"))
+            {mine.length ? (
+              mine.map((a) => audioRow(a, role + "_id", role))
             ) : (
-              <p className="micro-note block">No audio files yet. Import an MP3, WAV or M4A.</p>
+              <p className="micro-note block">
+                {sub === "music" ? "No music yet. Import an MP3, WAV or M4A you have permission to use." : "No voice-over yet. Import your recorded narration (MP3, WAV, M4A) or make an AI voice."}
+              </p>
             )}
+            {unsortedAudio()}
             <button className="text-link" onClick={() => { setInspectorTab("audio"); setAudioSub(sub === "music" ? "music" : "voice"); setLayout({ showRight: true }); }}>
               {sub === "music" ? "Music settings: part of the track, loop, fades, ducking" : "Voice settings: level, transcribe and align"} <ArrowUpRight size={12} />
             </button>
@@ -2969,7 +3178,7 @@ function App() {
           }}
         />
       )}
-      <div className={`workspace cc ${tab === "edit" ? "cc-edit" : ""}`} hidden={home}>
+      <div className={`workspace cc ${tab === "edit" ? "cc-edit" : ""} ${playing ? "is-playing" : ""}`} hidden={home}>
         {/* v0.4.67 one slim bar, as in CapCut: menu, project and save state · the pages · export */}
         <header className="topbar cc-topbar">
           <div className="cc-top-left">
@@ -3082,6 +3291,11 @@ function App() {
           ))}
         </nav>
           <div className="cc-top-right">
+            <button className="cc-search-btn" aria-label="Search" title="Search tools, settings, scenes and files (Ctrl+K / ⌘K)" onClick={() => setSearchOpen(true)}>
+              <Search size={14} />
+              <span>Search</span>
+              <kbd>{IS_MAC ? "⌘K" : "Ctrl K"}</kbd>
+            </button>
             {tab !== "edit" && (
               <>
                 <IconButton
@@ -3357,7 +3571,20 @@ function App() {
                   />
                 </div>
               </div>
-              <div className="monitor-screen" ref={screenRef}>
+              <div className={`monitor-screen ${fullMode === "window" ? "full-window" : ""}`} ref={screenRef}>
+                {fullMode && (
+                  <div className="full-bar">
+                    <button type="button" aria-label={playing ? "Pause (full screen)" : "Play (full screen)"} title="Play / pause (Space)" onClick={() => setPlaying((v) => !v)} disabled={!scenes.length}>
+                      {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                    </button>
+                    <span className="full-time">{tc(time, true)} / {tc(duration, true)}</span>
+                    <input type="range" aria-label="Playhead (full screen)" min="0" max={duration || 0} step="0.04" value={Math.min(time, duration || 0)}
+                      onChange={(e) => { setPlaying(false); setTime(+e.target.value); }} />
+                    <button type="button" aria-label="Exit full screen" title="Exit full screen (Esc)" onClick={exitFull}>
+                      <Minimize2 size={15} />
+                    </button>
+                  </div>
+                )}
                 <div
                   className={`video-frame look-${project.look} ${aspectOf(project) === "9:16" ? "tall" : ""}`}
                   style={{ width: frameSize.width, height: frameSize.height }}
@@ -3654,7 +3881,7 @@ function App() {
                   </div>
                   <IconButton
                     icon={Maximize2}
-                    label="Fullscreen preview"
+                    label={fullMode ? "Exit full screen" : "Fullscreen preview"}
                     onClick={fullscreen}
                   />
                 </div>
@@ -4033,15 +4260,16 @@ function App() {
                           </span>
                         </>
                       ) : (
-                        <span>
+                        <button type="button" className="lane-empty" onClick={(e) => { e.stopPropagation(); openLeft("audio", "voice"); }}>
                           <Plus size={11} /> No narration — upload a track or
                           generate a voice
-                        </span>
+                        </button>
                       )}
                     </div>
                       <button
                         className={`audio-lane music-lane ${music ? "has-audio" : ""}`}
                         onClick={() => {
+                          if (!music) return openLeft("audio", "music"); // v0.4.68 add music from the Audio tab
                           if (!selected) return;
                           setSelectedTrack({ kind: "music", sceneId: selected.id });
                           setInspectorTab("audio");
@@ -5100,6 +5328,14 @@ function App() {
         )}
       </div>
       {voice && <audio ref={audioRef} src={voice.url} preload="metadata" />}
+      {searchOpen && (
+        <SearchPalette
+          items={buildIndex({ scenes, assets, offsets, looks: LOOKS, transitions: TRANSITIONS })}
+          onPick={runSearch}
+          onClose={() => setSearchOpen(false)}
+          onAskDirector={askDirector}
+        />
+      )}
       <input
         ref={fileRef}
         type="file"
@@ -5107,6 +5343,15 @@ function App() {
         multiple
         accept=".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac,.txt,.md"
         onChange={(e) => uploadFiles(e.target.files)}
+      />
+      <input
+        ref={audioFileRef}
+        type="file"
+        hidden
+        multiple
+        aria-label="Import audio"
+        accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.webm"
+        onChange={(e) => uploadFiles(e.target.files, audioRoleRef.current)}
       />
       {activeJob && (
         <div className="job-card">
@@ -5487,9 +5732,15 @@ function App() {
                     )}
                     {(a.has_audio || a.kind === "audio") && (
                       <>
+                        <label className="field cc-kind-field">
+                          What this file is
+                          {kindPicker(a)}
+                        </label>
                         <Button
                           className="full"
                           icon={Mic}
+                          disabled={locked || project.narration_id === a.id || project.music_id === a.id || audioRoleOf(a, project) === "sfx"}
+                          title={project.music_id === a.id ? "This is your music. Narration and music are separate files." : undefined}
                           onClick={() => {
                             queueSave({ narration_id: a.id });
                             notify(
@@ -5497,17 +5748,19 @@ function App() {
                             );
                           }}
                         >
-                          Use as narration
+                          {project.narration_id === a.id ? "Your narration" : "Use as narration"}
                         </Button>
                         <Button
                           className="full"
                           icon={Music2}
+                          disabled={locked || project.music_id === a.id || project.narration_id === a.id || audioRoleOf(a, project) === "sfx"}
+                          title={project.narration_id === a.id ? "This is your narration. Narration and music are separate files." : undefined}
                           onClick={() => {
                             queueSave({ music_id: a.id });
                             notify("Background music assigned.");
                           }}
                         >
-                          Use as music
+                          {project.music_id === a.id ? "Your music" : "Use as music"}
                         </Button>
                         <Button
                           className="full"
@@ -5825,6 +6078,10 @@ function App() {
                   edits in plain English. The pages (Episode setup, Research,
                   Script, Review & export …) are in the top bar; the menu beside
                   the logo has Home, your projects, backups, help and settings.
+                  Can't find something? Press Search in the top bar (or Ctrl+K / ⌘K)
+                  and type what you want: a tool, a setting, a scene or a word from
+                  the narration. Narration, music and sound effects each have their
+                  own place under Audio.
                 </p>
               </section>
             </div>

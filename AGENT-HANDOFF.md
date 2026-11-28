@@ -1384,3 +1384,28 @@ are not imitated). Four PRs: 1 the frame (this), 2 per-tab grids, 3 contextual i
   it with `historyLabel` ("Undo: … (Ctrl+Z)"). Browser tests need Playwright's chromium (not in the sandbox).
 - **Testing tip:** `data/projects/*.json` are tracked; click-testing against them changes them. Run the app with
   `CASEFILE_DATA_DIR=/tmp/cfdata` (a copy of `data/`).
+
+## v0.4.68 — Search, separate kinds of audio, full screen in an embedded preview (same PR as v0.4.67)
+
+User: "add search button to search what i can't find. allow audio (Narration different from music, music different
+from sfx). Fullscreen is unavailable in this embedded preview. fix"
+- **Search:** top-bar `button.cc-search-btn` ("Search") or Ctrl+K / ⌘K on any page opens `SearchPalette.jsx`.
+  `searchIndex.js` (pure, tested in `tests/js/searchIndex.test.mjs`) indexes the tools (left tabs, inspector tabs, with
+  the words people use: "watermark" → Effects › Logo, "subtitles" → Captions, "crop" → Video › Picture), every look and
+  transition, the pages, the actions (export, undo, split, import a voice-over, full screen, ratio …), the scenes with
+  words of their narration (a snippet shows why), and the media files. Each result has a `go` that `runSearch` in
+  `main.jsx` performs. No result → "Ask the Director" (fills `#direction`).
+- **Kinds of audio:** an asset may carry `audio_role` = `narration` | `music` | `sfx`. Upload takes the form field
+  `audio_role` (sort only: no episode, no timeline rebuild; `sfx` = the v0.4.56 sound-effect upload, ≤ 30 s, sets
+  `sfx: true`). `PATCH /assets/{id}` with `audio_role` moves a file (`set_audio_role`): the file a role uses now
+  cannot move, a sound effect must be audio ≤ 30 s, `null` = not sorted. Choosing a file as `narration_id` /
+  `music_id` (project PATCH or Episode setup) sorts it under that role; the project PATCH refuses one file as both
+  ("Narration and music must be different files."). AI narration and recorded voice get `audio_role: narration`.
+  `audioRoles.js` (tested) gives each file its kind (the role using it wins) and the lists; the Audio tab shows only
+  its own kind, a "Not sorted yet" box for audio imported from the Media tab (videos with sound are footage: listed
+  only once sorted), a kind picker on every row and in the media library; the Sound panel's "your sounds" leave out
+  narration and music. The first voice-over / music imported in the Audio tab goes straight on its track.
+  Tests: `tests/test_audio_roles.py`.
+- **Full screen:** `fullscreen()` asks for real fullscreen; where the page may not (an iframe without permission, as
+  the Arena preview) the monitor gets `.full-window` (fixed, the whole window). Both show `.full-bar` (play, time,
+  scrub, exit); Esc or the button leaves. The size watcher treats `.full-window` like fullscreen.
