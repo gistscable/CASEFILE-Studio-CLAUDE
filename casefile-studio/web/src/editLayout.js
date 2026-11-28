@@ -59,6 +59,38 @@ export function timelineHeight(wanted, gridHeight, minTop = 230) {
   return Math.max(lo, Math.min(hi, room, wanted));
 }
 
+// v0.4.71 Fit the Edit page to the screen it is on (a 13" MacBook Air is about 1280-1470 px
+// wide and 700-850 px tall inside the browser; a 16" Pro about 1728 x 1000). What you saved is
+// kept; only what is drawn shrinks:
+//  - the side panels give way so the player keeps at least `centreShare` of the width,
+//    never going under their floors;
+//  - the timeline is never taller than its tracks need (`need`, measured), so empty rows
+//    below the last track go to the player, and on a short screen the player keeps at least
+//    `topShare` of the height.
+export const FIT_FLOORS = { left: 340, right: 288 };
+export function fitEdit(layout, { width = 0, gridHeight = 0, need = 0, pad = 6, centreShare = 0.42, topShare = 0.5 } = {}) {
+  const l = layout || LAYOUT_DEFAULTS;
+  let left = l.showLeft ? l.left : 0;
+  let right = l.showRight ? l.right : 0;
+  if (width > 0 && (left || right)) {
+    const centreMin = Math.max(420, Math.round(width * centreShare));
+    const room = width - 4 * pad - centreMin;
+    const over = left + right - room;
+    if (over > 0) {
+      const lf = l.showLeft ? Math.min(left, FIT_FLOORS.left) : 0;
+      const rf = l.showRight ? Math.min(right, FIT_FLOORS.right) : 0;
+      const give = left - lf + (right - rf);
+      const k = give > 0 ? Math.min(1, over / give) : 0;
+      left = Math.round(left - (left - lf) * k);
+      right = Math.round(right - (right - rf) * k);
+    }
+  }
+  let wanted = l.timeline;
+  if (need > 0) wanted = Math.min(wanted, Math.max(LIMITS.timeline[0], Math.round(need)));
+  const minTop = Math.max(230, Math.round((gridHeight || 0) * topShare));
+  return { left, right, timeline: timelineHeight(wanted, gridHeight, minTop) };
+}
+
 const STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
 
 // Major ticks at least `minPx` apart, with up to 4 minor ticks between.

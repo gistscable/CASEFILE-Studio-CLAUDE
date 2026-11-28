@@ -361,18 +361,6 @@
 .cc-tabs button.active {
   background: #cfad7712;
 }
-.cc-tabs-more {
-  flex: none;
-  width: 22px;
-  color: var(--cc-mute);
-  border-left: 1px solid var(--cc-line);
-  display: grid;
-  place-items: center;
-}
-.cc-tabs-more:hover {
-  color: var(--cc-text);
-  background: var(--cc-hover);
-}
 .cc-left-body {
   flex: 1;
   min-height: 0;
@@ -1862,3 +1850,82 @@
 }
 /* the floating button stays as the shortcut; while docked it marks the Director as open */
 .cc-pilot.docked.open .cc-pilot-btn { border-color: var(--gold); }
+
+/* ---------- v0.4.71 fitted to Mac screens (13", 14", 16") and to phones ---------- */
+/* the nine left tabs share the row instead of scrolling behind an arrow; on a narrow panel the
+   labels get smaller, then only the icons show (each keeps its name as a tooltip) */
+.cc-tabs-wrap {
+  container-type: inline-size;
+  container-name: cctabs;
+}
+.cc-tabs {
+  gap: 0;
+  padding: 6px 3px 5px;
+}
+.cc-tabs button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 2px 5px;
+  font-size: 11px;
+}
+.cc-tabs button > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container cctabs (max-width: 425px) {
+  .cc-tabs button {
+    font-size: 10px;
+    padding: 6px 1px 5px;
+    letter-spacing: -0.1px;
+  }
+}
+@container cctabs (max-width: 372px) {
+  .cc-tabs button > span {
+    display: none;
+  }
+  .cc-tabs button {
+    padding: 8px 0;
+  }
+}
+/* the panel edges only resize the three-column layout */
+@media (max-width: 1070px) {
+  .workspace.cc .edit-grid > .splitter {
+    display: none;
+  }
+}
+/* phones: the page scrolls, so the media panel is tall enough to browse and the timeline
+   shows every track (its height is measured: --cc-tl-h) */
+@media (max-width: 580px) {
+  .workspace.cc .edit-grid {
+    height: auto;
+    min-height: 0;
+  }
+  .workspace.cc .edit-grid > .scene-panel.cc-left {
+    height: clamp(380px, 62svh, 540px);
+    max-height: none;
+  }
+  .workspace.cc .edit-grid > .timeline {
+    height: var(--cc-tl-h, auto);
+    min-height: 200px;
+    flex: none;
+  }
+  .cc-pilot {
+    position: fixed;
+  }
+}
+/* phones: the timeline's tool row slides sideways so zoom and fit stay reachable */
+@media (max-width: 580px) {
+  .workspace.cc .timeline-toolbar.cc-tl-toolbar {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .workspace.cc .timeline-toolbar.cc-tl-toolbar::-webkit-scrollbar {
+    display: none;
+  }
+  .workspace.cc .timeline-toolbar.cc-tl-toolbar > * {
+    flex: none;
+  }
+}

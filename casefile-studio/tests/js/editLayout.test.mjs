@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normaliseLayout, timelineHeight, rulerTicks, captionBlocks, zoomScroll, LAYOUT_DEFAULTS } from "../../web/src/editLayout.js";
+import { normaliseLayout, timelineHeight, rulerTicks, captionBlocks, zoomScroll, LAYOUT_DEFAULTS, fitEdit, FIT_FLOORS } from "../../web/src/editLayout.js";
 
 test("layout survives bad or partial saved values", () => {
   assert.deepEqual(normaliseLayout(null), LAYOUT_DEFAULTS);
@@ -71,4 +71,31 @@ test("v0.4.67 CapCut-style panels: a wide left panel, the Director closed until 
   // once saved by v0.4.67, your own sizes and an open Director are kept
   const mine = normaliseLayout(JSON.stringify({ ...old, left: 520, director: true }));
   assert.deepEqual([mine.left, mine.director], [520, true]);
+});
+
+test("v0.4.71 the Edit page fits a 13-inch screen without changing what you saved", () => {
+  const d = LAYOUT_DEFAULTS;
+  // a 16-inch screen: nothing shrinks sideways
+  const big = fitEdit(d, { width: 1728, gridHeight: 940, need: 250 });
+  assert.deepEqual([big.left, big.right], [440, 340]);
+  // the timeline is never taller than its tracks
+  assert.equal(big.timeline, 250);
+  // 1280 wide: the side panels give way so the player keeps 42% of the width
+  const small = fitEdit(d, { width: 1280, gridHeight: 628, need: 250 });
+  assert.ok(small.left < 440 && small.right < 340);
+  assert.ok(small.left >= FIT_FLOORS.left && small.right >= FIT_FLOORS.right);
+  assert.ok(1280 - small.left - small.right - 24 >= Math.round(1280 * 0.42) - 1);
+  // a short screen: the player keeps at least half the height, the timeline scrolls
+  const short = fitEdit(d, { width: 1280, gridHeight: 560, need: 320 });
+  assert.equal(short.timeline, 280);
+  // panels never go under their floors, even very narrow
+  const tiny = fitEdit(d, { width: 1080, gridHeight: 600 });
+  assert.deepEqual([tiny.left, tiny.right], [FIT_FLOORS.left, FIT_FLOORS.right]);
+  // a hidden panel takes no room and lets the other keep its size
+  const noRight = fitEdit({ ...d, showRight: false }, { width: 1280, gridHeight: 628 });
+  assert.deepEqual([noRight.left, noRight.right], [440, 0]);
+  // a timeline you made shorter than the tracks stays as you made it
+  assert.equal(fitEdit({ ...d, timeline: 200 }, { width: 1512, gridHeight: 800, need: 300 }).timeline, 200);
+  // the saved layout itself is untouched
+  assert.equal(d.left, 440);
 });
