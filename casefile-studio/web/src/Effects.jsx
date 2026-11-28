@@ -1,5 +1,6 @@
 import React from "react";
-import { TRANSITIONS, MOTIONS, LOOKS, normaliseEffects, transitionId, transitionLength, normaliseNameCards } from "./effects.js";
+import { TRANSITIONS, MOTIONS, LOOKS, normaliseEffects, transitionId, transitionLength, normaliseNameCards, transitionStyle, transitionUnder } from "./effects.js";
+import { Check } from "lucide-react";
 import { normaliseCta } from "./cta.js";
 import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf } from "./picture.js";
 import { normaliseWatermark, watermarkBox, WM_POSITIONS, WM_DEFAULTS } from "./watermark.js";
@@ -124,6 +125,60 @@ function CtaPlaces({ cta, spots, natural, playhead, disabled, setCta, onPlay }) 
     </>
   );
 }
+
+// v0.4.69 A transition tile: the previous scene's picture into this one's, drawn with the same
+// styles the preview uses. Still at the half-way point; it plays when you point at it.
+function TransitionTile({ t, selected, disabled, prevThumb, thumb, onPick }) {
+  const [q, setQ] = React.useState(0.5);
+  const raf = React.useRef(0);
+  const play = () => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const t0 = performance.now();
+    const step = (now) => {
+      const k = ((now - t0) % 1600) / 1600; // 0.2 s hold, 1 s move, 0.4 s hold
+      setQ(Math.min(1, Math.max(0, (k - 0.12) / 0.62)));
+      raf.current = requestAnimationFrame(step);
+    };
+    cancelAnimationFrame(raf.current);
+    raf.current = requestAnimationFrame(step);
+  };
+  const stop = () => {
+    cancelAnimationFrame(raf.current);
+    setQ(0.5);
+  };
+  React.useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const under = transitionUnder(t.id, q);
+  const top = t.id === "none" ? { opacity: q < 0.5 ? 0 : 1 } : transitionStyle(t.id, q);
+  const img = (u) => (u ? { backgroundImage: `url("${u}")` } : undefined);
+  return (
+    <button
+      className={`cc-tile fx-tr-tile ${selected ? "selected" : ""}`}
+      aria-label={`Transition ${t.label}`}
+      aria-pressed={selected}
+      disabled={disabled}
+      title={t.id === "none" ? "A straight cut" : `${t.label}: point at it to see it`}
+      onClick={onPick}
+      onMouseEnter={play}
+      onMouseLeave={stop}
+      onFocus={play}
+      onBlur={stop}
+    >
+      <span className="cc-tile-img tr-stage" style={{ background: under.colour || "#15161a" }}>
+        <i className="tr-a" style={{ ...img(prevThumb), opacity: under.prevOpacity }} />
+        <i className="tr-b" style={{ ...img(thumb), ...top }} />
+        {selected && <b className="tile-check"><Check size={11} strokeWidth={3} /></b>}
+      </span>
+      <span className="cc-tile-name">{t.label}</span>
+    </button>
+  );
+}
+
+// v0.4.69 The whole-video effects as tiles that show the effect on your picture.
+const FX_TILES = [
+  ["grain", "Film grain", 0.35],
+  ["vignette", "Vignette", 0.45],
+  ["letterbox", "Cinema bars", true],
+];
 
 // v0.4.49 Your own push-in / pan: keyframes of zoom and position for this scene.
 function PictureKeys({ scene, local, disabled, onScene, onSeek, sceneStart }) {
@@ -338,10 +393,11 @@ function Watermark({ project, thumb, disabled, onProject, onUploadLogo }) {
   );
 }
 
-export default function Effects({ project, scene, sceneIndex, thumb, disabled, onProject, onScene, onUploadBanner, onUploadLogo, ctaEvents = [], ctaSpots = [], ctaNatural = 5, playhead = 0, sceneStart = 0, onSeek, onCrop, onPlayCta, api, autoCard, only }) {
+export default function Effects({ project, scene, sceneIndex, thumb, prevThumb, disabled, onProject, onScene, onAllScenes, onHoverLook, onUploadBanner, onUploadLogo, ctaEvents = [], ctaSpots = [], ctaNatural = 5, playhead = 0, sceneStart = 0, onSeek, onCrop, onPlayCta, api, autoCard, only }) {
   // v0.4.67 CapCut layout: each left-panel tab shows only its own part (Filters, Effects,
   // Transitions, Text …); without `only` every part shows, as before.
   const show = (k) => !only || only.includes(k);
+  React.useEffect(() => () => onHoverLook?.(null), []); // the player stops "trying" a look when this closes
   const fx = normaliseEffects(project.effects);
   const cta = normaliseCta(project.cta);
   const sceneAsset = (project.assets || []).find((a) => a.id === scene?.asset_id && (a.kind === "image" || a.kind === "video"));
@@ -367,20 +423,27 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
       <div className="section-label">
         <span>LOOK OF THE WHOLE VIDEO</span>
       </div>
-      <div className="fx-looks">
+      <p className="micro-note block">Point at a look to see it on the player; click to use it.</p>
+      <div className="fx-looks cc-tiles" onMouseLeave={() => onHoverLook?.(null)}>
         {LOOKS.map((l) => (
           <button
             key={l.id}
-            className={`fx-look ${project.look === l.id ? "selected" : ""}`}
+            className={`fx-look cc-tile ${project.look === l.id ? "selected" : ""}`}
             aria-label={`Look ${l.label}`}
             aria-pressed={project.look === l.id}
             disabled={disabled}
-            onClick={() => onProject({ look: l.id })}
+            onClick={() => { onHoverLook?.(null); onProject({ look: l.id }); }}
+            onMouseEnter={() => onHoverLook?.(l.id)}
+            onFocus={() => onHoverLook?.(l.id)}
+            onBlur={() => onHoverLook?.(null)}
           >
-            <div className="fx-look-img" style={{ backgroundImage: thumb ? `url("${thumb}")` : undefined, filter: l.css }}>
-              {l.tint && <i style={{ background: l.tint }} />}
-            </div>
-            <span>{l.label}</span>
+            <span className="cc-tile-img">
+              <span className="fx-look-img" style={{ backgroundImage: thumb ? `url("${thumb}")` : undefined, filter: l.css }}>
+                {l.tint && <i style={{ background: l.tint }} />}
+              </span>
+              {project.look === l.id && <b className="tile-check"><Check size={11} strokeWidth={3} /></b>}
+            </span>
+            <span className="cc-tile-name">{l.label}</span>
           </button>
         ))}
       </div>
@@ -388,6 +451,28 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
       {show("fx") && (<>
       <div className="section-label">
         <span>VIDEO EFFECTS · WHOLE VIDEO</span>
+      </div>
+      <div className="cc-tiles fx-tiles">
+        {FX_TILES.map(([k, label, on]) => {
+          const active = k === "letterbox" ? fx.letterbox : fx[k] > 0;
+          return (
+            <button
+              key={k}
+              className={`cc-tile ${active ? "selected" : ""}`}
+              aria-label={`${label} tile`}
+              title={active ? `Click to turn ${label.toLowerCase()} off` : `Click to add ${label.toLowerCase()}`}
+              aria-pressed={active}
+              disabled={disabled}
+              onClick={() => setFx({ [k]: k === "letterbox" ? !fx.letterbox : active ? 0 : on })}
+            >
+              <span className={`cc-tile-img fx-demo fx-demo-${k}`} style={{ backgroundImage: thumb ? `url("${thumb}")` : undefined }}>
+                <i />
+                {active && <b className="tile-check"><Check size={11} strokeWidth={3} /></b>}
+              </span>
+              <span className="cc-tile-name">{label}{k !== "letterbox" && active ? ` · ${Math.round(fx[k] * 100)}%` : ""}</span>
+            </button>
+          );
+        })}
       </div>
       <Pct label="Film grain" value={fx.grain} disabled={disabled} onChange={(v) => setFx({ grain: v })} />
       <Pct label="Vignette" value={fx.vignette} disabled={disabled} onChange={(v) => setFx({ vignette: v })} />
@@ -530,19 +615,17 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
             <span>SCENE {String(sceneIndex + 1).padStart(2, "0")} · TRANSITION IN</span>
           </div>
           {sceneIndex === 0 && <p className="micro-note block">The first scene has nothing before it; “Fade in and out” still works here.</p>}
-          <div className="fx-trans">
+          <div className="fx-trans cc-tiles">
             {TRANSITIONS.map((t) => (
-              <button
+              <TransitionTile
                 key={t.id}
-                className={`fx-tr ${trans === t.id ? "selected" : ""}`}
-                aria-label={`Transition ${t.label}`}
-                aria-pressed={trans === t.id}
+                t={t}
+                selected={trans === t.id}
                 disabled={disabled}
-                onClick={() => onScene({ transition: t.id, transition_duration: t.id === "none" ? 0 : scene.transition_duration || 0.5 })}
-              >
-                <i className={`fx-tr-icon tr-${t.id}`} />
-                {t.label}
-              </button>
+                prevThumb={prevThumb}
+                thumb={thumb}
+                onPick={() => onScene({ transition: t.id, transition_duration: t.id === "none" ? 0 : scene.transition_duration || 0.5 })}
+              />
             ))}
           </div>
           {trans !== "none" && (
@@ -560,6 +643,16 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
                 onChange={(e) => onScene({ transition_duration: Number(e.target.value) / 10 })}
               />
             </label>
+          )}
+          {onAllScenes && (
+            <button
+              className="btn fx-all"
+              disabled={disabled}
+              title="Every scene gets this transition and length"
+              onClick={() => onAllScenes({ transition: trans, transition_duration: trans === "none" ? 0 : scene.transition_duration || 0.5 }, TRANSITIONS.find((t) => t.id === trans)?.label)}
+            >
+              Use “{TRANSITIONS.find((t) => t.id === trans)?.label || "None"}” on every scene
+            </button>
           )}
           <p className="micro-note block">Transitions blend into the scene and never move it, so the narration stays in sync.</p>
           </>)}

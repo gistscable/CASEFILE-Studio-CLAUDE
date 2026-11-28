@@ -67,11 +67,14 @@ export function PresetCard({ preset, selected, onPick, disabled }) {
   );
 }
 
-export default function CaptionStyles({ value, enabled, onChange, onToggle, disabled }) {
+export default function CaptionStyles({ value, enabled, onChange, onToggle, disabled, section }) {
   const s = normaliseStyle(value);
   const set = (patch) => onChange(normaliseStyle({ ...s, ...patch }));
+  // v0.4.69 the left Captions tab shows one part at a time: styles, text, box & position
+  const show = (k) => !section || section === k;
   return (
     <div className="inspector-content cs">
+      {show("styles") && (<>
       <label className="cs-toggle">
         <input type="checkbox" aria-label="Burn captions into the video" checked={!!enabled} disabled={disabled} onChange={(e) => onToggle(e.target.checked)} />
         <span>Captions in the video</span>
@@ -86,6 +89,8 @@ export default function CaptionStyles({ value, enabled, onChange, onToggle, disa
           <PresetCard key={p.id} preset={p} selected={s.preset === p.id} disabled={disabled} onPick={(id) => onChange(applyPreset(s, id))} />
         ))}
       </div>
+      </>)}
+      {show("text") && (<>
 
       <div className="section-label">
         <span>TEXT</span>
@@ -130,6 +135,8 @@ export default function CaptionStyles({ value, enabled, onChange, onToggle, disa
         </select>
       </label>
 
+      </>)}
+      {show("box") && (<>
       <div className="section-label">
         <span>OUTLINE, BOX AND SHADOW</span>
       </div>
@@ -151,6 +158,8 @@ export default function CaptionStyles({ value, enabled, onChange, onToggle, disa
       <button className="btn cs-reset" disabled={disabled} onClick={() => onChange(applyPreset({}, s.preset))}>
         Reset to “{PRESETS.find((p) => p.id === s.preset)?.label}”
       </button>
+      </>)}
+      {section && section !== "styles" && !enabled && <p className="micro-note block">Captions are off. Switch them on under Styles to see these changes in the video.</p>}
     </div>
   );
 }

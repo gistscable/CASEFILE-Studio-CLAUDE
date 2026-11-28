@@ -1474,3 +1474,291 @@
 .cc .cc-audio-name { overflow-wrap: anywhere; line-height: 1.3; }
 .cc .cc-audio-meta { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .cc .cc-audio-meta .cc-kind { height: 22px; font-size: 10.5px; padding: 0 4px; }
+
+/* ------------------------------------------------------------------
+   v0.4.69 CapCut step 2: every left tab is a grid of tiles.
+   Filters show each look on your picture (point at one to try it on
+   the player), transitions play when you point at them, the sticker
+   gallery sits in the tab, Effects and Text start with a card per
+   overlay, captions are a gallery, Media has chips and sorting.
+   ------------------------------------------------------------------ */
+.cc .cc-tiles,
+.cc .fx-looks.cc-tiles,
+.cc .fx-trans.cc-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 10px 8px;
+  margin: 2px 0 10px;
+}
+.cc .cc-tile,
+.cc .fx-look.cc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--cc-text);
+}
+.cc .cc-tile:disabled { cursor: not-allowed; opacity: 0.55; }
+.cc .cc-tile-img {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  background: #24262a linear-gradient(135deg, #6b7c86, #3a3027 55%, #b49a6a) center / cover no-repeat;
+}
+.cc .cc-tile:hover:not(:disabled) .cc-tile-img,
+.cc .cc-tile:focus-visible .cc-tile-img { border-color: #ffffff38; }
+.cc .cc-tile.selected .cc-tile-img { border-color: var(--gold); }
+.cc .cc-tile-name {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.25;
+  color: var(--cc-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 1px;
+}
+.cc .cc-tile.selected .cc-tile-name { color: var(--cc-text); font-weight: 600; }
+.cc .tile-check {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #17140f;
+  box-shadow: 0 1px 3px #0008;
+}
+/* filters: the look's colour filter on an inner layer, so the tick keeps its colour */
+.cc .fx-look .fx-look-img {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  background: linear-gradient(135deg, #6b7c86, #3a3027 55%, #b49a6a) center / cover no-repeat;
+}
+.cc .fx-look .fx-look-img[style*="url"] { background-size: cover; background-position: center; }
+.cc .fx-look span.cc-tile-name { padding: 0 1px; font-size: 11.5px; color: var(--cc-soft); }
+.cc .fx-look.selected span.cc-tile-name { color: var(--cc-text); }
+.video-frame.look-trying::after {
+  content: attr(data-trying);
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 30;
+  padding: 3px 9px;
+  border-radius: 10px;
+  background: #000000b8;
+  color: #f4e6c8;
+  font-size: 11.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+/* transitions: the previous scene's picture under this one's */
+.cc .tr-stage i {
+  position: absolute;
+  inset: 0;
+  background: #3a3d44 center / cover no-repeat;
+}
+.cc .tr-stage .tr-a { background-image: linear-gradient(135deg, #3b4752, #20262c); }
+.cc .tr-stage .tr-b { background-image: linear-gradient(135deg, #a28a5c, #4b3a28); }
+.cc .tr-stage .tr-a[style*="url"],
+.cc .tr-stage .tr-b[style*="url"] { background-size: cover; }
+.cc .fx-all { width: 100%; justify-content: center; margin: 2px 0 8px; }
+/* video effects: what grain, vignette and bars do, on your picture */
+.cc .fx-demo { background-size: cover; background-position: center; }
+.cc .fx-demo i { position: absolute; inset: 0; }
+.cc .fx-demo-grain i {
+  opacity: 0.55;
+  background-image: repeating-radial-gradient(circle at 17% 32%, #fff3 0 1px, transparent 1px 3px), repeating-radial-gradient(circle at 71% 64%, #0005 0 1px, transparent 1px 2px);
+  mix-blend-mode: overlay;
+}
+.cc .fx-demo-vignette i { background: radial-gradient(ellipse at center, transparent 35%, #000d 100%); }
+.cc .fx-demo-letterbox i { background: linear-gradient(#000 0 14%, transparent 14% 86%, #000 86%); }
+
+/* stickers: the gallery in the tab */
+.cc .sticker-grid.cc-sticker-grid {
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 8px;
+  max-height: none;
+  overflow: visible;
+  margin-bottom: 8px;
+}
+.cc .cc-sticker-grid .sticker-card {
+  aspect-ratio: 1;
+  gap: 6px;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border-color: var(--cc-line);
+  background: var(--cc-panel2);
+  color: var(--cc-soft);
+  text-align: center;
+}
+.cc .cc-sticker-grid .sticker-card:hover { border-color: var(--gold); background: #26272c; color: var(--cc-text); }
+.cc .cc-sticker-grid .sticker-card > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc .cc-sticker-grid .sticker-card small { font-size: 10px; line-height: 1.25; }
+.cc .cc-sticker-grid .sticker-badge { top: 5px; left: 5px; font-size: 9px; padding: 1px 5px; }
+.sticker-card .tile-add {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  display: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: #17140f;
+}
+.sticker-card:hover .tile-add,
+.sticker-card:focus-visible .tile-add { display: grid; }
+
+/* captions: the style gallery fills the tab */
+.cc .cs-presets {
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px 8px;
+}
+.cc .cs-preset { border: 2px solid transparent; border-radius: 8px; background: none; }
+.cc .cs-preset:hover:not(:disabled) { border-color: #ffffff38; }
+.cc .cs-preset.selected { border-color: var(--gold); box-shadow: none; }
+.cc .cs-preset-frame { height: auto; aspect-ratio: 16 / 10; border-radius: 6px; }
+.cc .cs-preset-name { font-size: 11.5px; color: var(--cc-soft); text-align: left; padding: 5px 6px 4px; }
+.cc .cs-preset.selected .cs-preset-name { color: var(--cc-text); font-weight: 600; }
+
+/* Effects and Text: a card per overlay, with its state and a switch */
+.cc-feature-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  padding: 10px 12px 4px;
+}
+.cc-feature {
+  position: relative;
+  min-width: 0;
+  border-radius: 9px;
+  border: 1.5px solid var(--cc-line);
+  background: var(--cc-panel2);
+  overflow: hidden;
+}
+.cc-feature.open { border-color: var(--gold); }
+.cc-feature-main {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  padding: 0 0 7px;
+  border: 0;
+  background: none;
+  color: var(--cc-text);
+  text-align: left;
+  cursor: pointer;
+}
+.cc-feature-prev {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #3b4752, #20262c) center / cover no-repeat;
+  filter: saturate(0.75) brightness(0.8);
+}
+.cc-feature.on .cc-feature-prev { filter: none; }
+.cc-feature-prev i { position: absolute; font-style: normal; }
+.fp-logo i {
+  right: 7%;
+  top: 9%;
+  width: 22%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: #ffffffd0 center / contain no-repeat;
+  opacity: 0.85;
+}
+.fp-cta i {
+  left: 50%;
+  bottom: 12%;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #e5242b;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+}
+.fp-name i {
+  left: 7%;
+  bottom: 12%;
+  padding: 2px 6px;
+  border-left: 2px solid var(--gold);
+  background: #000000b0;
+  color: #cfcfcf;
+  font-size: 7.5px;
+  line-height: 1.2;
+}
+.fp-name i b { display: block; color: #fff; font-size: 9px; }
+.fp-fx i { inset: 0; background: linear-gradient(#000 0 11%, transparent 11% 89%, #000 89%), radial-gradient(ellipse at center, transparent 40%, #000c 100%); }
+.cc-feature-name { padding: 6px 8px 0; font-size: 12px; font-weight: 600; }
+.cc-feature-state { padding: 1px 8px 0; font-size: 11px; color: var(--cc-mute); }
+.cc-feature.on .cc-feature-state { color: var(--gold); }
+.cc-feature > .toggle,
+.cc-feature > label,
+.cc-feature > button:not(.cc-feature-main) { position: absolute; right: 6px; bottom: 7px; }
+
+/* Media: chips and sorting above the library grid */
+.cc-media-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 5px;
+  padding: 0 12px 8px;
+}
+.cc-media-tools .cc-sort { margin-left: auto; }
+.cc-chips { display: contents; }
+.cc .cc-chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--cc-line);
+  background: var(--cc-panel2);
+  color: var(--cc-soft);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cc .cc-chip small { margin-left: 3px; color: var(--cc-mute); font-family: var(--mono); font-size: 10.5px; }
+.cc .cc-chip:hover { color: var(--cc-text); border-color: #ffffff30; }
+.cc .cc-chip.on { background: var(--cc-active); border-color: var(--gold); color: var(--cc-text); }
+.cc .cc-chip.on small { color: var(--gold); }
+.cc-sort { display: inline-flex; align-items: center; gap: 5px; color: var(--cc-mute); }
+.cc .cc-sort select {
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--cc-line) !important;
+  background: var(--cc-panel2) !important;
+  color: var(--cc-soft);
+  font-size: 12px;
+  box-shadow: none !important;
+}
+@media (max-width: 580px) {
+  .cc .cc-tiles, .cc .fx-looks.cc-tiles, .cc .fx-trans.cc-tiles,
+  .cc .sticker-grid.cc-sticker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cc .cs-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cc-feature-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 8px 8px 2px; }
+  .cc-feature-name { padding: 4px 5px 0; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc-feature-state { padding: 0 5px; font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc-feature-main { padding-bottom: 24px; }
+  .cc-feature > .toggle { right: auto; left: 5px; bottom: 4px; transform: scale(0.85); transform-origin: left bottom; }
+}
+@media (prefers-reduced-motion: reduce) { .sticker-card .tile-add { transition: none; } }
