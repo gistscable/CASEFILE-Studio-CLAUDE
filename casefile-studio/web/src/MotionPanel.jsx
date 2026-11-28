@@ -1,6 +1,6 @@
 import React from "react";
-import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle, Film } from "lucide-react";
-import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel, cleanLook } from "./motion.js";
+import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle, Film, Trophy } from "lucide-react";
+import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel, cleanLook, SPORTS_FAMILIES, SPORTS_NICHES } from "./motion.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 import { planFor } from "./MotionLayer.jsx";
 import { useNiches, nicheOf } from "./NichePicker.jsx";
@@ -68,8 +68,52 @@ const categoryOf = (catalog, it) => {
   const c = (catalog?.collections || []).find((x) => x.key === it.collection);
   return c?.categories.find((k) => k.key === it.category) || null;
 };
-const itemName = (catalog, x) => (x.template === "cinematic" ? x.label || categoryOf(catalog, x)?.label || "Cinematic graphic" : x.title || TEMPLATES[x.template].label);
-const kindName = (catalog, x) => (x.template === "cinematic" ? `Cinematic · ${categoryOf(catalog, x)?.label || x.category}` : TEMPLATES[x.template].label);
+const familyName = (f) => SPORTS_FAMILIES.find(([k]) => k === f)?.[1] || "Sports graphic";
+const itemName = (catalog, x) => (x.template === "sports" ? x.text || familyName(x.family) : x.template === "cinematic" ? x.label || categoryOf(catalog, x)?.label || "Cinematic graphic" : x.title || TEMPLATES[x.template].label);
+const kindName = (catalog, x) => (x.template === "sports" ? `Sports · ${familyName(x.family)}` : x.template === "cinematic" ? `Cinematic · ${categoryOf(catalog, x)?.label || x.category}` : TEMPLATES[x.template].label);
+
+// v0.4.79 A sports editorial graphic (sportsgfx.py): drawn from the narration's words over your own footage (the type
+// goes behind the player where segmentation is available). You approve it, move it, make it again as another
+// kind, or remove it; the words are the narration's.
+function SportsEditor({ sel, disabled, busy, update, onPlayFrom, onRemove, onRemake, previewStatus, time }) {
+  const move = (x) => update(sel.id, { start: round3(Math.max(0, x)) });
+  return (
+    <div className="st-edit">
+      <div className="section-label sub">
+        <span>{familyName(sel.family).toUpperCase()}</span>
+        <small className={`mg-badge ${sel.status}`}>{STATUS[sel.status]}</small>
+      </div>
+      {sel.text && <p className="micro-note block mg-sports-text">“{sel.text}”</p>}
+      {sel.why && <p className="micro-note block">Why here: {sel.why}</p>}
+      <div className="st-actions">
+        <button className="btn" disabled={disabled} onClick={() => onPlayFrom(Math.max(0, sel.start - 0.5))}>
+          <Play size={12} /> Play it
+        </button>
+        {sel.status !== "approved" ? (
+          <button className="btn primary" disabled={disabled} onClick={() => update(sel.id, { status: "approved" })}>
+            <Check size={12} /> Approve
+          </button>
+        ) : (
+          <button className="btn" disabled={disabled} onClick={() => update(sel.id, { status: "draft" })}>Unapprove</button>
+        )}
+        <button className="btn danger" disabled={disabled} onClick={onRemove}>
+          {sel.status === "suggested" ? <><X size={12} /> Reject</> : <><Trash2 size={12} /> Remove</>}
+        </button>
+      </div>
+      {previewStatus === "preparing" && <p className="micro-note">Preparing the preview…</p>}
+      <Choice label="Kind" value={sel.family} options={SPORTS_FAMILIES} disabled={disabled || !!busy} onChange={(v) => v !== sel.family && onRemake(sel, v)} />
+      <p className="micro-note block">Another kind is made from the same passage only if the narration supports it there (it says what is missing if not).</p>
+      <div className="section-label sub"><span>TIMING</span></div>
+      <Step label="Starts at" value={sel.start} display={clock(sel.start)} typed={parseClock} step={0.1} min={0} max={86400} disabled={disabled} onChange={move} />
+      <button className="text-link" disabled={disabled} onClick={() => move(time)}>Start at the playhead</button>
+      <p className="micro-note block">On screen {clock(sel.start)}–{clock(sel.end)} ({(sel.end - sel.start).toFixed(1)} s): as long as the narration it shows, so it stays in time with the words.</p>
+      <label className="cs-check">
+        <input type="checkbox" checked={sel.hide_captions} disabled={disabled} onChange={(e) => update(sel.id, { hide_captions: e.target.checked })} />
+        Hide captions while it is on screen
+      </label>
+    </div>
+  );
+}
 
 // v0.4.63 The look of the cinematic graphics: each category's tested colour sets, your own colours (checked
 // for readability by the server, which draws them) and what the graphics are drawn over.
@@ -515,6 +559,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const firstKey = (catalog?.collections || []).some((c) => c.key === nicheColl) ? nicheColl : catalog?.default;
   const coll = (catalog?.collections || []).find((c) => c.key === (collection || firstKey)) || catalog?.collections?.[0];
   const images = (project.assets || []).filter((a) => a.kind === "image");
+  const sports = SPORTS_NICHES.includes(project.niche); // v0.4.79 football, boxing & MMA, wrestling
   const [busy, setBusy] = React.useState("");
   const [narration, setNarration] = React.useState(null);
   const [pick, setPick] = React.useState(null); // {template, from, to} while choosing a passage
@@ -577,7 +622,9 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
       const a = sentences[Math.min(pick.from, pick.to)], b = sentences[Math.max(pick.from, pick.to)];
       const item = pick.template === "cinematic"
         ? await onDraft({ template: "cinematic", collection: coll?.key, category: pick.category || "auto", start: a.start, end: b.end })
-        : await onDraft({ template: pick.template, start: a.start, end: b.end });
+        : pick.template === "sports"
+          ? await onDraft({ template: "sports", family: pick.family || "auto", start: a.start, end: b.end })
+          : await onDraft({ template: pick.template, start: a.start, end: b.end });
       setItems([...m.items, item]);
       onSelect(item.id);
       setPick(null);
@@ -589,6 +636,13 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
     run("regen", async () => {
       const fresh = await onDraft({ template: "cinematic", collection: it.collection, category, start: it.start, end: it.end, window: it.window, id: it.id });
       update(it.id, { ...fresh, id: it.id, status: "draft", source: it.source, reason: it.reason, hide_captions: it.hide_captions, look: it.look });
+    });
+
+  // v0.4.79 a sports graphic made again from its passage as another kind (only if the narration supports it there)
+  const remakeSports = (it, family) =>
+    run("regen", async () => {
+      const fresh = await onDraft({ template: "sports", family, start: it.start - 0.3, end: it.start + it.dur + 0.3, id: it.id });
+      update(it.id, { ...fresh, id: it.id, status: "draft", hide_captions: it.hide_captions });
     });
 
   const regenerate = (it, template = it.template) =>
@@ -646,12 +700,31 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           onChange={(l) => save({ look: Object.keys(l).length ? l : undefined })} />
       )}
       {coll && onPresent && <AutoPresent m={m} save={save} onPresent={onPresent} onSeek={onSeek} onSelect={onSelect} disabled={disabled} />}
+      {sports && (<>
+        <div className="section-label sub"><span>SPORTS (EDITORIAL)</span></div>
+        <p className="micro-note block">
+          The sports graphics, timed to the narration's words: the name behind the player, numbered goals, the big number, stacked stats, dates and places,
+          headlines. They go over the clips the editing guide placed; the storytelling style (Sports tab) decides how many.
+        </p>
+        <div className="st-actions">
+          <button className="btn" disabled={disabled || !!busy} onClick={() => run("sports", () => onSuggest({ engine: "sports" }))}>
+            <Trophy size={12} /> {busy === "sports" ? "Reading the narration…" : "Suggest sports graphics"}
+          </button>
+          <button className="btn" disabled={disabled || !!busy} onClick={() => setPick(pick ? null : { template: "sports", family: "auto", from: null, to: null })}>
+            <Plus size={12} /> Sports graphic from a passage
+          </button>
+        </div>
+      </>)}
       {error && <p className="micro-note block mg-error">{error}</p>}
 
       {pick && (
         <div className="mg-pick">
-          <Choice label="Template" value={pick.template} options={[...MG.templates.map((t) => [t.id, t.label]), ...(coll ? [["cinematic", "Cinematic (story-aware)"]] : [])]} disabled={disabled}
-            onChange={(v) => setPick({ ...pick, template: v, category: "auto" })} />
+          <Choice label="Template" value={pick.template} options={[...MG.templates.map((t) => [t.id, t.label]), ...(coll ? [["cinematic", "Cinematic (story-aware)"]] : []), ...(sports ? [["sports", "Sports (editorial)"]] : [])]} disabled={disabled}
+            onChange={(v) => setPick({ ...pick, template: v, category: "auto", family: "auto" })} />
+          {pick.template === "sports" && (
+            <Choice label="Kind" value={pick.family || "auto"} options={[["auto", "Automatic (what the passage supports)"], ...SPORTS_FAMILIES]} disabled={disabled}
+              onChange={(v) => setPick({ ...pick, family: v })} />
+          )}
           {pick.template === "cinematic" && coll && (
             <Choice label="Category" value={pick.category || "auto"} options={[["auto", "Automatic (what the passage supports)"], ...coll.categories.map((k) => [k.key, k.label])]} disabled={disabled}
               onChange={(v) => setPick({ ...pick, category: v })} />
@@ -674,7 +747,7 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
           </div>
           <div className="st-actions">
             <button className="btn primary" disabled={disabled || pick.from === null || !!busy} onClick={create}>
-              {busy === "draft" ? "Making…" : pick.template === "cinematic" ? "Make cinematic graphic" : `Make ${TEMPLATES[pick.template].label.toLowerCase()}`}
+              {busy === "draft" ? "Making…" : pick.template === "cinematic" ? "Make cinematic graphic" : pick.template === "sports" ? "Make sports graphic" : `Make ${TEMPLATES[pick.template].label.toLowerCase()}`}
             </button>
             <button className="text-link" onClick={() => setPick(null)}>Cancel</button>
           </div>
@@ -707,7 +780,11 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
         <CinematicEditor sel={sel} info={info} images={images} catalog={catalog} disabled={disabled} busy={busy} update={update} onPlayFrom={onPlayFrom}
           onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remake} previewStatus={previewStatus} time={time} />
       )}
-      {sel && !listOnly && sel.template !== "cinematic" && (
+      {sel && !listOnly && sel.template === "sports" && (
+        <SportsEditor sel={sel} disabled={disabled} busy={busy} update={update} onPlayFrom={onPlayFrom} time={time} previewStatus={previewStatus}
+          onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remakeSports} />
+      )}
+      {sel && !listOnly && sel.template !== "cinematic" && sel.template !== "sports" && (
         <div className="st-edit">
           <div className="section-label sub">
             <span>{TEMPLATES[sel.template].label.toUpperCase()}</span>

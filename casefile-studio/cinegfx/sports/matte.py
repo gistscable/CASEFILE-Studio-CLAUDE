@@ -126,14 +126,17 @@ def cache_key(*parts) -> str:
     return hashlib.sha1("|".join(str(p) for p in parts).encode()).hexdigest()[:20]
 
 
-def shot_mattes(reader, cache_dir: Path, key_parts) -> str | None:
-    """Path of the cached uint8 [n, h, w] mattes for a shot (reader() gives network-size frames)."""
+def shot_mattes(reader, cache_dir: Path, key_parts, compute: bool = True) -> str | None:
+    """Path of the cached uint8 [n, h, w] mattes for a shot (reader() gives network-size frames).
+    compute=False: only a matte already in the cache (a quick preview never waits for segmentation)."""
     if not available():
         return None
     cache_dir.mkdir(parents=True, exist_ok=True)
     f = cache_dir / f"matte-{cache_key(*key_parts, net().id, MATTE_W)}.npy"
     if f.exists():
         return str(f)
+    if not compute:
+        return None
     arr = np.stack(matte_frames(reader()))
     tmp = f.with_name(f.stem + ".tmp.npy")
     np.save(tmp, arr)

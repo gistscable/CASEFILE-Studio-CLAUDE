@@ -20,6 +20,7 @@ import json
 import multiprocessing as mp
 import os
 import subprocess
+import time
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -129,13 +130,16 @@ class Edit:
                 self.trans[i] = Transition("cut", why="hard cut")
 
     # ---------------------------------------------------------------- mattes
-    def prepare_mattes(self, log=print):
+    def prepare_mattes(self, log=print, compute=True, progress=None):
+        """Person mattes for the shots marked `matte` (cached). compute=False uses only cached ones."""
         if not M.available():
             log(f"mattes off: {M.unavailable_reason()} (type is drawn in front instead)")
             return
-        for k, s in enumerate(self.shots):
-            if not s.matte:
-                continue
+        todo = [k for k, s in enumerate(self.shots) if s.matte]
+        for n, k in enumerate(todo):
+            s = self.shots[k]
+            if progress:
+                progress(n, len(todo))
             if s.photo:
                 im = Image.open(s.src).convert("RGB")
                 w = M.MATTE_W
@@ -144,6 +148,8 @@ class Edit:
                 key = M.cache_key(s.src, os.path.getsize(s.src), w, "still")
                 f = self.cache / f"matte-{key}-{M.net().id}.npy"
                 if not f.exists():
+                    if not compute:
+                        continue
                     self.cache.mkdir(parents=True, exist_ok=True)
                     np.save(f, M.still(small))
                 a = np.load(f)
@@ -157,10 +163,10 @@ class Edit:
                 r = FT.Reader(hs, mw, mh, self.fps)
                 return list(r.all())
             path = M.shot_mattes(frames_fn, self.cache, (s.src, os.path.getsize(s.src), round(hs.t_src, 4), round(hs.dur, 4),
-                                                         s.speed, s.frame, self.fps))
+                                                         s.speed, s.frame, self.fps), compute=compute)
             if path is not None:
                 self._mattes[k] = ("video", path, int(round(pre * self.fps)))
-            log(f"  matte ready: shot {k} ({s.tag})")
+                log(f"  matte ready: shot {k} ({s.tag})")
 
     def _handles(self, k):
         s = self.shots[k]
@@ -395,13 +401,22 @@ def _chunk_key(edit: Edit, a: int, b: int) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()[:16]
 
 
-def render_video(edit: Edit, out_mp4: str, a: int = 0, b: int | None = None, workers: int | None = None, log=print):
+class Cancelled(Exception):
+    pass
+
+
+def render_video(edit: Edit, out_mp4: str, a: int = 0, b: int | None = None, workers: int | None = None, log=print,
+                 on_chunk=None, cancelled=None):
     """Concatenate the timeline's chunks that overlap frames [a, b) (rendering only those not cached).
     Chunks always follow the whole timeline's boundaries, so every window reuses the same cache.
+    on_chunk(done, todo, cached) after each chunk; cancelled() is checked between chunks (raises Cancelled).
     Returns the frame number the output starts at."""
     b = edit.nframes if b is None else b
     cdir = edit.cache / "chunks"
     cdir.mkdir(parents=True, exist_ok=True)
+    for stale in cdir.glob("*.tmp.mp4"):          # left by a render that was stopped mid-chunk
+        if time.time() - stale.stat().st_mtime > 600:
+            stale.unlink(missing_ok=True)
     jobs, paths = [], []
     span = [(x, y) for x, y in _chunks(edit, 0, edit.nframes) if y > a and x < b]
     for x, y in span:
@@ -410,15 +425,27 @@ def render_video(edit: Edit, out_mp4: str, a: int = 0, b: int | None = None, wor
         if not os.path.exists(p):
             jobs.append((edit, x, y, p))
     log(f"  {len(paths)} chunks, {len(jobs)} to render ({len(paths) - len(jobs)} cached)")
+    cached = len(paths) - len(jobs)
+    if on_chunk:
+        on_chunk(0, len(jobs), cached)
     if jobs:
         n = workers or max(1, min(len(jobs), (os.cpu_count() or 2)))
         if n == 1:
-            for j in jobs:
+            for k, j in enumerate(jobs):
+                if cancelled and cancelled():
+                    raise Cancelled()
                 _chunk_job(j)
+                if on_chunk:
+                    on_chunk(k + 1, len(jobs), cached)
         else:
             with mp.get_context("spawn").Pool(n) as pool:
                 for k, _ in enumerate(pool.imap_unordered(_chunk_job, jobs)):
                     log(f"    chunk {k + 1}/{len(jobs)}")
+                    if on_chunk:
+                        on_chunk(k + 1, len(jobs), cached)
+                    if cancelled and cancelled():
+                        pool.terminate()
+                        raise Cancelled()
     lst = cdir / f"list-{os.getpid()}.txt"
     lst.write_text("".join(f"file '{os.path.abspath(p)}'\n" for p in paths))
     subprocess.run([ffbin(), "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", out_mp4], check=True)
@@ -484,7 +511,12 @@ def _mix_all(edit: Edit, music_db, duck_db):
         voice[:, o:o + L] += v[:, :L]
     nat = np.zeros((2, n), np.float32)
     for x in edit.natural:
-        v = _decode(x.src, x.t_src, x.dur)
+        try:
+            v = _decode(x.src, x.t_src, x.dur)
+        except subprocess.CalledProcessError:   # footage without a sound track: nothing to add
+            continue
+        if v.shape[1] == 0:
+            continue
         o = int(round(x.at * SC.SR))
         L = min(v.shape[1], n - o)
         fade = np.ones(L, np.float32)
@@ -523,16 +555,20 @@ def _write_wav(out, out_wav, a, b):
     return out_wav
 
 
-def export(edit: Edit, out_mp4: str, a: float = 0.0, b: float | None = None, fade: float = 0.0, log=print, workers=None):
-    """Render [a, b) of the edit to out_mp4 with its mixed sound (chunks reused from the cache)."""
+def export(edit: Edit, out_mp4: str, a: float = 0.0, b: float | None = None, fade: float = 0.0, log=print, workers=None,
+           overlay: str | None = None, on_chunk=None, cancelled=None, music_db: float = -19.0):
+    """Render [a, b) of the edit to out_mp4 with its mixed sound (chunks reused from the cache).
+    overlay: a full-frame transparent PNG laid over the picture in the final encode (the project's logo)."""
     b = edit.duration if b is None else b
     fa, fb = int(round(a * edit.fps)), int(round(b * edit.fps))
     tmpdir = edit.cache / "tmp"
     tmpdir.mkdir(parents=True, exist_ok=True)
     stem = Path(out_mp4).stem
     vid = str(tmpdir / f"{stem}.v.mp4")
-    first = render_video(edit, vid, fa, fb, workers=workers, log=log)
-    wav = mix(edit, str(tmpdir / f"{stem}.wav"), fa / edit.fps, fb / edit.fps, log=log)
+    first = render_video(edit, vid, fa, fb, workers=workers, log=log, on_chunk=on_chunk, cancelled=cancelled)
+    if cancelled and cancelled():
+        raise Cancelled()
+    wav = mix(edit, str(tmpdir / f"{stem}.wav"), fa / edit.fps, fb / edit.fps, music_db=music_db, log=log)
     dur = (fb - fa) / edit.fps
     vf = []
     if fade:
@@ -542,9 +578,14 @@ def export(edit: Edit, out_mp4: str, a: float = 0.0, b: float | None = None, fad
           "aformat=sample_fmts=fltp:channel_layouts=stereo"]
     if fade:
         af.insert(1, f"afade=t=in:st=0:d={fade / 2},afade=t=out:st={max(0, dur - fade):.3f}:d={fade}")
-    cmd = [ffbin(), "-v", "error", "-y", "-ss", f"{(fa - first) / edit.fps:.4f}", "-i", vid, "-i", wav, "-t", f"{dur:.4f}",
-           "-map", "0:v", "-map", "1:a"]
-    cmd += ["-vf", ",".join(vf) if vf else "null"] + encoder_args(delivery=True)
+    cmd = [ffbin(), "-v", "error", "-y", "-ss", f"{(fa - first) / edit.fps:.4f}", "-i", vid, "-i", wav]
+    if overlay:
+        cmd += ["-loop", "1", "-i", overlay, "-t", f"{dur:.4f}",
+                "-filter_complex", f"[0:v]{','.join(vf) if vf else 'null'}[b];[b][2:v]overlay=0:0:shortest=1,format=yuv420p[v]",
+                "-map", "[v]", "-map", "1:a"]
+    else:
+        cmd += ["-t", f"{dur:.4f}", "-map", "0:v", "-map", "1:a", "-vf", ",".join(vf) if vf else "null"]
+    cmd += encoder_args(delivery=True)
     cmd += ["-af", ",".join(af), "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart", out_mp4]
     subprocess.run(cmd, check=True)
     return out_mp4

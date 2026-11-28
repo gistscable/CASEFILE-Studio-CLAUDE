@@ -4,6 +4,7 @@ import { nextTime, speechAt } from "./previewClock.js";
 import { normaliseLayout, timelineHeight, fitEdit, rulerTicks, captionBlocks, zoomScroll, LIMITS, LAYOUT_DEFAULTS } from "./editLayout.js";
 import CaseDesk from "./CaseDesk.jsx";
 import Recut from "./Recut.jsx";
+import SportsEdit, { SPORTS_NICHES } from "./SportsEdit.jsx";
 import CaptionStyles from "./CaptionStyles.jsx";
 import Effects from "./Effects.jsx";
 import ReplacePicker from "./ReplacePicker.jsx";
@@ -107,6 +108,7 @@ import {
   PanelLeft,
   ArrowUpDown,
   ArrowLeft,
+  Trophy,
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
@@ -168,7 +170,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.77";
+const APP_VERSION = "0.4.79";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -2292,7 +2294,7 @@ function App() {
                 await flushSave();
                 const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", body);
                 acceptProject(r.project);
-                const what = body.engine === "cinematic" ? "cinematic graphic" : "motion graphic";
+                const what = body.engine === "cinematic" ? "cinematic graphic" : body.engine === "sports" ? "sports graphic" : "motion graphic";
                 notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
               }}
               onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
@@ -3745,6 +3747,7 @@ function App() {
             ["edit", "Edit", Clapperboard, scenes.length],
             ["review", "Review & export", ShieldCheck, null],
             ["recut", "Re-cut", Scissors, null],
+            ...(SPORTS_NICHES.includes(project.niche) ? [["sportsedit", "Sports", Trophy, null]] : []),
           ].map(([key, label, Icon, count], i) => (
             <button
               key={key}
@@ -3914,6 +3917,18 @@ function App() {
           <div className="global-upload-progress">
             <UploadProgress progress={uploadProgress} />
           </div>
+        )}
+        {tab === "sportsedit" && (
+          <SportsEdit
+            key={"sportsedit" + project.id}
+            project={project}
+            api={api}
+            locked={locked}
+            onProject={acceptProject}
+            onError={report}
+            onNotify={notify}
+            onOpenEdit={() => { setTab("edit"); openLeft("graphics"); }}
+          />
         )}
         {tab === "recut" && (
           <Recut

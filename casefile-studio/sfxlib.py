@@ -817,7 +817,15 @@ TAGS = {
     "projector-1": "film projector archive old film reel vintage 16mm",
     "ticker-1": "stock ticker market numbers rising counter",
     "ticker-2": "stock ticker market falling crash numbers",
+    "sp-glitch": "glitch digital stutter data corrupt sports graphic",
+    "sp-scramble": "scramble letters decode flicker text sports graphic",
 }
+
+
+def _sports(kind, rng):
+    from cinegfx.sports import score  # imports sfxlib: loaded only when the sound is made
+    x = score._glitch(rng) if kind == "glitch" else score._scramble(rng)
+    return x if x.ndim == 2 else _stereo(x)
 
 # id, category, label, intensity 1..3, recipe, designed peak (dBFS)
 CATALOG = [
@@ -923,6 +931,10 @@ CATALOG = [
     ("projector-1", "projector", "Film projector (archive)", 1, lambda r: projector(r), -18),
     ("ticker-1", "ticker", "Market ticker, rising", 1, lambda r: ticker(r), -18),
     ("ticker-2", "ticker", "Market ticker, falling", 1, lambda r: ticker(r, up=False), -18),
+    # v0.4.79 the sports editorial graphics' own sounds (cinegfx/sports/score.py recipes), so the Edit page's sound
+    # design plays them with the graphics and they can be chosen by hand
+    ("sp-glitch", "glitch", "Digital glitch (sports graphic)", 2, lambda r: _sports("glitch", r), -14),
+    ("sp-scramble", "glitch", "Letter scramble (sports graphic)", 1, lambda r: _sports("scramble", r), -16),
 ]
 BY_ID = {c[0]: c for c in CATALOG}
 CATEGORIES = sorted({c[1] for c in CATALOG})

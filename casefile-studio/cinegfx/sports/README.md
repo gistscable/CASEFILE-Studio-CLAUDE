@@ -1,4 +1,4 @@
-# cinegfx.sports: cinematic sports editorial engine (v0.4.77, preview)
+# cinegfx.sports: cinematic sports editorial engine (v0.4.77; in the app since v0.4.78)
 
 A sports documentary engine inside the multi-niche cinegfx engine. It cuts real footage and composites
 narration-driven motion graphics in three layers (footage, type **behind** the subject, type **in front**). It is
@@ -72,3 +72,25 @@ The model is gitignored; see `qa/sports-demos/README.md` for how the demo's copy
 
 Broadcast footage and commentary are usually restricted. Being on YouTube does not grant reuse rights. The demo
 footage is used for internal approval only and is not in git. Use licensed or owned footage in production.
+
+
+## In the app: Sports on the Edit page (v0.4.79)
+
+Football, boxing & MMA and wrestling projects. True-crime and other projects are untouched. The **Edit page builds the
+video** (the editing guide, the yt-dlp fetch, renaming, crops and auto-fit decide the shots). This engine adds to that
+timeline; everything it adds shows there and can be changed or undone. (v0.4.78's separate Sports edit render was
+replaced by this.)
+
+1. **Inputs, all from the project:** the narration's words on the timeline (`motion.timeline_words`: the episode word
+   clock when word timing is imported, else the captions), the project's own clips and photos (including the clips the
+   guide fetched). Nothing is fetched or invented.
+2. **Graphics** (`casefile-studio/sportsgfx.py`): `semantics.analyse` finds the moments; the storytelling style thins
+   them (`planner.thin`); each becomes a motion graphic (`template: "sports"`) on the Edit timeline: suggested, then
+   approved one by one, previewed over the picture, exported with the usual export. Type behind the player: the scene's
+   own export picture is matted (RVM, cached) and the behind layer is cut where the player stands.
+3. **Empty scenes only:** `planner.plan(pieces=…, taken=…)` chooses a shot (`shots.py` analysis) for each scene the guide
+   left without a clip, for what is said there. Proposed first; applied when the producer says so (`sports_fill`).
+4. **Style:** the project look, transitions where a chapter begins (only where none is chosen), and an original music bed
+   following the story's arc (`score.bed_wav`), each applied when the producer says so.
+5. **Segmentation status** on the Sports page, with how to enable it (`pip install onnxruntime` +
+   `rvm_mobilenetv3_fp32.onnx` in `casefile-studio/models/`). Without it the type is in front of the player.

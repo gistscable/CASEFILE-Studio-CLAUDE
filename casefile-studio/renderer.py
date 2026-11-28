@@ -1,7 +1,7 @@
 """Deterministic FFmpeg renderer. No AI calls, shell interpolation, or remote media."""
 
 from __future__ import annotations
-import json, math, os, re, shutil, subprocess, tempfile, textwrap, threading, time
+import hashlib, json, math, os, re, shutil, subprocess, tempfile, textwrap, threading, time
 from pathlib import Path
 from typing import Callable
 from editorial import strip_references
@@ -12,6 +12,7 @@ import watermark
 import picture
 import stickers
 import motion as motiongfx
+import sportsgfx
 import sound as sfx
 import music as musiclib
 
@@ -618,7 +619,10 @@ def run_scenes(steps: list, chain_of: list, workers: int, progress: Callable, ca
             for cmd in steps[i]:
                 if stopped():
                     raise RuntimeError("Cancelled by you. No output was published.")
-                run(cmd, stopped)
+                if callable(cmd):  # v0.4.79: a step done in Python (sportsgfx.behind_step)
+                    cmd(stopped)
+                else:
+                    run(cmd, stopped)
             seconds[i] = time.monotonic() - started
             with lock:
                 done[0] += 1
@@ -1113,6 +1117,12 @@ def render(
             except (ValueError, OSError, KeyError) as e:
                 warnings.append(f"The motion graphics were left out: {e}")
                 motion_layers, motion_hide = [], []
+        # v0.4.79 type behind the player (sports graphics): only with the optional segmentation model; without
+        # it the behind layer is shown as it is (the type is in front of the player)
+        behind_ok = False
+        if any(layer.get("behind") for layer in motion_layers):
+            from cinegfx.sports import matte as sports_matte
+            behind_ok = sports_matte.available()
         scene_start = 0.0
         name_cards = effects.effective_lower_thirds(project)
         clips = []
@@ -1396,7 +1406,32 @@ def render(
                 if got:
                     command += got[0]
                     filters += got[1]
+            behind_steps = []
             for layer in motion_layers:
+                if layer.get("behind") and behind_ok:
+                    # v0.4.79 a sports graphic's behind layer: the player is cut out of it on this scene's own
+                    # picture (same crop, fit, zoom and look), in a step before the scene's command
+                    a, b = max(layer["start"], scene_start), min(layer["end"], scene_start + scene_len)
+                    if b - a >= 1 / FPS:
+                        fa, fb = round((a - scene_start) * FPS), round((b - scene_start) * FPS)
+                        mw, mh = sportsgfx.matte_size(width, height)
+                        tag = f"{i}_{motion_layers.index(layer)}"
+                        pic_raw = work / f"mpic{tag}.rgb"
+                        pic_cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *video_extra, "-i", video_input,
+                                   "-filter_complex", f"[0:v]{vf},format=rgb24,setpts=N/{FPS}/TB,trim=start_frame={fa}:end_frame={fb},"
+                                   f"setpts=PTS-STARTPTS,scale={mw}:{mh}[m]", "-map", "[m]", "-frames:v", str(max(1, fb - fa)),
+                                   "-f", "rawvideo", "-pix_fmt", "rgb24", str(pic_raw)]
+                        try:
+                            st = Path(src).stat()
+                            src_sig = [str(src), st.st_size, int(st.st_mtime)]
+                        except OSError:
+                            src_sig = [str(src)]
+                        key = hashlib.sha1(json.dumps([sportsgfx.ENGINE, src_sig, video_extra, video_input == str(src),
+                                                       trim_start, crop_len, vf, fa, fb, mw, mh, FPS]).encode()).hexdigest()[:20]
+                        cut = work / f"behind{tag}.mov"
+                        behind_steps.append(sportsgfx.behind_step(layer, a, b, scene_start, pic_cmd, pic_raw, key, cut,
+                                                                  width, height, DATA, warnings))
+                        layer = {"start": scene_start + fa / FPS, "end": scene_start + fb / FPS, "file": cut}
                 k = command.count("-i")
                 got = motiongfx.overlay_filters(layer, k, scene_start, scene_len)
                 if got:
@@ -1448,13 +1483,15 @@ def render(
                 # The next scene blends in from this scene's last picture frame.
                 # (written over on every frame, so the file ends as the last one)
                 command += ["-map", "[lastpic]", "-frames:v", str(frames), "-update", "1", "-q:v", "2", str(work / f"last{i}.jpg")]
+            looped = len(steps) > 1
+            steps.extend(behind_steps)
             steps.append(command)
             scene_steps.append(steps)
             if is_video or is_image:
                 what = f"{asset.get('width') or '?'}x{asset.get('height') or '?'} {asset['kind']}"
             else:
                 what = "gap card"
-            extras = [motion if not is_video else "", "looped crop" if len(steps) > 1 else "",
+            extras = [motion if not is_video else "", "looped crop" if looped else "",
                       f"transition {blend:.1f}s" if blend > 0 else ""]
             scene_info.append({"n": i + 1, "title": scene.get("title", ""), "length": frames / FPS,
                                "what": ", ".join(x for x in [what, *extras] if x and x != "none")})

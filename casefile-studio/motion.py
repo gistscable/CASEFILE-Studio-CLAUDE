@@ -87,6 +87,9 @@ def normalise_item(it, n=0, image_assets=None):
     if isinstance(it, dict) and it.get("template") == "cinematic":  # v0.4.62: the story-aware engine (cinematic.py)
         import cinematic
         return cinematic.normalise_item(it, n, image_assets)
+    if isinstance(it, dict) and it.get("template") == "sports":  # v0.4.79: the sports editorial graphics (sportsgfx.py)
+        import sportsgfx
+        return sportsgfx.normalise_item(it, n, image_assets)
     if not isinstance(it, dict) or it.get("template") not in TEMPLATES:
         return None
     start = round(_num(it.get("start"), 0.0, 86400.0, 0.0), 3)
@@ -1706,6 +1709,8 @@ def background_path(project, item, data, asset_path):
     if item.get("template") == "cinematic":
         import cinematic
         return cinematic.photo_files(project, item, asset_path, data)
+    if item.get("template") == "sports":  # v0.4.79 drawn over the footage itself (sportsgfx reads the picture)
+        return None
     bg = item.get("background")
     if bg == "photo":
         a = next((x for x in project.get("assets") or [] if x["id"] == item.get("photo_id") and x.get("kind") == "image"), None)
@@ -1787,6 +1792,9 @@ def preview_plan(data, project, item, photo_path=None):
     if item.get("template") == "cinematic":
         import cinematic
         return cinematic.preview_plan(data, project, item, photo_path)
+    if item.get("template") == "sports":  # v0.4.79
+        import sportsgfx
+        return sportsgfx.preview_plan(data, project, item)
     W, H = preview_size(project)
     h = item_hash(item, W, H, photo_path)
     folder = cache_root(data) / h
@@ -1816,6 +1824,10 @@ def preview_frame(data, h, k):
         import cinematic
         with _DRAWING:
             return out if out.exists() else cinematic.preview_frame(folder, spec, k, out)
+    if spec.get("engine") == "sports":  # v0.4.79
+        import sportsgfx
+        with _DRAWING:
+            return out if out.exists() else sportsgfx.preview_frame(folder, spec, k, out)
     lay = _layout(spec["item"], spec["W"], spec["H"], spec["photo"] or None)
     frames, unique = plan(lay)
     if not 0 <= int(k) < unique:
@@ -1938,6 +1950,9 @@ def describe(it):
     if it.get("template") == "cinematic":
         import cinematic
         return cinematic.describe(it)
+    if it.get("template") == "sports":
+        import sportsgfx
+        return sportsgfx.describe(it)
     s = max(0, int(it.get("start") or 0))
     title = str(it.get("title") or "").strip()
     name = f"{it.get('template', 'motion')} graphic" + (f" \u201c{title}\u201d" if title else "")
@@ -1964,6 +1979,15 @@ def prepare(project, width, height, data, folder, background=None, workers=None,
             import cinematic
             try:
                 layers.append(cinematic.prepare_one(it, background(it) if background else {}, width, height, data, cancelled))
+            except (ValueError, OSError, KeyError, TypeError, ZeroDivisionError, RuntimeError) as e:
+                if failed is None or cancelled():
+                    raise
+                failed.append((it, e))
+            continue
+        if it["template"] == "sports":  # v0.4.79: a behind layer (flagged) and a front layer
+            import sportsgfx
+            try:
+                layers.extend(sportsgfx.prepare_layers(project, it, width, height, data, cancelled))
             except (ValueError, OSError, KeyError, TypeError, ZeroDivisionError, RuntimeError) as e:
                 if failed is None or cancelled():
                     raise
