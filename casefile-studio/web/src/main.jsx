@@ -2717,7 +2717,7 @@ function App() {
     ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
     ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
     ["text", "Text", Type, [["templates", "Templates"], ["titles", "Scene titles"], ["names", "Name cards"]]],
-    ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
+    ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["text", "Text templates"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
     ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
     ["transitions", "Transitions", ArrowLeftRight, null],
     ["captions", "Captions", Captions, [["styles", "Styles"], ["text", "Text"], ["box", "Box & position"]]],
