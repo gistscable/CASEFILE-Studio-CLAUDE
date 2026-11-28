@@ -1354,3 +1354,33 @@ transparent video (ProRes 4444 default; qtrle, VP9 WebM, PNG), its cue WAV, a pr
   `cinematic.frame` for 5 looks and 2 sizes, the same suggestions as `cinematic.suggest`, the Javits demos with
   photos, and the copy; `test_reference` checks the six Javits demos against Casefile-drawn stills (no photos: the
   press photos are not shipped).
+
+## v0.4.67 — the Edit page laid out like CapCut desktop (step 1 of 4: the frame)
+
+User: "rebuild the interphase to something like this so it easily accessible and understandable to anyone" (18 CapCut
+desktop screenshots). Agreed: Edit page first, keep Casefile's gold accent (not CapCut cyan), the other pages in the top
+bar. Promise: nothing that works is lost, no fake buttons (CapCut's paid AI tools — avatar, remove BG, retouch, enhance —
+are not imitated). Four PRs: 1 the frame (this), 2 per-tab grids, 3 contextual inspector + Director, 4 Mac-size polish.
+- **Layout (`main.jsx`, Edit tab):** `header.topbar.cc-topbar` (menu ☰ with Home / projects / backups / help / settings,
+  title + project switch, "Auto saved: hh:mm:ss", the pages as `nav.stage-nav.cc-pages`, Connect AI / Produce draft /
+  Export) → `.edit-grid` with `section.cc-left` (icon tabs + sub-nav + content), `section.monitor-panel` (player head,
+  frame, `.cc-transport`), `aside.inspector` (Video: Basic / Picture / Story / Tracks; Audio: Voice / Music),
+  `section.timeline` (`.cc-tl-toolbar`, track heads `.track-labels.cc-heads`, an Overlays lane of `button.fx-clip`s for
+  the subscribe animation, graphics and stickers) and the floating `div.cc-pilot` (Director: history + `#direction`).
+- **Left tabs (`LEFT_TABS`):** media (scenes/all/video/image/audio), audio (music/sfx/voice), text (titles/names),
+  stickers, effects (video/logo/subscribe), transitions, captions, filters, graphics (motion). The old panels are reused:
+  `Effects` got an `only` prop (`looks fx watermark namecards cta transitions picture lowerthird`) so each tab shows
+  its part. Clicking a timeline clip switches the inspector (music/narration → Audio, picture → Video) or opens the
+  matching left tab (sticker → Stickers, graphic → Graphics, subscribe → Effects › Subscribe).
+- **Styles:** all new rules in `web/src/capcut.css` (imported last; `--cc-*` variables). Above 1070 px the CapCut grid;
+  ≤1070 the old `styles.css` column plus overrides (left 300 px, sub-nav as chips), ≤800 left 250 px, ≤580 stacked.
+  Track head heights must match lane heights (overlay 28, captions 28, video 60, narration 40, music 34, sfx 31).
+- **`editLayout.js`:** defaults left 440 / right 340 / timeline 326, director closed, `cc: 1`; a saved layout without
+  `cc` gets the new left/right/director (one-time migration). Tests in `tests/js/editLayout.test.mjs`.
+- **Moved, not removed:** the timeline footer's timing hint + "Space plays" are the `.cc-tl-hint` in the tool row (full
+  text in its tooltip); "Narration level" lives in Audio › Voice; the direction history is in the Director panel.
+- **Not a bug:** at 0:00 the player is black when scene 1 has "Fade in and out" — it fades in from black like the export.
+- **Stale, before this PR:** `tests/browser_smoke.py` looks for a button "Undo last saved edit"; `main` already labels
+  it with `historyLabel` ("Undo: … (Ctrl+Z)"). Browser tests need Playwright's chromium (not in the sandbox).
+- **Testing tip:** `data/projects/*.json` are tracked; click-testing against them changes them. Run the app with
+  `CASEFILE_DATA_DIR=/tmp/cfdata` (a copy of `data/`).

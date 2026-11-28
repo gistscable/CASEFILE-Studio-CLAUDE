@@ -338,7 +338,10 @@ function Watermark({ project, thumb, disabled, onProject, onUploadLogo }) {
   );
 }
 
-export default function Effects({ project, scene, sceneIndex, thumb, disabled, onProject, onScene, onUploadBanner, onUploadLogo, ctaEvents = [], ctaSpots = [], ctaNatural = 5, playhead = 0, sceneStart = 0, onSeek, onCrop, onPlayCta, api, autoCard }) {
+export default function Effects({ project, scene, sceneIndex, thumb, disabled, onProject, onScene, onUploadBanner, onUploadLogo, ctaEvents = [], ctaSpots = [], ctaNatural = 5, playhead = 0, sceneStart = 0, onSeek, onCrop, onPlayCta, api, autoCard, only }) {
+  // v0.4.67 CapCut layout: each left-panel tab shows only its own part (Filters, Effects,
+  // Transitions, Text …); without `only` every part shows, as before.
+  const show = (k) => !only || only.includes(k);
   const fx = normaliseEffects(project.effects);
   const cta = normaliseCta(project.cta);
   const sceneAsset = (project.assets || []).find((a) => a.id === scene?.asset_id && (a.kind === "image" || a.kind === "video"));
@@ -360,6 +363,7 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
   };
   return (
     <div className="inspector-content cs fx">
+      {show("looks") && (<>
       <div className="section-label">
         <span>LOOK OF THE WHOLE VIDEO</span>
       </div>
@@ -380,17 +384,24 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
           </button>
         ))}
       </div>
+      </>)}
+      {show("fx") && (<>
+      <div className="section-label">
+        <span>VIDEO EFFECTS · WHOLE VIDEO</span>
+      </div>
       <Pct label="Film grain" value={fx.grain} disabled={disabled} onChange={(v) => setFx({ grain: v })} />
       <Pct label="Vignette" value={fx.vignette} disabled={disabled} onChange={(v) => setFx({ vignette: v })} />
       <label className="cs-check">
         <input type="checkbox" aria-label="Cinema bars" checked={fx.letterbox} disabled={disabled} onChange={(e) => setFx({ letterbox: e.target.checked })} />
         Cinema bars (2.35:1 letterbox)
       </label>
+      </>)}
 
-      <Watermark project={project} thumb={thumb} disabled={disabled} onProject={onProject} onUploadLogo={onUploadLogo || ((f) => onUploadBanner(f, "logo"))} />
+      {show("watermark") && <Watermark project={project} thumb={thumb} disabled={disabled} onProject={onProject} onUploadLogo={onUploadLogo || ((f) => onUploadBanner(f, "logo"))} />}
 
-      {api && <NameCards project={project} api={api} disabled={disabled} onProject={onProject} />}
+      {show("namecards") && api && <NameCards project={project} api={api} disabled={disabled} onProject={onProject} />}
 
+      {show("cta") && (<>
       <div className="section-label">
         <span>SUBSCRIBE ANIMATION</span>
       </div>
@@ -510,9 +521,11 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
           )}
         </>
       )}
+      </>)}
 
       {scene ? (
         <>
+          {show("transitions") && (<>
           <div className="section-label">
             <span>SCENE {String(sceneIndex + 1).padStart(2, "0")} · TRANSITION IN</span>
           </div>
@@ -549,7 +562,9 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
             </label>
           )}
           <p className="micro-note block">Transitions blend into the scene and never move it, so the narration stays in sync.</p>
+          </>)}
 
+          {show("picture") && (<>
           <div className="section-label">
             <span>PICTURE · CROP, FILL AND MOVEMENT</span>
           </div>
@@ -584,7 +599,9 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
           </label>
           <p className="micro-note block">{scene.keyframes?.length ? "Your keyframes below move the picture instead." : "Movement applies to photos; video plays as filmed (keyframes below move clips too)."}</p>
           {sceneAsset && <PictureKeys scene={scene} local={Math.max(0, Math.min(scene.duration, playhead - sceneStart))} sceneStart={sceneStart} disabled={disabled} onScene={onScene} onSeek={onSeek} />}
+          </>)}
 
+          {show("lowerthird") && (<>
           <div className="section-label">
             <span>NAME CARD (LOWER THIRD)</span>
           </div>
@@ -601,10 +618,11 @@ export default function Effects({ project, scene, sceneIndex, thumb, disabled, o
               ? `Automatic name card on this scene: ${[autoCard.name, autoCard.role].filter(Boolean).join(", ")}. Type here to replace it.`
               : "Shows for the first 5 seconds of this scene, above any footage label."}
           </p>
+          </>)}
         </>
-      ) : (
+      ) : (show("transitions") || show("picture") || show("lowerthird")) ? (
         <p className="micro-note block">Select a scene for its transition, movement and name card.</p>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -2,20 +2,21 @@
 // drags, ruler ticks that suit the zoom, and caption blocks for the T1 track.
 
 export const LAYOUT_DEFAULTS = {
-  left: 240,
-  right: 300,
-  timeline: 296, // v0.4.59 (was 262): room for every lane — captions, picture, narration, music, Sound FX
+  left: 440, // v0.4.67 (was 240): CapCut's left panel — nine icon tabs, a sub-menu and a thumbnail grid
+  right: 340, // v0.4.67 (was 300)
+  timeline: 326, // v0.4.67 (was 296): room for the overlay track above the captions
   showLeft: true,
   showRight: true,
   compact: true,
-  director: true,
+  director: false, // v0.4.67 the Director is a floating button (CapCut's helper), closed until you open it
   lanes: 5, // v0.4.59 marks a layout saved since the timeline had room for all five lanes
+  cc: 1, // v0.4.67 marks a layout saved since the CapCut-style panels
 };
 
 export const LIMITS = {
-  left: [170, 460],
-  right: [240, 480],
-  timeline: [150, 620],
+  left: [300, 620],
+  right: [280, 520],
+  timeline: [150, 660],
 };
 
 const clampNum = (v, [lo, hi], fallback) => {
@@ -41,6 +42,12 @@ export function normaliseLayout(raw) {
   out.lanes = 5;
   for (const k of ["showLeft", "showRight", "compact", "director"])
     if (typeof v[k] === "boolean") out[k] = v[k];
+  // v0.4.67 a layout saved before the CapCut-style panels had a narrow left panel (made for a
+  // scene list) and an open direction bar: the panels and the Director open at the new defaults.
+  if (!v.cc) {
+    for (const k of ["left", "right", "director"]) out[k] = LAYOUT_DEFAULTS[k];
+  }
+  out.cc = 1;
   return out;
 }
 

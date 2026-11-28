@@ -62,7 +62,7 @@ export default function StickerDialog({ time, assets = [], onAdd, onUpload, onCl
           )}
         </div>
         <p className="sticker-foot">
-          Click a sticker to add it at the playhead ({fmt(time)}). Then adjust it with − / + in the inspector, or drag it in the preview.
+          Click a sticker to add it at the playhead ({fmt(time)}). Then adjust it with − / + in the Stickers tab, or drag it in the preview.
           {tab === "yours" && all.length > yours.length && (
             <button className="text-link" onClick={() => setShowAll((v) => !v)}>
               {showAll ? " Show only stickers" : " Show all my pictures"}
