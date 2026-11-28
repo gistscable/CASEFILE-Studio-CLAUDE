@@ -1615,3 +1615,12 @@ and a fix for the Episode setup page ("not full").
 **storyroom-kit**: synced (`tools/sync_engine.py --write`); README lists the new collections.
 
 **Tests:** `tests/test_niches_v076.py` (niches, create/PATCH/catalog API, AI wording, new sounds deterministic, flavour in the plan, every category placed on its sample script with the exact payloads, nothing placed in true crime, detectors never raise, every on-screen word from the narration, all fonts × size range × mirror × with/without photos pass `check()`, readable colour sets, deterministic frames, every cue is a library sound). The test toy collection key in `test_cinegfx_engine.py` is now "toyball".
+
+## v0.4.77 — Sports editorial engine (preview, demos for approval; not wired into the app yet)
+- New package `casefile-studio/cinegfx/sports/` (read its README.md first). It **edits footage** around word-timed narration: shots cut on spoken words, grades, context transitions, person mattes and 7 graphics families (behind-subject name, oversized headline, numbered points, minimal flashback, scramble labels, cumulative stats behind the player, single-stat impact). The true-crime six and the v0.4.76 niche collections are untouched.
+- `semantics.analyse()` decides family and timing from the narration only (number-aware alignment `align_words`; don't use `autotiming.align` for sports, because it mis-times "One." heard as "1"). It never adds a word that isn't spoken.
+- Segmentation is optional: onnxruntime plus an RVM ONNX model in `casefile-studio/models/` (gitignored) or `CASEFILE_RVM_MODEL`. Without it, behind-subject type falls back to the front layer. onnxruntime is **not** in requirements.txt (user-approved optional dependency).
+- Render: chunked at cuts, process pool, hash-cached chunks (`<cache>/chunks`), videotoolbox when FFmpeg has it (`CASEFILE_HWENC=0` forces libx264).
+- Demos: `casefile-studio/qa/sports-demos/make_demos.py` (story: Messi 4–1 Arsenal, 6 Apr 2010; sources in `script.json`; narration `narration/*.flac` + `words.json`). Footage lives in `qa/sports-demos/work/` (gitignored, copyrighted broadcast material, internal approval only). Outputs are `0-combined-messi-arsenal.mp4`, `1-…7-*.mp4` and `EDL.json`. The MP4s are gitignored; share them outside git.
+- Tests: `tests/test_sports_v077.py` (synthetic, no footage or model needed).
+- Not done yet, pending approval: UI and project integration (a "Sports edit" mode), storytelling-style picker, more compositions per family.

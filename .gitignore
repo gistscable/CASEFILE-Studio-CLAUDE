@@ -34,3 +34,8 @@ casefile-studio/qa/sound-design/work/
 casefile-studio/qa/_ui/
 casefile-studio/qa/cinegfx-demos/out/stills/
 casefile-studio/qa/motion-check/
+
+# v0.4.77 sports engine: person-matting model (optional, ~15 MB; see cinegfx/sports/matte.py) and render caches
+casefile-studio/models/*.onnx
+casefile-studio/qa/sports-demos/work/
+casefile-studio/qa/sports-demos/*.mp4

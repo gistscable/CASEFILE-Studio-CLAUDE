@@ -12,3 +12,6 @@ All are free to use, embed and redistribute in videos:
 | Carlito-Bold.ttf | Carlito | SIL Open Font License 1.1 |
 | Caladea-Bold.ttf | Caladea | Apache License 2.0 |
 | Oswald-Bold.ttf, Oswald-Medium.ttf, Oswald-Regular.ttf | Oswald (The Oswald Project Authors, github.com/googlefonts/OswaldFont), motion graphics v0.4.52 | SIL Open Font License 1.1 |
+| Anton-Regular.ttf | Anton (The Anton Project Authors, github.com/googlefonts/AntonFont), sports editorial v0.4.77 | SIL Open Font License 1.1 |
+| BebasNeue-Regular.ttf | Bebas Neue (Dharma Type), sports editorial v0.4.77 | SIL Open Font License 1.1 |
+| BarlowCondensed-SemiBold.ttf, BarlowCondensed-Bold.ttf | Barlow Condensed (Jeremy Tribby), sports editorial v0.4.77 | SIL Open Font License 1.1 |
