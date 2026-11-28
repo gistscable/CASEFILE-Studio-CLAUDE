@@ -1,0 +1,184 @@
+"""Review gallery for the v0.4.77 sports demos: the eight renders, what to look for in each, and the edit
+decision list (EDL.json). Run from casefile-studio/:
+
+    .venv/bin/python qa/sports-demos/serve.py            # http://0.0.0.0:8020
+    SPORTS_DEMOS_PORT=8030 .venv/bin/python qa/sports-demos/serve.py
+
+Videos stream with HTTP range requests (seeking works). Posters are cut once into work/posters (gitignored).
+"""
+from __future__ import annotations
+
+import html
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[1]))
+
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi.responses import FileResponse, HTMLResponse  # noqa: E402
+
+from cinegfx.timing import ffbin  # noqa: E402
+
+POSTERS = HERE / "work" / "posters"
+
+# file, title, family, poster time (s into the demo), what to look for
+DEMOS = [
+    ("0-combined-messi-arsenal.mp4", "Messi 4–1 Arsenal: the combined documentary", "All seven families", 2.6,
+     "78 s with generated narration. Every cut lands on a spoken word, graphics stay up across cuts, the score follows "
+     "the story (nostalgic, minimal flashback, tension, build, peak on the goals, triumph), and the crowd sound "
+     "comes from the footage itself."),
+    ("1-behind-subject-name.mp4", "Behind-subject kinetic name", "Family 1", 2.6,
+     "LIONEL wipes in on its word and MESSI on its own word, both behind the player: his raised fists stay in front "
+     "of the letters (the person matte is cached per shot)."),
+    ("2-oversized-headline.mp4", "Oversized headline + independent statements", "Family 2", 6.0,
+     "ONE-MAN SHOW slams in with a one-frame RGB ghost. 'MESSI 3 ARSENAL 1' builds word by word as it is said. "
+     "The headline survives two cuts, then leaves with RGB split + slice glitch exactly at the cut."),
+    ("3-numbered-points.mp4", "Sequential numbered points", "Family 3", 15.8,
+     "1–4 land on the spoken numbers, each point's words appear as spoken, earlier points dim. The goals are cut in "
+     "cool monochrome, one shot per goal, cut on each number."),
+    ("4-minimal-transition.mp4", "Minimal storytelling / historical transition", "Family 4", 11.4,
+     "'But first… we have to go back' in small tracked caps over low-key silhouettes, near silence, a dark dissolve "
+     "into the archive-graded Ballon d'Or photo with a slow controlled push."),
+    ("5-scramble-labels.mp4", "Date / venue scramble labels", "Family 5", 3.6,
+     "6 APRIL 2010 scrambles in on 'the sixth of April', locking left to right with a flickering tail and ticks, "
+     "then CAMP NOU on its word, persisting across the cut to the crowd."),
+    ("6-cumulative-stats-masked.mp4", "Layered cumulative statistics, masked", "Family 6", 6.6,
+     "47 GOALS, 53 GAMES, 34 IN LA LIGA stack on their words, placed from the player's head position, behind him "
+     "while he moves, and they stay up into the wide shot."),
+    ("7-single-stat-impact.mp4", "Oversized single-statistic impact", "Family 7", 1.5,
+     "The 4 hits in two frames (RGB ghost, settle), GOALS letter-reveals on its word, ONE NIGHT follows; the exit "
+     "desaturates to cyan and dissolves through a luma matte. The number goes behind the player only when he leaves "
+     "it readable."),
+]
+
+app = FastAPI(title="Casefile Studio, sports demos")
+
+
+def _poster(name: str, t: float) -> Path:
+    POSTERS.mkdir(parents=True, exist_ok=True)
+    out = POSTERS / (Path(name).stem + ".jpg")
+    src = HERE / name
+    if src.exists() and (not out.exists() or out.stat().st_mtime < src.stat().st_mtime):
+        subprocess.run([ffbin(), "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1",
+                        "-vf", "scale=960:-2", "-q:v", "3", str(out)], check=False)
+    return out
+
+
+def _edl_html() -> str:
+    p = HERE / "EDL.json"
+    if not p.exists():
+        return ""
+    d = json.loads(p.read_text())
+    rows = []
+    for s in d["shots"]:
+        tr = s.get("transition_in") or {}
+        kind = tr.get("kind", "cut") if tr else "cut"
+        why = tr.get("why", "") if tr else ""
+        rows.append(f"<tr><td>{s['start']:.2f}–{s['end']:.2f}</td><td>{html.escape(s['shows'])}</td>"
+                    f"<td>{html.escape(s['grade'])}{' · ' + str(s['speed']) + '×' if s['speed'] != 1 else ''}"
+                    f"{' · matte' if s['matte'] else ''}</td><td>{html.escape(kind)}"
+                    f"{('<span class=why> ' + html.escape(why) + '</span>') if why else ''}</td></tr>")
+    g = []
+    for x in d["graphics"]:
+        g.append(f"<tr><td>{x['in']:.2f}–{x['out']:.2f}</td><td><b>{html.escape(x['family'])}</b></td>"
+                 f"<td>{html.escape(x['why'])}</td></tr>")
+    return (f"<h2>Edit decision list</h2><p class=muted>{len(d['shots'])} shots · {len(d['graphics'])} graphics · "
+            f"{len(d['cues'])} sound cues. Generated by make_demos.py from the narration.</p>"
+            "<div class=cols><div><h3>Shots</h3><table><tr><th>time</th><th>shows</th><th>grade</th><th>in</th></tr>"
+            + "".join(rows) + "</table></div><div><h3>Graphics (what triggered them)</h3><table><tr><th>time</th>"
+            "<th>family</th><th>why</th></tr>" + "".join(g) + "</table></div></div>")
+
+
+PAGE = """<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Casefile Studio · Sports demos v0.4.77</title>
+<style>
+:root{--bg:#0b0d10;--panel:#14171c;--line:#232831;--text:#e9eef5;--muted:#8b95a3;--accent:#f2c84b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:28px 32px 8px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:22px;letter-spacing:.02em}h1 b{color:var(--accent);font-weight:700}
+.tag{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:2px 10px}
+main{padding:8px 32px 48px;max-width:1500px;margin:0 auto}
+.note{background:#1a1610;border:1px solid #3a3020;color:#e8d9b0;border-radius:10px;padding:10px 14px;margin:10px 0 22px;font-size:13px}
+.hero{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(260px,1fr);gap:22px;margin-bottom:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+video{display:block;width:100%;aspect-ratio:16/9;background:#000}
+.meta{padding:12px 16px 16px}.fam{color:var(--accent);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.meta h3{margin:2px 0 6px;font-size:16px}.meta p{margin:0;color:#c3cad4;font-size:13.5px}
+.dl{display:inline-block;margin-top:10px;font-size:12px;color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted)}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.side h3{margin:0 0 8px;font-size:15px}.side ol{margin:0;padding-left:18px;color:#c3cad4;font-size:13.5px}.side li{margin:4px 0}
+h2{margin:38px 0 4px;font-size:18px}.muted{color:var(--muted);margin:0 0 12px;font-size:13px}
+.cols{display:grid;grid-template-columns:1.4fr 1fr;gap:22px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}td:first-child{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}
+.why{color:var(--muted)}
+@media(max-width:900px){.hero,.cols{grid-template-columns:1fr}.grid{grid-template-columns:1fr}main,header{padding-left:16px;padding-right:16px}}
+</style></head><body>
+<header><h1>Casefile Studio · <b>Sports editorial demos</b></h1><span class=tag>v0.4.77 preview · for approval</span></header>
+<main>
+<div class=note>The match footage (UEFA highlights) and the Ballon d'Or press photo are copyrighted. They're used here only to
+review the engine; don't publish these renders. Narration is a generated voice; every fact is sourced in script.json.</div>
+__HERO__
+<h2>The seven families, standalone</h2><p class=muted>Each is a window of the same edit, so you see it with its real narration, footage, transitions and sound.</p>
+<div class=grid>__CARDS__</div>
+__EDL__
+</main></body></html>"""
+
+
+def _card(d, big=False):
+    name, title, fam, _, look = d
+    if not (HERE / name).exists():
+        return f"<div class=card><div class=meta><div class=fam>{fam}</div><h3>{title}</h3><p>Not rendered yet.</p></div></div>"
+    return (f"<div class=card><video controls preload=metadata playsinline poster='/poster/{name}' src='/video/{name}'></video>"
+            f"<div class=meta><div class=fam>{html.escape(fam)}</div><h3>{html.escape(title)}</h3>"
+            f"<p>{html.escape(look)}</p><a class=dl href='/video/{name}' download>Download MP4</a></div></div>")
+
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    for d in DEMOS:
+        _poster(d[0], d[3])
+    hero = (f"<div class=hero>{_card(DEMOS[0], True)}<div class=side><h3>What to check</h3><ol>"
+            "<li>Graphics appear on the spoken word, not on a fixed grid.</li>"
+            "<li>Name and stats sit behind the player; his arms and head pass in front.</li>"
+            "<li>Graphics stay up across cuts (headline, numbered points, stats).</li>"
+            "<li>Transitions fit the content: dissolves for flashback/archive, glitch only at the headline exit, luma out of the big number.</li>"
+            "<li>Grading by meaning: monochrome goals, low-key flashback, warm archive photo.</li>"
+            "<li>Sound effects on the animation events; music ducks under the voice.</li></ol></div></div>")
+    page = PAGE.replace("__HERO__", hero).replace("__CARDS__", "".join(_card(d) for d in DEMOS[1:]))
+    return page.replace("__EDL__", _edl_html())
+
+
+def _safe(name: str) -> Path:
+    if name not in {d[0] for d in DEMOS}:
+        raise HTTPException(404)
+    return HERE / name
+
+
+@app.get("/video/{name}")
+def video(name: str):
+    p = _safe(name)
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="video/mp4")
+
+
+@app.get("/poster/{name}")
+def poster(name: str):
+    d = next(d for d in DEMOS if d[0] == name) if name in {d[0] for d in DEMOS} else None
+    if not d:
+        raise HTTPException(404)
+    p = _poster(name, d[3])
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="image/jpeg")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("SPORTS_DEMOS_PORT", "8020")), log_level="warning")

@@ -42,3 +42,12 @@ cd casefile-studio
 
 Renders are cached by content (`work/cache/chunks`), so a change re-renders only the chunks it touches.
 Mattes are cached per shot.
+
+## Review gallery
+
+```
+.venv/bin/python qa/sports-demos/serve.py      # http://0.0.0.0:8020 (SPORTS_DEMOS_PORT to change)
+```
+
+A page with all eight demos (seekable), what to look for in each, and the edit decision list. It runs next to
+Casefile Studio (port 8010) and doesn't touch the app.
