@@ -1,53 +1,32 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useFetchJob } from "./DownloadRows.jsx";
-import { Trophy, Upload, Download, CheckCircle2, AlertTriangle, Info, Play, RotateCcw, ScanSearch, Layers } from "lucide-react";
+import { Trophy, CheckCircle2, AlertTriangle, Info, ScanSearch, Layers, Clapperboard, Music2, Palette, Sparkles } from "lucide-react";
+import { SPORTS_NICHES } from "./motion.js";
 import "./sportsedit.css";
 
-// v0.4.78 Sports edit: the producer's own footage cut together with the editorial graphics
-// (sportsedit.py). Every word on screen comes from the narration and every picture from the
-// project; the review step lets the producer switch graphics off, move a cut or swap a shot.
+// v0.4.79 Sports (football, boxing & MMA, wrestling): the settings of the sports engine. The video itself is built on
+// the Edit page (the editing guide, the fetched clips, the crops and the auto-fit decide the shots); the engine adds
+// to that timeline and everything it adds is visible and adjustable there:
+//   graphics      Edit › Graphics › Sports: suggested from the narration, approved one by one, exported with the video
+//   empty scenes  only scenes the guide left without a clip: a shot from the project's own footage, applied when you say
+//   style         the storytelling style's look, chapter transitions and an original music bed, applied when you say
+// Nothing is fetched or invented: words from the narration, pictures from this project. Every change can be undone.
 
-export const SPORTS_NICHES = ["football", "boxing", "wrestling"];
+export { SPORTS_NICHES };
 
 const show = (s) => {
   const m = Math.floor((s || 0) / 60);
-  const r = (s || 0) - m * 60;
-  return `${m}:${r < 10 ? "0" : ""}${r.toFixed(2)}`;
+  const r = Math.round((s || 0) - m * 60);
+  return `${m}:${r < 10 ? "0" : ""}${r}`;
 };
-const read = (v) => {
-  const parts = String(v).trim().replace(",", ".").split(":").map(Number);
-  if (!parts.length || parts.some((n) => !Number.isFinite(n))) return null;
-  return parts.reduce((a, b) => a * 60 + b, 0);
-};
-
-function Time({ value, onChange, label, disabled }) {
-  const [text, setText] = useState(show(value));
-  useEffect(() => setText(show(value)), [value]);
-  return (
-    <input
-      className="rc-time"
-      aria-label={label}
-      value={text}
-      disabled={disabled}
-      onChange={(e) => setText(e.target.value)}
-      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-      onBlur={() => {
-        const n = read(text);
-        if (n === null || Math.abs(n - value) < 0.005) setText(show(value));
-        else onChange(n);
-      }}
-    />
-  );
-}
-
-const KIND = { wide: "Wide", action: "Action", close: "Close-up", crowd: "Crowd", dark: "Low-key", photo: "Photo" };
 const MOOD = { nostalgic: "Nostalgic", minimal: "Minimal", tension: "Tension", build: "Build", peak: "Peak", triumph: "Triumph" };
-const emptyOverrides = () => ({ graphics: {}, moves: {}, shots: {} });
+const LOOK = { natural: "Natural", warm: "Warm", cold: "Cold", archive: "Archive (faded colour)", punchy: "High contrast", noir: "Documentary", crime: "Crime doc", bw: "Black and white", sepia: "Sepia", faded: "Faded film" };
+const TRANS = { dissolve: "dissolve", "dip-black": "dip to black" };
+const KIND = { wide: "wide", action: "action", close: "close-up", crowd: "crowd", dark: "low-key", photo: "photo" };
 
-export default function SportsEdit({ project, api, locked, onProject, onError, onNotify }) {
+export default function SportsEdit({ project, api, locked, onProject, onError, onNotify, onOpenEdit }) {
   const [view, setView] = useState(null);
   const [saving, setSaving] = useState(false);
-  const fileRef = useRef(null);
   const reload = () =>
     api(`/api/projects/${project.id}/sportsedit`)
       .then(setView)
@@ -55,19 +34,61 @@ export default function SportsEdit({ project, api, locked, onProject, onError, o
   const { job, running, follow } = useFetchJob(
     api,
     project.id,
-    (j) => {
+    async (j) => {
       if (j.status === "done") onNotify?.(j.result?.summary || "Done");
       else if (j.status === "error") onError(j.message);
+      try {
+        onProject(await api(`/api/projects/${project.id}`));
+      } catch (e) {
+        /* the view still reloads */
+      }
       reload();
     },
     "sportsedit",
   );
+  const scenesKey = (project.scenes || []).map((s) => `${s.id}:${s.asset_id || ""}:${s.duration}:${s.transition || ""}`).join("|");
+  const graphicsKey = (project.motion?.items || []).map((x) => `${x.id}:${x.status}`).join("|");
   useEffect(() => {
     reload();
-  }, [project.id, (project.assets || []).length, project.narration_id, project.episode?.timings?.hash]);
+  }, [project.id, (project.assets || []).length, project.narration_id, project.music_id, project.look, project.episode?.timings?.hash, scenesKey, graphicsKey]);
 
-  if (!view) return <div className="rc se"><p className="rc-note">Loading…</p></div>;
+  const head = (
+    <div className="rc-head">
+      <Trophy size={22} />
+      <div>
+        <h2>Sports</h2>
+        <p>
+          The video is built on the Edit page: the editing guide places the shots, fetches the clips, renames and crops them and fits them to the
+          narration. The sports engine adds the editorial graphics, fills only the scenes the guide left without a clip, and gives the edit its
+          storytelling style. Everything it adds shows on the Edit timeline and can be changed or undone there. Every word on screen comes from your
+          narration and every picture from this project: nothing is fetched or invented.
+        </p>
+      </div>
+    </div>
+  );
+  if (!view) return <div className="rc se">{head}<p className="rc-note">Loading…</p></div>;
+  if (!view.eligible)
+    return (
+      <div className="rc se">
+        {head}
+        <section className="rc-card">
+          <p className="rc-note">
+            <Info size={12} /> The sports tools are for football, boxing &amp; MMA and wrestling projects. Choose the niche in Episode setup; other
+            projects are not changed.
+          </p>
+        </section>
+      </div>
+    );
+
   const off = locked || running || saving;
+  const s = view.settings;
+  const nar = view.narration || {};
+  const g = view.graphics || {};
+  const fill = view.fill || { proposals: [], waiting: [], problems: [], gaps: 0 };
+  const st = view.style || { look: [], transitions: [], music: { sections: [] } };
+  const seg = view.segmentation;
+  const lib = view.library || [];
+  const pct = running ? job?.progress || 0 : 0;
 
   async function patch(body) {
     setSaving(true);
@@ -79,309 +100,211 @@ export default function SportsEdit({ project, api, locked, onProject, onError, o
       setSaving(false);
     }
   }
-  const ov = view.settings.overrides || emptyOverrides();
-  const setOv = (fn) => {
-    const next = { graphics: { ...ov.graphics }, moves: { ...ov.moves }, shots: { ...ov.shots } };
-    fn(next);
-    patch({ overrides: next });
-  };
-  async function start(path) {
-    try {
-      const r = await api(`/api/projects/${project.id}/sportsedit/${path}`, "POST");
-      follow(r.job_id);
-    } catch (e) {
-      onError(e.message);
-    }
-  }
-  async function upload(files) {
-    if (!files?.length) return;
-    const form = new FormData();
-    for (const f of files) form.append("files", f);
+  async function act(path, body, done) {
     setSaving(true);
     try {
-      onProject(await api(`/api/projects/${project.id}/upload`, "POST", form));
+      const r = await api(`/api/projects/${project.id}/sportsedit/${path}`, "POST", body || {});
+      if (r.job_id) follow(r.job_id);
+      if (r.project) onProject(r.project);
+      if (done) onNotify?.(done(r));
+      reload();
     } catch (e) {
       onError(e.message);
     } finally {
       setSaving(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   }
-
-  const head = (
-    <div className="rc-head">
-      <Trophy size={22} />
-      <div>
-        <h2>Sports edit</h2>
-        <p>
-          Cuts your own footage and photos together with the editorial graphics, timed to the narration's words. Every word on screen comes
-          from your narration and every picture from this project: nothing is fetched or invented.
-        </p>
-      </div>
-    </div>
-  );
-  if (!view.eligible)
-    return (
-      <div className="rc se">
-        {head}
-        <section className="rc-card">
-          <p className="rc-note">
-            <Info size={12} /> The sports edit is for football, boxing &amp; MMA and wrestling projects. Choose the niche in Episode setup; other
-            projects are not changed.
-          </p>
-        </section>
-      </div>
-    );
-
-  const s = view.settings;
-  const inp = view.inputs || {};
-  const plan = view.plan;
-  const lib = view.library || [];
-  const videos = lib.filter((x) => x.kind === "video");
-  const seg = view.segmentation;
-  const changes = Object.keys(ov.graphics).length + Object.keys(ov.moves).length + Object.keys(ov.shots).length;
-  const pct = running ? job?.progress || 0 : 0;
-  const latest = (view.renders || [])[0];
+  async function suggest() {
+    setSaving(true);
+    try {
+      const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", { engine: "sports" });
+      onProject(r.project);
+      onNotify?.(r.added ? `${r.added} sports graphic${r.added > 1 ? "s" : ""} suggested. Review them on the Edit page (Graphics), then approve.` : "Nothing new in the narration calls for a sports graphic.");
+      reload();
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className="rc se">
       {head}
 
       <section className="rc-card">
-        <div className="se-switch">
-          <button className={"toggle" + (s.enabled ? " on" : "")} aria-label="Make the sports edit" aria-pressed={s.enabled} disabled={off} onClick={() => patch({ enabled: !s.enabled })}>
-            <span />
-          </button>
-          <div>
-            <b>Make the sports edit for this project</b>
-            <p className="rc-note">The finished episode is not changed: the sports edit is rendered as its own video.</p>
-          </div>
-        </div>
-        <label className="rc-check se-crop">
-          <input type="checkbox" checked={!!s.crop} disabled={off} onChange={(e) => patch({ crop: e.target.checked })} />
-          <span>Crop in slightly (keeps a broadcaster's corner logo out of shot)</span>
-        </label>
-        <h3 className="se-h">Storytelling style</h3>
+        <h3>Storytelling style</h3>
         <div className="se-styles" role="radiogroup" aria-label="Storytelling style">
-          {view.styles.map((st) => (
-            <label key={st.key} className={"se-style" + (s.style === st.key ? " on" : "")}>
-              <input type="radio" name="se-style" checked={s.style === st.key} disabled={off} onChange={() => patch({ style: st.key })} />
+          {view.styles.map((x) => (
+            <label key={x.key} className={"se-style" + (s.style === x.key ? " on" : "")}>
+              <input type="radio" name="se-style" checked={s.style === x.key} disabled={off} onChange={() => patch({ style: x.key })} />
               <b>
-                {st.label}
-                {st.key === "auto" && plan && s.style === "auto" ? <small> · {plan.style_label}</small> : null}
+                {x.label}
+                {x.key === "auto" && s.style === "auto" && view.resolved ? <small> · {view.resolved.label}</small> : null}
               </b>
-              <span>{st.about}</span>
+              <span>{x.about}</span>
             </label>
           ))}
         </div>
+        <p className="rc-note">The style decides how many graphics are suggested and what “Apply the style” below proposes. Nothing changes until you apply it.</p>
       </section>
 
       <section className="rc-card">
-        <h3>What the edit is made from</h3>
-        <ul className="se-inputs">
-          <Check ok={!!inp.narration} label={inp.narration ? `Narration: ${inp.narration.name} (${show(inp.narration.duration || 0)})` : "Narration audio"} />
-          <Check ok={inp.timings > 0} label={inp.timings ? `Word timing: ${inp.timings} words` : "Word timing (Voice tab, Timing)"} />
-          <Check ok={!!inp.script} label="Script (all the words on screen)" />
-          <Check ok={lib.length > 0} label={lib.length ? `${videos.length} clip${videos.length === 1 ? "" : "s"}, ${lib.length - videos.length} photo${lib.length - videos.length === 1 ? "" : "s"}` : "Your own footage or photos"} />
-        </ul>
-        {(inp.problems || []).map((p) => (
-          <p key={p} className="rc-warn">
-            <AlertTriangle size={12} /> {p}
-          </p>
-        ))}
-        {lib.length > 0 && (
-          <div className="se-lib">
-            {lib.map((x) => (
-              <div key={x.id} className="se-lib-item">
-                <img alt="" loading="lazy" src={`/api/projects/${project.id}/sportsedit/frame/${x.id}?t=${x.kind === "video" ? Math.min(5, (x.duration || 10) / 3).toFixed(1) : 0}`} />
-                <span title={x.name}>{x.name}</span>
-                <small>{x.missing ? "file missing" : !x.analysed ? "not analysed yet" : x.kind === "video" ? `${x.shots.length} shots` : "photo"}</small>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="rc-row">
-          <button className="btn" disabled={off} onClick={() => fileRef.current?.click()}>
-            <Upload size={13} /> Add footage or photos
-          </button>
-          <input ref={fileRef} type="file" hidden multiple accept="video/*,image/*" onChange={(e) => upload(e.target.files)} />
-          <button className="btn" disabled={off || !lib.some((x) => !x.analysed && !x.missing)} onClick={() => start("analyse")}>
-            <ScanSearch size={13} /> Analyse footage
-          </button>
-        </div>
+        <h3>
+          <Sparkles size={14} /> Graphics on the Edit timeline
+        </h3>
         <p className="rc-note">
-          Photos are used only where their file name matches what the narration says (e.g. <i>camp_nou_2010.jpg</i> when "Camp Nou" is spoken).
-          Footage is described from its pictures (wide, action, close-up, crowd, low-key), never identified.
+          {nar.words ? `${nar.words} narrated words${nar.exact ? " (exact word timing)" : " (timing estimated from the captions: import word timing for exact sync)"}; ` : "No narration on the timeline yet; "}
+          {nar.found ? `${nar.found} moment${nar.found > 1 ? "s" : ""} the narration supports a graphic.` : "no moment that calls for a graphic yet."}
         </p>
+        <p className="rc-note">
+          {g.total ? `${g.total} sports graphic${g.total > 1 ? "s" : ""} on the timeline: ${g.approved} approved, ${g.suggested} suggested, ${g.draft} draft.` : "No sports graphics on the timeline yet."}
+          {g.approved > 0 && !g.export ? " Approved graphics are exported once “Add approved graphics to the export” is on (Edit › Graphics)." : ""}
+        </p>
+        <div className="rc-row">
+          <button className="btn primary" disabled={off || !nar.found} onClick={suggest}>
+            <Sparkles size={13} /> Suggest sports graphics
+          </button>
+          {onOpenEdit && (
+            <button className="btn" onClick={onOpenEdit}>
+              <Clapperboard size={13} /> Review them on the Edit page
+            </button>
+          )}
+        </div>
+        <h3 className="se-h">
+          <Layers size={14} /> Text behind the player
+        </h3>
+        {seg?.available ? (
+          <p className="se-ok">
+            <CheckCircle2 size={13} /> Segmentation is available: the player's name and stacked stats go behind the player, in the preview and the export.
+          </p>
+        ) : (
+          <>
+            <p className="rc-warn">
+              <AlertTriangle size={12} /> Segmentation is not available ({seg?.reason}). The graphics still preview and export, with the type in front of the player.
+            </p>
+            <ol className="se-how">
+              {(seg?.how || []).map((h) => (
+                <li key={h}>{h}</li>
+              ))}
+            </ol>
+            <p className="rc-note">{seg?.license}</p>
+          </>
+        )}
       </section>
 
-      {plan && (
-        <section className="rc-card">
-          <div className="se-review-head">
-            <h3>Review before rendering</h3>
-            <span className="rc-note">
-              {plan.style_label} · {show(plan.duration)} · {plan.cuts.length} shots · {plan.graphics.filter((g) => g.on).length} graphics
-            </span>
-            {changes > 0 && (
-              <button className="btn subtle" disabled={off} onClick={() => patch({ overrides: emptyOverrides() })}>
-                <RotateCcw size={12} /> Undo my {changes} change{changes === 1 ? "" : "s"}
-              </button>
-            )}
-          </div>
-          {(plan.problems || []).map((p) => (
-            <p key={p} className="rc-warn">
-              <AlertTriangle size={12} /> {p}
+      <section className="rc-card">
+        <h3>
+          <ScanSearch size={14} /> Scenes the guide left without a clip
+        </h3>
+        <p className="rc-note">
+          Only these scenes are touched: a shot from this project's own footage (including the clips the guide fetched), chosen for what is said
+          there. Scenes with a clip from the guide are never changed. A filled scene is an ordinary scene afterwards: change it on the Edit page; if
+          the guide later supplies its own clip, the guide's clip wins.
+        </p>
+        {view.filled > 0 && <p className="rc-note">{view.filled} scene{view.filled > 1 ? "s" : ""} filled so far.</p>}
+        {fill.gaps === 0 ? (
+          <p className="se-ok">
+            <CheckCircle2 size={13} /> Every scene has a picture.
+          </p>
+        ) : (
+          <>
+            <p className="rc-note">
+              {fill.gaps} scene{fill.gaps > 1 ? "s" : ""} without a clip.
+              {fill.waiting.length ? ` ${fill.waiting.length} file${fill.waiting.length > 1 ? "s are" : " is"} not analysed yet (${fill.waiting.slice(0, 3).join(", ")}${fill.waiting.length > 3 ? "…" : ""}).` : ""}
             </p>
-          ))}
-          {plan.stale?.length > 0 && (
-            <p className="rc-warn">
-              <Info size={12} /> {plan.stale.length} of your changes no longer match a cut (the plan changed). They are ignored until you undo them.
-            </p>
-          )}
-
-          <h4 className="se-sub">
-            <Layers size={13} /> Graphics (text from the narration)
-          </h4>
-          <div className="se-table se-graphics">
-            {plan.graphics.map((g) => (
-              <div key={g.key} className={"se-row" + (g.on ? "" : " off")}>
-                <button
-                  className={"toggle" + (g.on ? " on" : "")}
-                  aria-label={`${g.on ? "Switch off" : "Switch on"} ${g.label} at ${show(g.t_in)}`}
-                  aria-pressed={g.on}
-                  disabled={off}
-                  onClick={() => setOv((n) => (n.graphics[g.key] = !g.on))}
-                >
-                  <span />
-                </button>
-                <span className="se-t">{show(g.t_in)}</span>
-                <div className="se-main">
-                  <b>{g.label}</b>
-                  <span className="se-text">{g.text}</span>
-                  <small>
-                    {g.why}
-                    {g.note ? ` · ${g.note}` : ""}
-                  </small>
-                  {g.warning && (
-                    <small className="se-warn">
-                      <AlertTriangle size={11} /> {g.warning}
-                    </small>
-                  )}
-                </div>
-              </div>
+            {fill.problems.map((p) => (
+              <p key={p} className="rc-warn">
+                <AlertTriangle size={12} /> {p}
+              </p>
             ))}
-          </div>
-
-          <h4 className="se-sub">
-            <Play size={13} /> Shots
-          </h4>
-          <div className="se-table se-cuts">
-            {plan.cuts.map((c, i) => {
-              const hand = !!(ov.moves[c.key] !== undefined || ov.shots[c.key]);
-              return (
-                <div key={c.key} className={"se-row" + (c.asset_id ? "" : " off")}>
-                  {c.asset_id ? (
-                    <img alt="" loading="lazy" src={`/api/projects/${project.id}/sportsedit/frame/${c.asset_id}?t=${c.photo ? 0 : (c.in + 0.3).toFixed(1)}`} />
-                  ) : (
-                    <div className="se-noimg">no footage</div>
-                  )}
-                  <div className="se-cut-time">
-                    {i === 0 ? (
-                      <span className="se-t">{show(c.t)}</span>
-                    ) : (
-                      <Time value={c.t} label={`Cut ${i + 1} time`} disabled={off} onChange={(v) => setOv((n) => (n.moves[c.key] = v))} />
-                    )}
-                    <small>{(c.end - c.t).toFixed(1)} s</small>
-                  </div>
-                  <div className="se-main">
-                    <b>
-                      {KIND[c.kind] || "Shot"}
-                      {c.speed < 0.95 ? ` · ${c.speed}× slow motion` : ""} <span className="se-grade">{c.grade.replace("_", " ")}</span>
-                      {c.moved && <span className="badge amber">moved</span>}
-                      {c.hand && <span className="badge amber">your pick</span>}
-                    </b>
-                    <small>{c.need}</small>
-                    <small>Why this shot: {c.why}</small>
-                    <div className="se-swap">
-                      <select
-                        aria-label={`Shot for cut ${i + 1}`}
-                        disabled={off}
-                        value=""
-                        onChange={(e) => {
-                          const [aid, t0] = e.target.value.split("|");
-                          if (aid) setOv((n) => (n.shots[c.key] = { asset_id: aid, in: Number(t0) + 0.15 }));
-                        }}
-                      >
-                        <option value="">Swap shot: {c.name ? `${c.name}${c.photo ? "" : " @ " + show(c.in)}` : "choose"}</option>
-                        {lib
-                          .filter((x) => x.analysed)
-                          .map((x) =>
-                            x.kind === "image" ? (
-                              <option key={x.id} value={`${x.id}|0`}>
-                                Photo: {x.name}
-                              </option>
-                            ) : (
-                              <optgroup key={x.id} label={x.name}>
-                                {x.shots.map((sh) => (
-                                  <option key={sh.t0} value={`${x.id}|${sh.t0}`}>
-                                    {show(sh.t0)}–{show(sh.t1)} {KIND[sh.kind] || sh.kind}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ),
-                          )}
-                      </select>
-                      {c.asset_id && !c.photo && (
-                        <label className="se-in">
-                          from
-                          <Time value={c.in} label={`Cut ${i + 1} source start`} disabled={off} onChange={(v) => setOv((n) => (n.shots[c.key] = { asset_id: c.asset_id, in: v }))} />
-                        </label>
-                      )}
-                      {hand && (
-                        <button
-                          className="text-link"
-                          disabled={off}
-                          onClick={() =>
-                            setOv((n) => {
-                              delete n.moves[c.key];
-                              delete n.shots[c.key];
-                            })
-                          }
-                        >
-                          <RotateCcw size={11} /> automatic
-                        </button>
-                      )}
+            <div className="rc-row">
+              <button className="btn" disabled={off || !lib.length || !fill.waiting.length} onClick={() => act("analyse")}>
+                <ScanSearch size={13} /> Analyse footage
+              </button>
+              <button className="btn primary" disabled={off || !fill.proposals.length} onClick={() => act("fill", {}, (r) => `${r.filled} scene${r.filled > 1 ? "s" : ""} filled. Undo puts them back.`)}>
+                Fill {fill.proposals.length || ""} scene{fill.proposals.length === 1 ? "" : "s"}
+              </button>
+            </div>
+            {fill.proposals.length > 0 && (
+              <div className="se-table se-cuts">
+                {fill.proposals.map((c) => (
+                  <div key={c.scene_id} className="se-row">
+                    <img alt="" loading="lazy" src={`/api/projects/${project.id}/sportsedit/frame/${c.asset_id}?t=${(c.in + 0.5).toFixed(1)}`} />
+                    <div className="se-cut-time">
+                      <span className="se-t">{show(c.start)}</span>
+                      <small>scene {c.index + 1} · {(c.end - c.start).toFixed(1)} s</small>
+                    </div>
+                    <div className="se-main">
+                      <b>
+                        {c.name} <span className="se-kind">{c.photo ? "photo" : `${KIND[c.kind] || c.kind || "shot"} from ${show(c.in)}`}</span>
+                      </b>
+                      <small>{c.why}</small>
+                      <small>{c.need}</small>
+                      <button className="text-link" disabled={off} onClick={() => act("fill", { scene_ids: [c.scene_id] }, () => `Scene ${c.index + 1} filled.`)}>
+                        Fill only this scene
+                      </button>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      <section className="rc-card">
+        <h3>
+          <Palette size={14} /> Apply the style: {view.resolved?.label}
+        </h3>
+        <ul className="se-inputs">
+          <li className={st.look[0] === st.look[1] ? "ok" : ""}>
+            <Palette size={12} /> Look: {LOOK[st.look[1]] || st.look[1]}
+            {st.look[0] === st.look[1] ? " (applied)" : ` (now ${LOOK[st.look[0]] || st.look[0]})`}
+          </li>
+          <li>
+            <Layers size={12} />{" "}
+            {st.transitions.length
+              ? `A ${TRANS[st.transitions[0].to] || st.transitions[0].to} where ${st.transitions.length > 1 ? `each of the ${st.transitions.length} new chapters begins` : "the new chapter begins"} (only where no transition is chosen)`
+              : "Transitions: none to add (cuts between chapters, or chosen by you)"}
+          </li>
+        </ul>
+        <div className="rc-row">
+          <button className="btn" disabled={off || st.look[0] === st.look[1]} onClick={() => act("style", { parts: ["look"] }, () => "Look applied. Undo puts it back.")}>
+            Apply the look
+          </button>
+          <button className="btn" disabled={off || !st.transitions.length} onClick={() => act("style", { parts: ["transitions"] }, (r) => `${r.transitions} transition${r.transitions === 1 ? "" : "s"} added. Undo removes them.`)}>
+            Add the chapter transitions
+          </button>
+        </div>
+        <h3 className="se-h">
+          <Music2 size={14} /> Music that follows the story
+        </h3>
+        {st.music.sections.length > 0 ? (
           <div className="se-music">
-            <span className="rc-note">Music arc:</span>
-            {plan.music.map(([a, b, m]) => (
+            <span className="rc-note">Arc:</span>
+            {st.music.sections.map(([a, b, m]) => (
               <span key={a} className="se-mood" style={{ flexGrow: Math.max(1, b - a) }} title={`${show(a)}–${show(b)}`}>
                 {MOOD[m] || m}
               </span>
             ))}
           </div>
-        </section>
-      )}
-
-      <section className="rc-card">
-        <h3>Render</h3>
+        ) : (
+          <p className="rc-note">Build the edit first: the music follows the timeline.</p>
+        )}
+        <p className="rc-note">
+          An original music bed made for this timeline (no samples), following the arc above; it becomes the project's music, ducked under the voice
+          as usual. {st.music.current ? `It replaces “${st.music.current}” as the music (the file stays in Media; undo switches back).` : ""}
+        </p>
         <div className="rc-row">
-          <button className="btn primary" disabled={off || !s.enabled || !plan || (inp.problems || []).length > 0 || !lib.length} onClick={() => start("render")}>
-            <Play size={13} /> {latest ? "Render again" : "Render the sports edit"}
+          <button className="btn" disabled={off || !st.music.sections.length} onClick={() => act("music")}>
+            <Music2 size={13} /> Make the music
           </button>
-          {running && (
-            <button className="btn subtle" onClick={() => api(`/api/jobs/${job.id}/cancel`, "POST").catch((e) => onError(e.message))}>
-              Stop
-            </button>
-          )}
-          {!s.enabled && <span className="rc-note">Switch the sports edit on first.</span>}
         </div>
-        {running && (
+      </section>
+
+      {running && (
+        <section className="rc-card">
           <div className="se-progress" aria-live="polite">
             <div className="se-bar">
               <i style={{ width: `${pct}%` }} />
@@ -390,66 +313,11 @@ export default function SportsEdit({ project, api, locked, onProject, onError, o
               {pct}% · {job?.message || "Starting"}
             </span>
           </div>
-        )}
-        <p className="rc-note">
-          The picture is rendered in parts. A change re-renders only the parts it touches, so the second render after a review change is much
-          faster. On a Mac with VideoToolbox the hardware encoder is used.
-        </p>
-        {latest && (
-          <div className="rc-result se-result">
-            <video controls preload="metadata" src={latest.file} />
-            <p>
-              <CheckCircle2 size={12} /> {show(latest.duration)} · {latest.style} · {latest.cuts} shots · {latest.graphics} graphics
-              {latest.behind ? " · type behind the players" : ""} · rendered in {Math.round(latest.seconds / 60)} min
-              {latest.reused ? ` (${latest.reused} parts reused)` : ""}
-            </p>
-            <a className="btn" href={latest.file} download>
-              <Download size={13} /> Download
-            </a>
-          </div>
-        )}
-        {(view.renders || []).length > 1 && (
-          <details className="rc-paste">
-            <summary>Earlier renders</summary>
-            {view.renders.slice(1).map((r) => (
-              <p key={r.id}>
-                <a className="text-link" href={r.file} download>
-                  <Download size={11} /> {new Date(r.at).toLocaleString()} · {show(r.duration)} · {r.style}
-                </a>
-              </p>
-            ))}
-          </details>
-        )}
-      </section>
-
-      <section className="rc-card">
-        <h3>Text behind the players</h3>
-        {seg.available ? (
-          <p className="se-ok">
-            <CheckCircle2 size={12} /> Available: names and stats can sit behind the player (model {seg.model?.split("/").pop()}).
-          </p>
-        ) : (
-          <>
-            <p className="rc-note">
-              <Info size={12} /> Not available here ({seg.reason}). The edit still renders and the text goes in front of the players instead.
-            </p>
-            <ol className="se-how">
-              {seg.how.map((h) => (
-                <li key={h}>{h}</li>
-              ))}
-            </ol>
-            <p className="rc-note">{seg.license}</p>
-          </>
-        )}
-      </section>
+          <button className="btn subtle" onClick={() => api(`/api/jobs/${job.id}/cancel`, "POST").catch((e) => onError(e.message))}>
+            Stop
+          </button>
+        </section>
+      )}
     </div>
-  );
-}
-
-function Check({ ok, label }) {
-  return (
-    <li className={ok ? "ok" : "missing"}>
-      {ok ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />} {label}
-    </li>
   );
 }

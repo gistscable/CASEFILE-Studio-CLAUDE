@@ -61,3 +61,4 @@
   .se-cuts .se-main { grid-column: 1 / -1; }
   .se-graphics .se-row { grid-template-columns: 30px 56px minmax(0, 1fr); }
 }
+.se-kind { color: #80858c; font-weight: 400; font-size: 10.5px; } /* v0.4.79 */

@@ -155,7 +155,11 @@ def _motion_events(project):
     W, H = motion.preview_size(project)  # the editor lays them out at this size too (shared cache)
     for it in motion.exported(project):
         cine = it.get("template") == "cinematic"
-        if cine:  # v0.4.62: the story-aware graphic's own designed cues (cinematic.cues), from the same drawing as its frames
+        sport = it.get("template") == "sports"  # v0.4.79 the sports graphics' own designed cues (sportsgfx.cues)
+        if sport:
+            import sportsgfx
+            key = "sports:" + sportsgfx.item_hash(it, W, H, None)
+        elif cine:  # v0.4.62: the story-aware graphic's own designed cues (cinematic.cues), from the same drawing as its frames
             import cinematic
             files = _cinematic_files(project, it)
             key = "cine:" + cinematic.item_hash(it, W, H, files)
@@ -165,7 +169,8 @@ def _motion_events(project):
             evs = _EVENTS.get(key)
         if evs is None:
             try:
-                evs = cinematic.cues(it, files) if cine else motion.sound_events(motion._layout(it, W, H, None))
+                evs = (sportsgfx.cues(it) if sport else cinematic.cues(it, files) if cine
+                       else motion.sound_events(motion._layout(it, W, H, None)))
             except (OSError, ValueError, KeyError, TypeError):  # pragma: no cover - a broken item is skipped
                 continue
             with _EVENTS_LOCK:
@@ -509,6 +514,9 @@ def events(project, mg=None, sents=None, ctx=None):
         start = round(it["start"] * FPS) / FPS  # the graphic's first frame (motion.prepare does the same)
         if tpl == "cinematic":
             _cine_events(add, gid, it, evs, f"{it.get('category') or 'cinematic'} graphic at {int(start // 60)}:{int(start % 60):02d}")
+            continue
+        if tpl == "sports":  # v0.4.79 designed with the graphic, like a cinematic graphic's cues
+            _cine_events(add, gid, it, evs, f"{it.get('label') or 'sports'} graphic at {int(start // 60)}:{int(start % 60):02d}")
             continue
 
         def on_frame(local):  # the first frame on which something at `local` is drawn

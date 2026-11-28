@@ -2185,7 +2185,16 @@ def apply_overrides(project, scenes):
         return
     assets = {a["id"] for a in project.get("assets", [])}
     for s in scenes:
-        for field, value in (ov.get(scene_key(s)) or {}).items():
+        o = ov.get(scene_key(s)) or {}
+        fill = o.get("sports_fill")
+        if isinstance(fill, dict):
+            # v0.4.79 a shot the sports engine put in a scene the guide left empty: the guide's own clip wins
+            # once it has one; a picture you chose there since then stays yours
+            if s.get("asset_id"):
+                o = {k: v for k, v in o.items() if k not in ("sports_fill", "asset_id", "trim_start", "motion")}
+            elif fill.get("asset_id") != o.get("asset_id"):
+                o = {k: v for k, v in o.items() if k != "sports_fill"}
+        for field, value in o.items():
             if field == "asset_id" and value is not None and value not in assets:
                 continue  # the replacement file was deleted: keep the guide's choice
             if value is None:

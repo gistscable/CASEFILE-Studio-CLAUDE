@@ -170,7 +170,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.78";
+const APP_VERSION = "0.4.79";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -2294,7 +2294,7 @@ function App() {
                 await flushSave();
                 const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", body);
                 acceptProject(r.project);
-                const what = body.engine === "cinematic" ? "cinematic graphic" : "motion graphic";
+                const what = body.engine === "cinematic" ? "cinematic graphic" : body.engine === "sports" ? "sports graphic" : "motion graphic";
                 notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
               }}
               onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
@@ -3747,7 +3747,7 @@ function App() {
             ["edit", "Edit", Clapperboard, scenes.length],
             ["review", "Review & export", ShieldCheck, null],
             ["recut", "Re-cut", Scissors, null],
-            ...(SPORTS_NICHES.includes(project.niche) ? [["sportsedit", "Sports edit", Trophy, null]] : []),
+            ...(SPORTS_NICHES.includes(project.niche) ? [["sportsedit", "Sports", Trophy, null]] : []),
           ].map(([key, label, Icon, count], i) => (
             <button
               key={key}
@@ -3924,9 +3924,10 @@ function App() {
             project={project}
             api={api}
             locked={locked}
-            onProject={setProject}
+            onProject={acceptProject}
             onError={report}
             onNotify={notify}
+            onOpenEdit={() => { setTab("edit"); openLeft("graphics"); }}
           />
         )}
         {tab === "recut" && (

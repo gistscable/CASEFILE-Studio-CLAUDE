@@ -7835,3 +7835,4 @@ body.resizing-row * {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+.mg-sports-text { color: var(--gold); letter-spacing: 0.3px; }

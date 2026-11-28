@@ -165,9 +165,12 @@ def key(t: float) -> str:
     return f"{float(t):.2f}"
 
 
-def plan(words, elements, library, style="auto", duration=None, lead=0.0, overrides=None):
+def plan(words, elements, library, style="auto", duration=None, lead=0.0, overrides=None, pieces=None, taken=()):
     """words: semantics.Word (timeline seconds); elements: semantics.Element (all detected); library:
-    [{id, name, kind: video|image, duration, shots: [{t0, t1, kind, why, person, ...}]}]; overrides: see above."""
+    [{id, name, kind: video|image, duration, shots: [{t0, t1, kind, why, person, ...}]}]; overrides: see above.
+    v0.4.79 `pieces`: [(start, end)] to choose shots for instead of cutting the whole narration (the Edit page:
+    the guide decides the cuts, the engine only fills the scenes that have no clip); `taken`: [(asset id, from,
+    to)] source seconds the edit already shows (not offered again while unused footage fits)."""
     ov = overrides or {}
     g_ov = {key(k): bool(v) for k, v in (ov.get("graphics") or {}).items()}
     moves = {key(k): float(v) for k, v in (ov.get("moves") or {}).items()}
@@ -196,7 +199,7 @@ def plan(words, elements, library, style="auto", duration=None, lead=0.0, overri
             if clash:
                 g["warning"] = f"on screen at the same time as the {clash[0]['label']}"
 
-    planned = _cut_points(words, on, duration, lead, p)
+    planned = [round(a, 3) for a, _ in pieces] if pieces else _cut_points(words, on, duration, lead, p)
     stale = [k for k in list(moves) + list(picks) if k not in {key(t) for t in planned}]
     # moved cuts: stay between their neighbours (0.4 s at least each side)
     pts = list(planned)
@@ -224,11 +227,18 @@ def plan(words, elements, library, style="auto", duration=None, lead=0.0, overri
             name_tok[v] = name_tok[v] - common
     photo_uses = {}
     used = {}            # (clip id, shot index) -> seconds of source already used
+    for aid, f0, f1 in taken or ():
+        for clip, j, s in video_shots:
+            if clip["id"] == aid:
+                ov = min(float(f1), s["t1"]) - max(float(f0), s["t0"])
+                if ov > 0:
+                    used[(aid, j)] = used.get((aid, j), 0.0) + ov
     by_id = {c["id"]: c for c in library}
     cuts = []
     rhythm = p["rhythm"]
     prev_key = None
-    for n, (a, b) in enumerate(zip(pts, pts[1:] + [duration])):
+    spans = [(round(a, 3), round(b, 3)) for a, b in pieces] if pieces else list(zip(pts, pts[1:] + [duration]))
+    for n, (a, b) in enumerate(spans):
         L = b - a
         ctx = _context(on, a)
         fam = ctx.family if ctx else None

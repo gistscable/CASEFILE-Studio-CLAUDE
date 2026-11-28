@@ -30,9 +30,39 @@ export function normaliseCinematic(it) {
   };
 }
 
+// v0.4.79 A sports editorial graphic (sportsgfx.py): its words and design come from the narration on the server;
+// the editor changes its place, status and captions. Its length: the narration it covers plus the exit, at 24 fps.
+export const SPORTS_FAMILIES = [
+  ["name", "Player name (behind the player)"],
+  ["headline", "Headline"],
+  ["numbered", "Numbered points"],
+  ["impact", "Single big number"],
+  ["cumulative", "Stacked stats (behind the player)"],
+  ["label", "Date / place label"],
+  ["minimal", "Flashback line"],
+];
+export const SPORTS_NICHES = ["football", "boxing", "wrestling"];
+export function normaliseSports(it) {
+  if (!it || it.template !== "sports" || !SPORTS_FAMILIES.some(([k]) => k === it.family) || !it.data || typeof it.data !== "object") return null;
+  const start = clamp(it.start, [0, 86400], 0);
+  const dur = clamp(it.dur, [0.3, 120], 4);
+  return {
+    ...it,
+    status: ["suggested", "draft", "approved"].includes(it.status) ? it.status : "draft",
+    start,
+    end: Math.round((start + Math.ceil((dur + 0.45) * CINEMATIC_FPS - 1e-6) / CINEMATIC_FPS) * 1000) / 1000,
+    dur,
+    label: it.label || "",
+    text: it.text || "",
+    title: it.text || it.label || "Sports graphic", // the timeline clip's name
+    hide_captions: it.hide_captions !== false,
+  };
+}
+
 // A light copy of motion.normalise_item (the server's is the one that counts).
 export function normaliseItem(it) {
   if (it && it.template === "cinematic") return normaliseCinematic(it);
+  if (it && it.template === "sports") return normaliseSports(it);
   if (!it || !TEMPLATES[it.template]) return null;
   const D = MG.defaults;
   const start = clamp(it.start, [0, 86400], 0);

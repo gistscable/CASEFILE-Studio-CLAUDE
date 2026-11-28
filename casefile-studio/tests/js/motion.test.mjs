@@ -71,3 +71,16 @@ test("type and layout choices survive, and a graphic's 'as designed' choices are
   assert.deepEqual(m.items[0].look, { font: "design", size: 1, mirror: false, place: { scale: 1, x: 0, y: 0 } });
   assert.deepEqual(cleanLook({ font: "", size: undefined, mirror: undefined, place: "left" }), {});
 });
+
+// v0.4.79 the sports editorial graphics on the Edit timeline
+test("a sports graphic survives the editor's normalise, with the server's length and a timeline name", () => {
+  const it = { id: "sp1", template: "sports", status: "suggested", start: 6, end: 0, family: "numbered", label: "Numbered points",
+    text: "1. 21' FROM THE EDGE", data: { items: [{ n: 1, t: 0 }] }, dur: 6.333 };
+  const x = normaliseItem(it);
+  assert.equal(x.end, Math.round((6 + Math.ceil((6.333 + 0.45) * 24 - 1e-6) / 24) * 1000) / 1000);
+  assert.equal(x.title, "1. 21' FROM THE EDGE");
+  assert.equal(normaliseItem({ ...it, family: "pie" }), null);
+  assert.equal(normaliseItem({ ...it, data: null }), null);
+  const m = normaliseMotion({ enabled: true, items: [{ ...it, status: "approved" }] });
+  assert.equal(graphicsAt(m, 8, null).length, 1);
+});

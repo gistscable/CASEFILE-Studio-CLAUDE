@@ -1,5 +1,5 @@
-"""v0.4.78 Sports edit in the app: footage analysis, the edit planner, the settings, the review overrides and
-the render through the job system (chunk cache reused after a change)."""
+"""v0.4.78 Sports engine pieces still used by the Edit page (v0.4.79): footage analysis, the planner (which now
+only fills the scenes the guide left empty), the shared test helpers and the sports sounds."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,6 @@ import subprocess
 import time
 
 import numpy as np
-import pytest
 
 import sportsedit
 from cinegfx.sports import planner as P
@@ -184,31 +183,8 @@ def test_thin_keeps_the_stronger_of_overlapping_graphics():
     assert P.thin([a, b], 0.3) == [b]
 
 
-# ---------------------------------------------------------------- settings
-def test_settings_are_validated():
-    assert sportsedit.normalise(None) == sportsedit.default()
-    ok = sportsedit.normalise({"enabled": True, "style": "high_energy",
-                               "overrides": {"graphics": {"1.20": False}, "moves": {"3.40": 3.9},
-                                             "shots": {"5.00": {"asset_id": "a", "in": 2}}}}, {"a"})
-    assert ok["enabled"] and ok["overrides"]["moves"] == {"3.40": 3.9}
-    assert ok["crop"] is False and sportsedit.normalise({"crop": True})["crop"] is True
-    for bad in ({"style": "nope"}, {"overrides": {"graphics": {"x": True}}}, {"overrides": {"moves": {"1.00": "soon"}}},
-                {"overrides": {"shots": {"1.00": {"asset_id": "zzz"}}}}, {"overrides": {"moves": {"1.00": -4}}}):
-        with pytest.raises(ValueError):
-            sportsedit.normalise(bad, {"a"})
-    assert sportsedit.eligible({"niche": "football"}) and sportsedit.eligible({"niche": "boxing"})
-    assert not sportsedit.eligible({"niche": "truecrime"}) and not sportsedit.eligible({})
-
-
-def test_every_sound_the_edit_cues_exists():
-    import sfxlib
-    from cinegfx.sports import score
-    src = open(sportsedit.__file__).read()
-    import re
-    for sid in re.findall(r'Cue\([^,]+, "([a-z0-9-]+)"', src):
-        assert sid in sfxlib.BY_ID or sid in score.SPORTS_SFX, sid
-
-
+# ---------------------------------------------------------------- settings (v0.4.79: the Edit page builds the video;
+# the settings, the Edit-page flow and the export are tested in test_sports_gfx_v079.py)
 def test_segmentation_status_explains_how_to_enable():
     st = sportsedit.segmentation()
     assert set(st) >= {"available", "reason", "how", "license"}
@@ -251,89 +227,6 @@ def import_text(client, pid):
     js = json.dumps({"source": "test", "words": heard_for(SCRIPT)})
     r = client.post(f"/api/projects/{pid}/episode/import", json={"role": "timings", "text": js, "filename": "word_timings.json"})
     assert r.status_code == 200, r.text
-
-
-def test_true_crime_projects_are_untouched(isolated):
-    client, root = isolated
-    pid = client.post("/api/projects", json={"title": "A case", "mode": "script", "target_minutes": 20}).json()["id"]
-    v = client.get(f"/api/projects/{pid}/sportsedit").json()
-    assert v["eligible"] is False and "plan" not in v
-    assert client.patch(f"/api/projects/{pid}/sportsedit", json={"enabled": True}).status_code == 422
-    assert client.post(f"/api/projects/{pid}/sportsedit/render").status_code == 422
-    assert "sports_edit" not in client.get(f"/api/projects/{pid}").json()
-
-
-def test_inputs_are_checked_in_plain_words(isolated):
-    client, root = isolated
-    pid = client.post("/api/projects", json={"title": "x", "mode": "script", "target_minutes": 20, "niche": "wrestling"}).json()["id"]
-    v = client.get(f"/api/projects/{pid}/sportsedit").json()
-    assert v["eligible"] and v["plan"] is None
-    text = " ".join(v["inputs"]["problems"])
-    assert "narration" in text and "word timing" in text and "script" in text
-    assert client.patch(f"/api/projects/{pid}/sportsedit", json={"enabled": True, "style": "bogus"}).status_code == 422
-    assert client.patch(f"/api/projects/{pid}/sportsedit", json={"colour": "red"}).status_code == 422
-    assert client.post(f"/api/projects/{pid}/sportsedit/render").status_code == 422
-
-
-def test_review_then_render_and_reuse_chunks(isolated, monkeypatch):
-    client, root = isolated
-    monkeypatch.setattr(sportsedit, "W", 320)
-    monkeypatch.setattr(sportsedit, "H", 180)
-    monkeypatch.setattr(sportsedit, "FPS", 10)
-    monkeypatch.setenv("CASEFILE_X264_PRESET", "ultrafast")
-    monkeypatch.setenv("CASEFILE_HWENC", "0")
-    pid = make_project(client, root)
-    import_text(client, pid)
-    v = client.get(f"/api/projects/{pid}/sportsedit").json()
-    assert v["inputs"]["problems"] == [] and v["plan"]["waiting"]
-    # analyse as a job
-    j = wait_job(__import__("app"), client.post(f"/api/projects/{pid}/sportsedit/analyse").json()["job_id"])
-    assert j["status"] == "done", j
-    v = client.get(f"/api/projects/{pid}/sportsedit").json()
-    pl = v["plan"]
-    assert not pl["waiting"] and pl["empty"] == 0
-    assert {c["asset_id"] for c in pl["cuts"]} <= {x["id"] for x in v["library"]}
-    words_on_screen = " ".join(g["text"] for g in pl["graphics"]).lower()
-    assert "messi" in words_on_screen
-    # the review list's stills
-    vid = next(x for x in v["library"] if x["kind"] == "video")
-    r = client.get(f"/api/projects/{pid}/sportsedit/frame/{vid['id']}?t=1.0")
-    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg"
-    assert client.get(f"/api/projects/{pid}/sportsedit/frame/nothere?t=1").status_code == 404
-    # render: off until switched on
-    assert client.post(f"/api/projects/{pid}/sportsedit/render").status_code == 422
-    assert client.patch(f"/api/projects/{pid}/sportsedit", json={"enabled": True, "style": "high_energy"}).status_code == 200
-    import app as server
-    j = wait_job(server, client.post(f"/api/projects/{pid}/sportsedit/render").json()["job_id"])
-    assert j["status"] == "done", j.get("message")
-    first = j["result"]
-    assert first["rendered"] > 0 and "Sports edit ready" in first["summary"]
-    f = client.get(first["file"])
-    assert f.status_code == 200 and f.headers["content-type"] == "video/mp4" and len(f.content) > 10000
-    out = sportsedit.folder(server.DATA, pid) / f"{first['id']}.mp4"
-    probe = subprocess.run([ffbin(), "-v", "error", "-i", str(out), "-f", "null", "-"], capture_output=True, text=True)
-    assert probe.returncode == 0 and not probe.stderr.strip()
-    # a review change: one graphic off -> only the parts it touches render again
-    g = next(x for x in client.get(f"/api/projects/{pid}/sportsedit").json()["plan"]["graphics"] if x["on"] and x["family"] == "name")
-    r = client.patch(f"/api/projects/{pid}/sportsedit", json={"overrides": {"graphics": {g["key"]: False}, "moves": {}, "shots": {}}})
-    assert r.status_code == 200
-    assert next(x for x in r.json()["plan"]["graphics"] if x["key"] == g["key"])["on"] is False
-    # the project's logo goes over the sports edit too (final encode only: the chunks stay reusable)
-    from PIL import Image
-    Image.new("RGBA", (200, 80), (255, 255, 255, 200)).save(root / "in" / "logo.png")
-    with open(root / "in" / "logo.png", "rb") as f:
-        p = client.post(f"/api/projects/{pid}/upload", files=[("files", ("logo.png", f, "image/png"))]).json()
-    logo = next(a["id"] for a in p["assets"] if a["name"] == "logo.png")
-    assert client.patch(f"/api/projects/{pid}", json={"watermark": {"enabled": True, "asset_id": logo}}).status_code == 200
-    assert logo not in {x["id"] for x in client.get(f"/api/projects/{pid}/sportsedit").json()["library"]}
-    j = wait_job(server, client.post(f"/api/projects/{pid}/sportsedit/render").json()["job_id"])
-    assert j["status"] == "done", j.get("message")
-    second = j["result"]
-    assert not list((sportsedit.cache_dir(server.DATA, pid) / "tmp").glob("*.mp4"))
-    assert second["reused"] > 0 and second["rendered"] < first["rendered"] + first["reused"]
-    view = client.get(f"/api/projects/{pid}/sportsedit").json()
-    assert [x["id"] for x in view["renders"]][:2] == [second["id"], first["id"]]
-    assert client.get(f"/api/projects/{pid}/sportsedit/file/..%2Fx").status_code == 404
 
 
 def test_glitch_sound_never_overruns_and_is_the_same_every_run():

@@ -178,38 +178,61 @@ LEVELS = {  # pad, piano, pulse, drums, strings
 }
 
 
-def bed(duration: float, sections: list[tuple[float, float, str]], seed: int = 7) -> np.ndarray:
-    """Stereo float32 bed. sections: [(t0, t1, mood)] in timeline seconds; bars run continuously across
-    sections (the harmony keeps moving), each section has its own instrumentation and level."""
-    n = _n(duration + 2)
-    L = np.zeros(n, np.float32)
-    R = np.zeros(n, np.float32)
-    rng = np.random.default_rng(seed)
+def _smooth(x, k):
+    """Moving average over k samples, centred (np.convolve(x, ones(k)/k, "same") in linear time)."""
+    if k <= 1 or len(x) == 0:
+        return x.astype(np.float32)
+    c = np.concatenate([[0.0], np.cumsum(x, dtype=np.float64)])
+    i = np.arange(len(x))
+    lo = np.clip(i - k // 2, 0, len(x))
+    hi = np.clip(i - k // 2 + k, 0, len(x))
+    return ((c[hi] - c[lo]) / k).astype(np.float32)
 
-    def mood_at(t):
-        for a, b, m in sections:
-            if a <= t < b:
-                return m
-        return None
 
-    nbars = int(duration / BAR) + 2
-    for bi in range(nbars):
+def _mood_at(sections, t):
+    for a, b, m in sections:
+        if a <= t < b:
+            return m
+    return None
+
+
+class _Bars:
+    """The bars of the bed, in order (the piano's touch comes from one random sequence across the whole bed, so
+    rendering in pieces gives the same music). v0.4.79: every voice is a pure function of its notes, made once
+    per chord and reused (a 20-minute episode's bed took minutes: the same few chords were synthesised again for
+    every bar)."""
+
+    def __init__(self, sections, seed):
+        self.sections = sections
+        self.rng = np.random.default_rng(seed)
+        self.memo = {}
+
+    def once(self, key, make):
+        if key not in self.memo:
+            self.memo[key] = make()
+        return self.memo[key]
+
+    def render(self, L, R, bi, origin=0.0):
+        """Add bar `bi` into L, R (whose sample 0 is at `origin` seconds)."""
         t0 = bi * BAR
-        m = mood_at(t0 + 0.01) or mood_at(t0 + BAR / 2)
+        m = _mood_at(self.sections, t0 + 0.01) or _mood_at(self.sections, t0 + BAR / 2)
         if m is None:
-            continue
+            return
+        o = t0 - origin
         pad_l, pia_l, pul_l, drm_l, str_l = LEVELS[m]
         prog = PROG_TRIUMPH if m == "triumph" else PROG
         root, chord = prog[bi % 4]
         fs = [hz(c) for c in chord]
         if pad_l:
-            p = _pad(fs, BAR, bright=900 if m in ("minimal", "nostalgic", "tension") else 1600) * pad_l
-            _add(L, p, t0)
-            _add(R, np.roll(p, 220), t0)
+            bright = 900 if m in ("minimal", "nostalgic", "tension") else 1600
+            p = self.once(("pad", tuple(fs), bright), lambda: _pad(fs, BAR, bright=bright)) * pad_l
+            _add(L, p, o)
+            _add(R, np.roll(p, 220), o)
         if str_l:
-            s = _pad([f * 2 for f in fs[1:]], BAR, bright=2600, detune=0.006, att=1.4) * str_l * 0.6
-            _add(L, np.roll(s, 300), t0)
-            _add(R, s, t0)
+            s = self.once(("str", tuple(fs)), lambda: _pad([f * 2 for f in fs[1:]], BAR, bright=2600, detune=0.006,
+                                                            att=1.4)) * str_l * 0.6
+            _add(L, np.roll(s, 300), o)
+            _add(R, s, o)
         if pia_l:
             arp = [fs[0] * 2, fs[1] * 2, fs[2] * 2, fs[3] * 2, fs[2] * 2, fs[1] * 2, fs[3] * 2, fs[2] * 2]
             step = BEAT / 2 if m != "minimal" else BEAT * 2
@@ -217,32 +240,114 @@ def bed(duration: float, sections: list[tuple[float, float, str]], seed: int = 7
             tt = 0.0
             while tt < BAR - 1e-6:
                 f = arp[k % len(arp)]
-                pn = _piano(f, 2.0, vel=pia_l * (0.8 + 0.2 * rng.random()))
+                pn = self.once(("piano", f), lambda: _piano(f, 2.0, vel=1.0)) * np.float32(pia_l * (0.8 + 0.2 * self.rng.random()))
                 pan = 0.5 + 0.3 * np.sin(k)
-                _add(L, pn * (1 - pan) * 1.4, t0 + tt)
-                _add(R, pn * pan * 1.4, t0 + tt)
+                _add(L, pn * (1 - pan) * 1.4, o + tt)
+                _add(R, pn * pan * 1.4, o + tt)
                 tt += step
                 k += 1
         if pul_l:
             f = hz(root + "2")
             for e in range(8):
-                pl = _pluck(f, 0.3) * pul_l * (1.0 if e % 2 == 0 else 0.7)
-                _add(L, pl, t0 + e * BEAT / 2)
-                _add(R, pl, t0 + e * BEAT / 2)
+                pl = self.once(("pluck", f), lambda: _pluck(f, 0.3)) * pul_l * (1.0 if e % 2 == 0 else 0.7)
+                _add(L, pl, o + e * BEAT / 2)
+                _add(R, pl, o + e * BEAT / 2)
         if drm_l:
             for b in range(4):
                 if b in (0, 2) or (m in ("peak", "triumph") and b == 3):
-                    tm = _tom(70 if b == 0 else 95, 0.8, drm_l * (1.0 if b == 0 else 0.7))
-                    _add(L, tm, t0 + b * BEAT)
-                    _add(R, tm, t0 + b * BEAT)
+                    tm = self.once(("tom", b == 0), lambda: _tom(70 if b == 0 else 95, 0.8, 1.0)) * \
+                        np.float32(drm_l * (1.0 if b == 0 else 0.7))
+                    _add(L, tm, o + b * BEAT)
+                    _add(R, tm, o + b * BEAT)
+
+
+def _env(sections, i0, i1):
+    """The level automation for samples [i0, i1): quieter under a minimal section, changes smoothed over 0.6 s
+    (so mood changes breathe instead of switching)."""
+    k = _n(0.6)
+    lo, hi = max(0, i0 - k), i1 + k
+    env = np.ones(hi - lo, np.float32)
+    for a, b, m in sections:
+        if m == "minimal":
+            ia, ib = max(_n(a), lo), min(_n(b), hi)
+            if ib > ia:
+                env[ia - lo:ib - lo] *= 0.55
+    return _smooth(env, k)[i0 - lo:i0 - lo + (i1 - i0)]
+
+
+def bed(duration: float, sections: list[tuple[float, float, str]], seed: int = 7) -> np.ndarray:
+    """Stereo float32 bed. sections: [(t0, t1, mood)] in timeline seconds; bars run continuously across
+    sections (the harmony keeps moving), each section has its own instrumentation and level."""
+    n = _n(duration + 2)
+    L = np.zeros(n, np.float32)
+    R = np.zeros(n, np.float32)
+    bars = _Bars(sections, seed)
+    for bi in range(int(duration / BAR) + 2):
+        bars.render(L, R, bi)
     out = np.stack([L, R])[:, : _n(duration)]
-    # crossfade sections: gentle level automation so mood changes breathe instead of switching
     env = np.ones(out.shape[1], np.float32)
     for a, b, m in sections:
         if m == "minimal":
             ia, ib = _n(a), _n(b)
             env[ia:ib] *= 0.55
-    env = np.convolve(env, np.ones(_n(0.6)) / _n(0.6), mode="same").astype(np.float32)
+    env = _smooth(env, _n(0.6))
     out *= env
     out /= (np.max(np.abs(out)) + 1e-9)
     return out.astype(np.float32)
+
+
+def bed_wav(path, duration: float, sections, seed: int = 7, level_db: float = -1.0, progress=None, cancelled=None):
+    """v0.4.79 The same bed written straight to a 16-bit stereo WAV, a minute at a time (an episode-long bed
+    never has to fit in memory): pass 1 renders the bars into a float file and finds the peak, pass 2 scales."""
+    import tempfile
+    import wave
+    from pathlib import Path
+    total = _n(duration)
+    per = max(1, int(60 / BAR))          # bars per piece
+    piece = _n(per * BAR)
+    tail = _n(BAR + 3.0)                 # the longest voice rings on after its bar
+    bars = _Bars(sections, seed)
+    nbars = int(duration / BAR) + 2
+    peak = 1e-9
+    path = Path(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".f32", delete=False) as raw:
+        tmp = Path(raw.name)
+    try:
+        carry = np.zeros((2, tail), np.float32)
+        with open(tmp, "wb") as fh:
+            for start_bar in range(0, nbars, per):
+                if cancelled and cancelled():
+                    raise RuntimeError("Cancelled by you.")
+                origin = start_bar * BAR
+                i0 = _n(origin)
+                if i0 >= total:
+                    break
+                L = np.zeros(piece + tail, np.float32)
+                R = np.zeros(piece + tail, np.float32)
+                for bi in range(start_bar, min(nbars, start_bar + per)):
+                    bars.render(L, R, bi, origin)
+                L[:tail] += carry[0]
+                R[:tail] += carry[1]
+                n = min(piece, total - i0)
+                carry = np.stack([L[n:n + tail], R[n:n + tail]]) if n == piece else carry * 0
+                block = np.stack([L[:n], R[:n]]) * _env(sections, i0, i0 + n)
+                peak = max(peak, float(np.max(np.abs(block))) if n else 0.0)
+                fh.write(np.ascontiguousarray(block.T).astype(np.float32).tobytes())
+                if progress:
+                    progress(min(0.95, (i0 + n) / total * 0.9))
+        scale = 10 ** (level_db / 20) / peak
+        with wave.open(str(path), "wb") as w, open(tmp, "rb") as fh:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            while True:
+                buf = fh.read(SR * 8 * 10)
+                if not buf:
+                    break
+                x = np.frombuffer(buf, np.float32) * scale
+                w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+        if progress:
+            progress(1.0)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
