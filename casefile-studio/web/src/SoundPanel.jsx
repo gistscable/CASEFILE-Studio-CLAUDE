@@ -87,7 +87,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
     const all = [...own, ...catalog.sounds];
     const q = query.trim().toLowerCase();
     return all.filter((x) => (category === "all" || (category === "mine" ? x.mine : x.category === category)) &&
-      (!q || `${x.label} ${x.id} ${x.category}`.toLowerCase().includes(q)));
+      (!q || `${x.label} ${x.id} ${x.category} ${x.tags || ""}`.toLowerCase().includes(q)));
   }, [catalog, category, query, project.assets]);
   const libKey = library.slice(0, 60).map((x) => x.id).join(",");
   React.useEffect(() => { if (browse && libKey) learn(libKey.split(",")); }, [browse, libKey]);
@@ -122,7 +122,8 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
   const addAt = (sid, name) => {
     const t = Number.isFinite(addTime) ? Math.max(0, addTime) : 0;
     const id = `m${Date.now().toString(36)}`;
-    onChange({ ...s, items: [...s.items, { id, anchor: anchorAt(t), kind: "manual", sound: sid, gain: 0, status: "approved", source: "manual", label: name || label(sid), reason: "added by you" }] });
+    const on = s.enabled ? {} : { enabled: true, mode: "manual" }; // v0.4.74 only what you add, nothing automatic
+    onChange({ ...s, ...on, items: [...s.items, { id, anchor: anchorAt(t), kind: "manual", sound: sid, gain: 0, status: "approved", source: "manual", label: name || label(sid), reason: "added by you" }] });
     onSelect(id);
     onPin(null);
   };
@@ -371,8 +372,12 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             </div>
           )}
 
+        </>
+      )}
+      {/* v0.4.74 the library is open with sound design off too: adding a sound switches it on, manual */}
           {!focus && (<>
           <div className="section-label sub"><span>LIBRARY</span></div>
+          {!s.enabled && <p className="micro-note">Add any sound by hand (phone alerts, dings, clicks…): adding one turns sound design on in Manual mode, so only the sounds you add are exported.</p>}
           <div className="st-actions">
             <button className="btn" onClick={() => setBrowse(!browse)}>{browse ? "Close the library" : "Browse the library"}</button>
             <button className="btn" disabled={disabled} onClick={() => fileRef.current?.click()}><Upload size={12} /> Import a sound</button>
@@ -413,8 +418,6 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             </div>
           )}
           </>)}
-        </>
-      )}
     </div>
   );
 }

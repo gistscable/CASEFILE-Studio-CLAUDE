@@ -1566,3 +1566,16 @@ and a fix for the Episode setup page ("not full").
 **Not done:** separate keyframes for `motion.py` graphics (stickers already keyframe); per-template colour pickers.
 
 **Tests:** `tests/test_stickers_v072.py` (+ v0.4.73 block: spec, each template's intro/hold, lines rules, API `?l=`, a real render, JS twin), `tests/js/tracker.test.mjs` (paragraphs, `frameIndex`, URL). `test_overlays_v049` draws `once` kinds at their held frame.
+
+## v0.4.74 — Keyframe speed, phone & app sounds
+
+**Keyframe speed** (stickers and the picture's own keyframes):
+- Each keyframe's `ease` (how it moves to the *next* keyframe) is now a dropdown: `linear` Steady, `smooth` Smooth, `in` Speed up (u³), `out` Slow down (1−(1−u)³), `hold` Jump (stays, jumps at the next key), and on stickers only `bounce` (back-out overshoot, c1 1.70158). Picture keys map `bounce` → `smooth` (a zoom must not overshoot below 1).
+- One place for the maths: `picture.ease` / `_ease_expr` / `EASES` / `STICKER_EASES` / `ease_kind`, mirrored by `web/src/picture.js` (`ease`, `EASES`, `STICKER_EASES`, `EASE_LABELS`, `EASE_HINTS`, `easeKind`). FFmpeg expressions use only `* + -` (no `pow`), so the tests' `eval_expr` still works.
+- `stickers.sample` / `stickerAt` clamp opacity to 0..1 and size ≥ `limits.size[0]` (a bounce overshoots).
+- **Move speed** (`KeySpeed` in `Effects.jsx`): Slower ×1.25 / Faster ×0.8 spreads/squeezes the keyframes from the first one (`retimeKeys(keys, factor, length)`; null when it would pass the end or put keys < 0.04 s apart). `EaseSelect` + `KeySpeed` are used by `Effects.jsx` (picture keyframes) and `StickerPanel.jsx`.
+
+**Phone & app sounds** (`sfxlib.py`, category `phone`; manual only, the plan never picks them): `phone-trio` Three-note alert (text message), `phone-chirp` Bird chirp, `phone-glow` Glow chime, `phone-chord` Soft chord, `phone-bounce` Bounce alert, `phone-ding` Bell ding, `phone-pin` Pin tick, `phone-pin-seq` Pin ticker, rolling. They are original syntheses in those styles; **nothing is copied from Apple's or CapCut's libraries** (their recordings are theirs). `sfxlib.TAGS` adds search words (tri-tone, tweet, aurora, note chord, rebound, ding, ticker, 181779) to `catalog()`; `SoundPanel` searches them. New ids need no `LIB_VERSION` bump (`ensure` makes missing files).
+- `SoundPanel`: the LIBRARY is shown with sound design off too; adding a sound while off sets `enabled: true, mode: "manual"` (only your sounds export, nothing automatic).
+
+**Tests:** `tests/test_keyspeed_sounds_v074.py` (curve shapes, Python↔FFmpeg-expression↔JS agreement on every curve, picture keys, bounce clamps, `retimeKeys`, FFmpeg really moving a layer on every curve, the phone sounds: level, no cut-off tail, tags, never auto-chosen).

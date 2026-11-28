@@ -1,6 +1,6 @@
 // v0.4.49 Stickers over the picture: the same data and maths as stickers.py.
 import SPEC from "./effectsSpec.json" with { type: "json" };
-import { interpolate } from "./picture.js";
+import { interpolate, easeKind, STICKER_EASES } from "./picture.js";
 
 export const ST = SPEC.stickers;
 export const CATALOG = Object.fromEntries(ST.catalog.map((c) => [c.id, c]));
@@ -101,7 +101,7 @@ export function normaliseStickerKeys(v, length, base) {
       y: r(num(k.y, L.xy, base.y)),
       size: r(num(k.size, L.size, base.size)),
       opacity: r(num(k.opacity, L.opacity, base.opacity), 3),
-      ease: k.ease === "linear" ? "linear" : "smooth",
+      ease: easeKind(k.ease, STICKER_EASES),
     });
   }
   return [...out.keys()].sort((a, b) => a - b).map((t) => out.get(t)).slice(0, ST.keyframes_max);
@@ -111,6 +111,8 @@ export function normaliseStickerKeys(v, length, base) {
 // (it pops in, and fades out quickly at its end).
 export function stickerAt(st, local) {
   const v = interpolate(st.keyframes, local, ["x", "y", "size", "opacity"]) || { x: st.x, y: st.y, size: st.size, opacity: st.opacity };
+  v.opacity = Math.min(1, Math.max(0, v.opacity)); // v0.4.74 a bounce can overshoot (as stickers.sample)
+  v.size = Math.max(ST.limits.size[0], v.size);
   const f = Math.min(ST.fade, st.length / 4);
   const a = f > 0 ? Math.min(1, Math.max(0, (st.length - local) / f)) : 1;
   return { ...v, opacity: v.opacity * a, raw: v.opacity };

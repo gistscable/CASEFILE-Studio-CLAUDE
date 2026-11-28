@@ -2,7 +2,7 @@ import React from "react";
 import { TRANSITIONS, MOTIONS, LOOKS, normaliseEffects, transitionId, transitionLength, normaliseNameCards, transitionStyle, transitionUnder } from "./effects.js";
 import { Check } from "lucide-react";
 import { normaliseCta } from "./cta.js";
-import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf } from "./picture.js";
+import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf, EASES, EASE_LABELS, EASE_HINTS, retimeKeys } from "./picture.js";
 import { normaliseWatermark, watermarkBox, WM_POSITIONS, WM_DEFAULTS } from "./watermark.js";
 
 // v0.4.26 Effects tab in the Edit inspector: the look of the whole video
@@ -21,6 +21,32 @@ function Pct({ label, value, onChange, disabled }) {
 }
 
 // v0.4.49 A value with − / + buttons (and a typed value), like the Shot Inspector.
+// v0.4.74 keyframe speed: how it moves to the next keyframe (CapCut's keyframe curves)
+export function EaseSelect({ value, kinds = EASES, disabled, onChange }) {
+  return (
+    <select className="kf-ease" aria-label="Speed to the next keyframe" title={EASE_HINTS[value]} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
+      {kinds.map((k) => (
+        <option key={k} value={k} title={EASE_HINTS[k]}>{EASE_LABELS[k]}</option>
+      ))}
+    </select>
+  );
+}
+
+// v0.4.74 the speed of the whole move: keyframes closer together or further apart (from the first)
+export function KeySpeed({ keys, length, disabled, onChange }) {
+  if (!keys || keys.length < 2) return null;
+  const span = keys[keys.length - 1].t - keys[0].t;
+  const faster = retimeKeys(keys, 0.8, length);
+  const slower = retimeKeys(keys, 1.25, length);
+  return (
+    <div className="kf-speed">
+      <span>Move speed <small>{span.toFixed(2)} s from first to last keyframe</small></span>
+      <button className="btn subtle" disabled={disabled || !slower} title={slower ? "Spread the keyframes out (×1.25)" : "It would run past the end"} onClick={() => onChange(slower)}>Slower</button>
+      <button className="btn subtle" disabled={disabled || !faster} title={faster ? "Bring the keyframes closer (×0.8)" : "The keyframes are already very close"} onClick={() => onChange(faster)}>Faster</button>
+    </div>
+  );
+}
+
 export function Step({ label, value, display, step, min, max, onChange, disabled, typed }) {
   const clamp = (v) => Math.min(max, Math.max(min, Math.round(v * 1000) / 1000));
   return (
@@ -209,15 +235,13 @@ function PictureKeys({ scene, local, disabled, onScene, onSeek, sceneStart }) {
             <button className="kf-time" onClick={() => onSeek(sceneStart + k.t + 0.001)}>◆ {k.t.toFixed(2)} s</button>
             <span>{Math.round(k.zoom * 100)}% · {pct(k.x)}, {pct(k.y)}</span>
             {i < keys.length - 1 && (
-              <button className="text-link" disabled={disabled} title="How it moves to the next keyframe"
-                onClick={() => onScene({ keyframes: keys.map((x) => (x === k ? { ...x, ease: x.ease === "linear" ? "smooth" : "linear" } : x)) })}>
-                {k.ease === "linear" ? "Steady" : "Smooth"}
-              </button>
+              <EaseSelect value={k.ease} disabled={disabled} onChange={(ease) => onScene({ keyframes: keys.map((x) => (x === k ? { ...x, ease } : x)) })} />
             )}
             <button className="danger-link" aria-label={`Remove keyframe at ${k.t.toFixed(2)} s`} disabled={disabled} onClick={() => onScene({ keyframes: keys.filter((x) => x !== k) })}>×</button>
           </div>
         ))}
       </div>
+      <KeySpeed keys={keys} length={scene.duration} disabled={disabled} onChange={(keyframes) => onScene({ keyframes })} />
       <div className="kf-actions">
         <button className="btn" disabled={disabled || !!at} onClick={() => set({})}>◆ Add keyframe ({local.toFixed(2)} s)</button>
         {keys.length > 0 && <button className="text-link" disabled={disabled} onClick={() => onScene({ keyframes: [] })}>Clear keyframes</button>}

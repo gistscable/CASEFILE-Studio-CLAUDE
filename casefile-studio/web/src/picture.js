@@ -53,9 +53,42 @@ export function containBox(W, H, sw, sh, crop, inset = 1) {
 
 // ---------------------------------------------------------------- keyframes
 
+// v0.4.74 keyframe speed — same as picture.ease / EASES / STICKER_EASES.
+export const EASES = ["linear", "smooth", "in", "out", "hold"];
+export const STICKER_EASES = [...EASES, "bounce"];
+export const EASE_LABELS = { linear: "Steady", smooth: "Smooth", in: "Speed up", out: "Slow down", hold: "Jump", bounce: "Bounce" };
+export const EASE_HINTS = {
+  linear: "The same speed all the way",
+  smooth: "Starts and ends gently",
+  in: "Starts slow, ends fast",
+  out: "Starts fast, ends slow",
+  hold: "Stays, then jumps at the next keyframe",
+  bounce: "Goes a little past, then settles",
+};
+export const easeKind = (v, allowed = EASES) => (allowed.includes(v) ? v : "smooth");
+
 export function ease(u, kind) {
   const x = Math.min(1, Math.max(0, u));
-  return kind === "linear" ? x : x * x * (3 - 2 * x);
+  if (kind === "linear") return x;
+  if (kind === "in") return x * x * x;
+  if (kind === "out") return 1 - (1 - x) ** 3;
+  if (kind === "hold") return x >= 1 ? 1 : 0;
+  if (kind === "bounce") {
+    const v = x - 1;
+    return 1 + 2.70158 * v * v * v + 1.70158 * v * v;
+  }
+  return x * x * (3 - 2 * x);
+}
+
+// v0.4.74 keyframe speed for the whole move: the keyframes closer together (factor < 1, faster)
+// or further apart (slower), from the first one. null when it would run past `length`.
+export function retimeKeys(keys, factor, length) {
+  if (!keys?.length || keys.length < 2) return null;
+  const t0 = keys[0].t;
+  const out = keys.map((k) => ({ ...k, t: Math.round((t0 + (k.t - t0) * factor) * 1000) / 1000 }));
+  if (out[out.length - 1].t > length + 1e-6) return null;
+  if (out.some((k, i) => i && k.t - out[i - 1].t < 0.04)) return null; // too close to tell apart
+  return out;
 }
 
 // Same as picture.interpolate.
@@ -92,7 +125,7 @@ export function normaliseKeyframes(v, length = 600) {
       zoom: r(z),
       x: r(clampCentre(num(k.x, 0, 1, 0.5), z)),
       y: r(clampCentre(num(k.y, 0, 1, 0.5), z)),
-      ease: k.ease === "linear" ? "linear" : "smooth",
+      ease: easeKind(k.ease),
     });
   }
   return [...out.keys()].sort((a, b) => a - b).map((t) => out.get(t)).slice(0, PIC.keyframes.max);

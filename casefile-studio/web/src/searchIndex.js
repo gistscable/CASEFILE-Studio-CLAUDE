@@ -12,6 +12,8 @@ const TOOLS = [
   ["Music", "Audio", { left: ["audio", "music"] }, "song soundtrack background score bgm track"],
   ["Sound effects", "Audio", { left: ["audio", "sfx"] }, "sfx whoosh hit impact riser sound design foley"],
   ["Narration (voice-over)", "Audio", { left: ["audio", "voice"] }, "voice voice-over voiceover vo narrator record speech"],
+  ["Keyframe speed (ease in/out, bounce, faster, slower)", "Stickers", { left: ["stickers", "placed"] }, "keyframe speed curve ease in out smooth steady bounce jump hold faster slower graph velocity"],
+  ["Phone & app sounds (alerts, ding, pin tick)", "Audio", { left: ["audio", "sfx"] }, "imessage iphone notification text message tri-tone tritone tweet chirp aurora chord rebound bounce bell ding pin ticker tick click sound effect alert"],
   ["Text templates", "Text", { left: ["text", "templates"] }, "template message notification subscribe bell lower third breaking news quote place date chapter title card"],
   ["Scene titles", "Text", { left: ["text", "titles"] }, "title heading chapter text"],
   ["Name cards", "Text", { left: ["text", "names"] }, "lower third lowerthird name tag caption person who"],

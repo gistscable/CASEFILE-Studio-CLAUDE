@@ -1,8 +1,8 @@
 import React from "react";
 import { Plus, Trash2, Copy, Crosshair, Square } from "lucide-react";
 import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, stickerAspect, textOf, strengthOf, cleanText, cleanLine, linesOf, CATALOG, ST } from "./stickers.js";
-import { upsertKey } from "./picture.js";
-import { Step, clock, parseClock } from "./Effects.jsx";
+import { upsertKey, STICKER_EASES } from "./picture.js";
+import { Step, clock, parseClock, EaseSelect, KeySpeed } from "./Effects.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
@@ -186,16 +186,15 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
                   <button className="kf-time" onClick={() => onSeek(sel.start + k.t + 0.001)}>◆ {k.t.toFixed(2)} s</button>
                   <span>{pct(k.x)}, {pct(k.y)} · {pct(k.size)}</span>
                   {i < sel.keyframes.length - 1 && (
-                    <button className="text-link" disabled={disabled}
-                      onClick={() => update(sel.id, { keyframes: sel.keyframes.map((x) => (x === k ? { ...x, ease: x.ease === "linear" ? "smooth" : "linear" } : x)) })}>
-                      {k.ease === "linear" ? "Steady" : "Smooth"}
-                    </button>
+                    <EaseSelect value={k.ease} kinds={STICKER_EASES} disabled={disabled}
+                      onChange={(ease) => update(sel.id, { keyframes: sel.keyframes.map((x) => (x === k ? { ...x, ease } : x)) })} />
                   )}
                   <button className="danger-link" aria-label={`Remove keyframe at ${k.t.toFixed(2)} s`} disabled={disabled}
                     onClick={() => update(sel.id, { keyframes: sel.keyframes.filter((x) => x !== k) })}>×</button>
                 </div>
               ))}
             </div>
+            <KeySpeed keys={sel.keyframes} length={sel.length} disabled={disabled} onChange={(keyframes) => update(sel.id, { keyframes })} />
             <div className="kf-actions">
               <button className="btn" disabled={disabled || !inside || !!at}
                 onClick={() => update(sel.id, { keyframes: upsertKey(sel.keyframes, local, { x: v.x, y: v.y, size: v.size, opacity: v.raw }, (k) => normaliseStickerKeys(k, sel.length, sel)) })}>

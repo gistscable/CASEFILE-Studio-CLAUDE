@@ -6658,6 +6658,39 @@ body.resizing-row * {
 .kf-item .danger-link {
   margin-left: auto;
 }
+/* v0.4.74 keyframe speed */
+select.kf-ease {
+  height: 24px;
+  padding: 0 22px 0 7px;
+  font-size: 11px;
+  border-radius: 5px;
+  background-position: right 4px center;
+  background-size: 13px;
+  color: #d9c39c;
+}
+.kf-speed {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: #aab0b9;
+}
+.kf-speed > span {
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+}
+.kf-speed small {
+  color: #7d828a;
+  font-size: 10px;
+}
+.kf-speed .btn {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 11px;
+}
 .cta-shows {
   color: #7fd19b;
   font-size: 12px;

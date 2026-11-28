@@ -194,7 +194,7 @@ def normalise_keyframes(value, length, base):
             "y": round(_num(k.get("y"), *lim["xy"], base["y"]), 4),
             "size": round(_num(k.get("size"), *lim["size"], base["size"]), 4),
             "opacity": round(_num(k.get("opacity"), *lim["opacity"], base["opacity"]), 3),
-            "ease": "linear" if k.get("ease") == "linear" else "smooth",
+            "ease": picture.ease_kind(k.get("ease"), picture.STICKER_EASES),
         }
     return [out[t] for t in sorted(out)][: SPEC["keyframes_max"]]
 
@@ -208,6 +208,9 @@ def sample(st, local):
     a = 1.0
     if f > 0:
         a = min(1.0, max(0.0, (st["length"] - local) / f))
+    # v0.4.74 a "bounce" key can overshoot: never more than fully visible, never smaller than the smallest size
+    v["opacity"] = min(1.0, max(0.0, v["opacity"]))
+    v["size"] = max(SPEC["limits"]["size"][0], v["size"])
     return {**v, "opacity": v["opacity"] * a}
 
 
