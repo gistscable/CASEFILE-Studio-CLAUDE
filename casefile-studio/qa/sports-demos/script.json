@@ -1,0 +1,14 @@
+{"segments": [
+ {"id": "a", "at": 0.8, "text": "Lionel Messi. Twenty-two years old, and already the world player of the year. The sixth of April, twenty ten. Camp Nou. A Champions League quarter-final, against Arsenal."},
+ {"id": "b", "at": 15.1, "text": "But first... we have to go back."},
+ {"id": "c", "at": 18.9, "text": "December, two thousand and nine. Messi wins the Ballon d'Or, by what was then a record margin."},
+ {"id": "d", "at": 26.6, "text": "Back at Camp Nou, Nicklas Bendtner scores in the eighteenth minute. Arsenal lead. What follows is a one-man show. By half-time, it reads: Messi three, Arsenal one."},
+ {"id": "e", "at": 40.5, "text": "One. Twenty-one minutes, from the edge of the box. Two. Thirty-seven, calmly past Almunia. Three. Forty-two, a chip over the keeper. Four. Eighty-eight, through his legs."},
+ {"id": "f", "at": 56.6, "text": "Four goals. One night."},
+ {"id": "g", "at": 60.2, "text": "That season, he scored forty-seven goals, in fifty-three games. Thirty-four of them in La Liga."},
+ {"id": "h", "at": 67.9, "text": "Xavi said it best. A player like this only comes along every twenty-five to thirty years."}
+],
+"sources": {
+ "match": "ESPN match 290169 (Barcelona 4-1 Arsenal, 6 April 2010, Camp Nou; Messi 21', 37', 42', 88'; Bendtner 18') and AP report via deseret.com 6 April 2010 (Almunia, chip, nutmeg; Xavi quote 'A player like this only comes along every 25-30 years', re-verified 2026-11-24: deseret.com/2010/4/6/20106989 and eastbaytimes.com/2010/04/06 AP copy)",
+ "season": "Wikipedia 'Career of Lionel Messi' and goal.com: 2009-10 47 goals in 53 games, 34 in La Liga; Ballon d'Or December 2009 by the largest margin at the time; reigning FIFA World Player of the Year"
+}}

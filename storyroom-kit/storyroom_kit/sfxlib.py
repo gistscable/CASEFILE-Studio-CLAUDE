@@ -506,6 +506,319 @@ def bell(rng, base=1320, decay=0.9, strikes=1):
     return _room(_band(y, hi=7000), rng, rt=1.0, wet=0.2)
 
 
+# ---------------------------------------------------------------- v0.4.74 phone & app sounds
+# Short alert sounds in the style of phone notifications, made here like everything else: nothing
+# is copied from a phone maker's or an editing app's library (those recordings belong to them).
+
+def _mallet(f, m, decay, rng, hard=1.0, wood=False):
+    """A struck bar: an FM bite that settles into the note, a high partial (wood: marimba-like,
+    else glassy) that dies first, and the soft tap of the mallet."""
+    t = _t(m)
+    bite = hard * 2.4 * np.exp(-t / 0.012)
+    y = np.sin(2 * np.pi * f * t + bite * np.sin(2 * np.pi * f * (3.0 if wood else 2.0) * t))
+    y += 0.35 * np.sin(2 * np.pi * f * (3.93 if wood else 4.0) * t) * np.exp(-t / max(1e-3, decay * 0.18))
+    y *= _env(m, 0.001, decay)
+    y += 0.2 * hard * _band(rng.standard_normal(m), lo=f, hi=f * 5) * _env(m, 0.0002, 0.002)
+    return y
+
+
+def _notes(notes, rng, total, **kw):
+    """[(at seconds, Hz, decay, level)] struck one after another, mono."""
+    n = _n(total)
+    y = np.zeros(n)
+    for at, f, d, a in notes:
+        s = _n(at)
+        y[s:] += a * _mallet(f, n - s, d, rng, **kw)
+    return y * _tail(n, min(0.4, total / 3))  # rings out, never cut off
+
+
+def trio(rng, root=1568.0):
+    """Three quick bright notes, up and back down a step: the classic text-message alert shape."""
+    notes = [(0.0, root, 0.09, 1.0), (0.095, root * 1.335, 0.09, 0.9), (0.19, root * 1.122, 0.24, 0.95)]
+    return _room(_band(_notes(notes, rng, 1.1, wood=True), hi=9000), rng, rt=0.35, wet=0.1)
+
+
+def chirp(rng, count=2):
+    """A small bird: quick upward whistles with a flutter."""
+    n = _n(0.11 * count + 0.2)
+    y = np.zeros(n)
+    for k in range(count):
+        s = _n(0.11 * k + rng.uniform(0, 0.004))
+        m = _n(0.075 if k < count - 1 else 0.09)
+        p = np.linspace(0, 1, m)
+        f = 2500 + 2300 * np.sin(np.pi * 0.5 * p) ** 1.5 + 160 * np.sin(2 * np.pi * 42 * p * m / SR)
+        ph = 2 * np.pi * np.cumsum(f) / SR
+        tone = (np.sin(ph) + 0.15 * np.sin(2 * ph)) * np.sin(np.pi * p) ** 1.2
+        y[s:s + m] += tone[: n - s]
+    return _room(y, rng, rt=0.3, wet=0.12)
+
+
+def glow(rng, root=784.0):
+    """A soft shimmering arpeggio that rises and rings out in a big space."""
+    ratios = [1.0, 1.26, 1.5, 2.0, 2.52]
+    notes = [(0.075 * i, root * r, 0.9, 0.75 - 0.07 * i) for i, r in enumerate(ratios)]
+    y = _notes(notes, rng, 2.2, hard=0.35)
+    y *= 1 + 0.25 * np.sin(2 * np.pi * 5.5 * _t(len(y)))  # the shimmer
+    return _room(_band(y * _tail(len(y), 0.6), hi=7000), rng, rt=1.8, wet=0.35, width=1.2)
+
+
+def strum(rng, root=523.25):
+    """A quick plucked major chord, low to high."""
+    n = _n(1.3)
+    y = np.zeros(n)
+    for i, r in enumerate((1.0, 1.26, 1.5, 2.0)):
+        s = _n(0.018 * i)
+        m = n - s
+        f = root * r
+        y[s:] += _partials([f, 2 * f, 3 * f, 4.01 * f], [0.5, 0.25, 0.12, 0.07], [1, 0.45, 0.25, 0.12], m, rng)
+        y[s:] += 0.12 * _band(rng.standard_normal(m), lo=f * 2, hi=f * 8) * _env(m, 0.0003, 0.003)
+    return _room(_band(y * _tail(n, 0.4), hi=8000), rng, rt=0.7, wet=0.15)
+
+
+def bounce(rng, f=1180.0):
+    """A ball bouncing to rest: three falling-pitch blips, each sooner, higher and softer."""
+    n = _n(0.7)
+    y = np.zeros(n)
+    for at, a, ff in ((0.0, 1.0, f), (0.15, 0.62, f * 1.06), (0.25, 0.38, f * 1.12)):
+        s = _n(at)
+        m = min(_n(0.3), n - s)
+        tone = _glide(ff * 1.25, ff, m, 0.25) * _env(m, 0.001, 0.055)
+        tone += 0.3 * _glide(ff * 2.5, ff * 2, m, 0.25) * _env(m, 0.001, 0.025)
+        y[s:s + m] += a * tone
+    return _room(y, rng, rt=0.35, wet=0.1)
+
+
+def pin(rng, count=1, gap=0.055):
+    """A tiny bright tick (a pin dropping onto a map, a counter rolling over)."""
+    n = _n(gap * (count - 1) + 0.07)
+    y = np.zeros(n)
+    for k in range(count):
+        s = _n(gap * k)
+        m = min(_n(0.06), n - s)
+        f = 5200 * (1 + (0.04 if k % 2 else 0)) * rng.uniform(0.985, 1.015)
+        y[s:s + m] += (0.9 ** k) * (_partials([f, f * 1.52, f * 0.5], [0.0035, 0.002, 0.006], [1, 0.5, 0.35], m, rng)
+                                    + 0.5 * _band(rng.standard_normal(m), lo=3000) * _env(m, 0.0001, 0.0008))
+    return _room(y, rng, rt=0.15, wet=0.05)
+
+
+# ---------------------------------------------------------------- v0.4.76 niche sounds
+# Sounds for the documentary niches (niches.py): sport, fights, wrestling arenas, entertainment, history,
+# business, psychology, faith. Generated here like everything else: no recordings, no samples.
+
+def crowd(rng, length=3.2, peak=0.62, cheer=False):
+    """A stadium crowd swelling: hundreds of voices are band-limited noise in many vowel-like bands, each
+    breathing at its own slow rate, under a low rumble of the stand; `cheer` lifts it into a roar with
+    high whistles near the top."""
+    n = _n(length)
+    t = _t(n)
+    y = np.zeros(n)
+    for f in (420, 640, 900, 1250, 1700, 2400):  # the formants of shouted vowels, spread wide
+        band = _band(_noise(n, rng, "pink"), lo=f * 0.7, hi=f * 1.4)
+        rate = rng.uniform(1.6, 4.2)
+        y += band * (0.75 + 0.25 * np.sin(2 * np.pi * rate * t + rng.uniform(0, 6.28))) * (900 / f) ** 0.35
+    rumble = _band(_noise(n, rng, "pink"), lo=60, hi=300) * 0.6
+    e = _shape(n, [(0, 0), (peak, 1), (min(0.98, peak + 0.2), 0.8), (1, 0)]) ** 1.2
+    out = (y * 0.28 + rumble) * e
+    if cheer:
+        for _ in range(5):  # a few whistles in the crowd at the crest
+            s = _n(rng.uniform(peak * 0.8, min(0.95, peak + 0.15)) * length)
+            m = min(_n(0.35), n - s)
+            if m > 8:
+                f = rng.uniform(1900, 3100)
+                out[s:s + m] += 0.08 * _glide(f, f * rng.uniform(1.05, 1.2), m, 0.6) * np.sin(np.pi * np.linspace(0, 1, m))
+    st = np.stack([_band(out + 0.15 * _band(_noise(n, rng, "pink"), lo=500, hi=3000) * e, hi=7000),
+                   _band(out + 0.15 * _band(_noise(n, rng, "pink"), lo=500, hi=3000) * e, hi=7000)])
+    return np.stack([_room(st[0], rng, rt=1.6, wet=0.35)[0], _room(st[1], rng, rt=1.6, wet=0.35)[1]])
+
+
+def whistle(rng, length=0.55, f=3150.0, blasts=1):
+    """A referee's pea whistle: a bright tone the pea trills (fast frequency and level flutter), with breath."""
+    n = _n(length * blasts + 0.12 * (blasts - 1) + 0.2)
+    y = np.zeros(n)
+    for k in range(blasts):
+        s = _n((length + 0.12) * k)
+        m = min(_n(length), n - s)
+        t = _t(m)
+        trill = np.sin(2 * np.pi * rng.uniform(26, 34) * t)
+        ph = 2 * np.pi * np.cumsum(f * (1 + 0.025 * trill)) / SR
+        tone = (np.sin(ph) + 0.25 * np.sin(2 * ph)) * (0.8 + 0.2 * trill)
+        breath = _band(rng.standard_normal(m), lo=2000, hi=7000) * 0.18
+        y[s:s + m] += (tone + breath) * _shape(m, [(0, 0), (0.04, 1), (0.85, 0.9), (1, 0)])
+    return _room(y, rng, rt=1.1, wet=0.22)
+
+
+def ring_bell(rng, strikes=1, base=1046.0):
+    """The ring bell: a hard hammer on a heavy brass gong-bell (inharmonic partials that ring long), struck
+    once or rung quickly three times like the start of a round."""
+    gap = 0.16
+    n = _n(2.2 + gap * strikes)
+    y = np.zeros(n)
+    ratios, amps, decays = [1.0, 2.32, 2.76, 4.1, 5.4, 6.8], [1.0, 0.55, 0.6, 0.3, 0.22, 0.12], [1.3, 0.9, 0.8, 0.45, 0.32, 0.2]
+    for k in range(strikes):
+        s = _n(gap * k)
+        m = n - s
+        f = [base * r * (1 + rng.uniform(-0.0015, 0.0015)) for r in ratios]
+        tone = _partials(f, decays, amps, m) + _partials([x * 1.0018 for x in f], decays, [a * 0.4 for a in amps], m)
+        clang = 0.6 * _band(rng.standard_normal(m), lo=1500, hi=9000) * _env(m, 0.0002, 0.006)
+        y[s:] += (0.85 ** k) * (tone * _env(m, 0.0015, 10) + clang)
+    return _room(_band(y * _tail(n, 0.6), hi=9000), rng, rt=1.3, wet=0.25)
+
+
+def punch(rng, weight=1.0):
+    """A glove landing: the slap of leather (a short bright crack), the thud into the body and a little air."""
+    n = _n(0.9)
+    slap = _band(rng.standard_normal(n), lo=900, hi=6000) * _env(n, 0.0004, 0.012) * 0.9
+    body = _glide(150 + 30 * weight, 55, n, 0.3) * _env(n, 0.002, 0.07 + 0.05 * weight) * (0.8 + 0.4 * weight)
+    meat = _band(_noise(n, rng, "pink"), lo=100, hi=900) * _env(n, 0.001, 0.05) * 0.6
+    y = _warm(slap + body + meat, 1.8, 0.2) * _tail(n, 0.4)
+    return _room(y, rng, rt=0.5, wet=0.12, bright=3000)
+
+
+def arena(rng, boom=False):
+    """A big-arena hit: a deep impact with a long hall tail; `boom` adds the low pyro bloom underneath."""
+    hit = impact(rng, 1.3)
+    m = _n(2.8)
+    t = _t(m)
+    bloom = _band(_noise(m, rng, "pink"), lo=30, hi=240) * _shape(m, [(0, 0), (0.02, 1), (0.25, 0.5), (1, 0)]) * (0.9 if boom else 0.35)
+    sub = np.sin(2 * np.pi * 38 * t) * _env(m, 0.01, 0.6) * (0.6 if boom else 0.25)
+    hall = _room((bloom + sub) * _tail(m, 0.8), rng, rt=2.4, wet=0.55, bright=1200)
+    out = np.zeros((2, max(hit.shape[1], hall.shape[1])))
+    out[:, : hit.shape[1]] += hit
+    out[:, : hall.shape[1]] += hall
+    return out
+
+
+def flash(rng, count=4):
+    """Press cameras at a red carpet: a flash charging up (a rising whine), then a burst of shutters, each a
+    little different, spread across the stereo field."""
+    n = _n(0.25 + 0.085 * count + 0.35)
+    out = np.zeros((2, n))
+    w = _n(0.22)
+    whine = _glide(2200, 7200, w, 0.7) * _shape(w, [(0, 0), (0.7, 0.35), (1, 0)]) * 0.12
+    out[:, :w] += _pan(whine, 0.0)
+    for k in range(count):
+        sh = shutter(rng, soft=bool(k % 2))
+        s = _n(0.2 + 0.085 * k + rng.uniform(0, 0.02))
+        pos = rng.uniform(-0.8, 0.8)
+        mono = (sh[0] + sh[1]) / 2 * (0.9 ** k)
+        m = min(len(mono), n - s)
+        out[:, s:s + m] += _pan(mono[:m], pos)
+    return out
+
+
+def sparkle(rng, count=7, top=6200.0):
+    """Glitter for an award: quick, high, glassy notes falling into place in a bright space."""
+    n = _n(0.07 * count + 1.2)
+    y = np.zeros((2, n))
+    scale = [1.0, 1.122, 1.26, 1.498, 1.682, 2.0]
+    for k in range(count):
+        f = top / 2 * scale[int(rng.integers(0, len(scale)))] * (1 if k % 3 else 0.5)
+        s = _n(0.07 * k + rng.uniform(0, 0.015))
+        m = n - s
+        note = _mallet(f, m, 0.35, rng, hard=0.5) * (0.85 ** (k * 0.5))
+        y[:, s:] += _pan(note, rng.uniform(-0.7, 0.7))
+    return np.stack([_room(_band(y[0] * _tail(n, 0.5), hi=11000), rng, rt=1.5, wet=0.3)[0],
+                     _room(_band(y[1] * _tail(n, 0.5), hi=11000), rng, rt=1.5, wet=0.3)[1]])
+
+
+def warm_swell(rng, length=4.0, root=130.8, voices=False):
+    """A warm major swell (strings or an organ-like pad); `voices` adds a soft choir "ah" (vowel formants)."""
+    y = swell(rng, length, root, minor=False, bright=1800)
+    if voices:
+        n = _n(length)
+        t = _t(n)
+        v = np.zeros(n)
+        for r in (2.0, 2.52, 3.0):
+            f = root * r
+            src = _saw(f, t, rng.uniform(0, 6.28), 5000) * (1 + 0.004 * np.sin(2 * np.pi * 5 * t))
+            v += _band(src, lo=f * 0.9, hi=1100) * 0.35 + _band(src, lo=1000, hi=1400) * 0.1  # "ah": 700 / 1200 Hz
+        v *= _shape(n, [(0, 0), (0.55, 1), (0.8, 0.7), (1, 0)]) ** 1.4 / 3
+        vv = _room(v, rng, rt=2.0, wet=0.4)
+        m = min(y.shape[1], vv.shape[1])
+        y = y[:, :m] + vv[:, :m] * 0.8
+    return y
+
+
+def heartbeat(rng, beats=2, bpm=64.0):
+    """A heartbeat: lub-dub pairs at a resting (or racing) rate, felt more than heard."""
+    gap = 60.0 / bpm
+    n = _n(gap * beats + 0.6)
+    out = np.zeros((2, n))
+    for k in range(beats):
+        b = pulse(rng, 52, 0.45, double=True)
+        s = _n(gap * k)
+        m = min(b.shape[1], n - s)
+        out[:, s:s + m] += b[:, :m] * (1.0 if k == 0 else 0.92)
+    return out
+
+
+def projector(rng, length=2.2):
+    """An archive film projector: the sprocket clatter at 24 frames a second over the motor's hum."""
+    n = _n(length)
+    t = _t(n)
+    y = np.zeros(n)
+    for k in range(int(length * 24)):
+        s = _n(k / 24 + rng.uniform(-0.002, 0.002))
+        m = min(_n(0.02), n - s)
+        if m > 8:
+            y[s:s + m] += (0.7 + 0.3 * (k % 2)) * _band(rng.standard_normal(m), lo=1200, hi=5500) * _env(m, 0.0002, 0.003)
+    hum = (np.sin(2 * np.pi * 100 * t) * 0.2 + np.sin(2 * np.pi * 200 * t) * 0.06) * (1 + 0.1 * np.sin(2 * np.pi * 0.7 * t))
+    whirr = _band(_noise(n, rng, "pink"), lo=300, hi=1600) * 0.25
+    y = (y * 0.6 + hum + whirr) * _shape(n, [(0, 0), (0.12, 1), (0.85, 1), (1, 0)])
+    return _room(y, rng, rt=0.5, wet=0.1)
+
+
+def ticker(rng, count=10, gap=0.045, up=True):
+    """A market ticker rolling: tiny digital ticks that climb (or fall) in pitch, then settle with a soft tone."""
+    n = _n(gap * count + 0.45)
+    y = np.zeros(n)
+    for k in range(count):
+        s = _n(gap * k)
+        m = min(_n(0.03), n - s)
+        f = 2600 * (1.04 ** (k if up else count - k))
+        y[s:s + m] += (0.6 + 0.4 * (k == count - 1)) * _partials([f, f * 2.01], [0.004, 0.002], [1, 0.3], m, rng)
+    s = _n(gap * count)
+    m = n - s
+    y[s:] += 0.35 * _partials([1568 if up else 1175, 2349 if up else 1760], [0.18, 0.1], [1, 0.4], m)
+    return _room(y, rng, rt=0.4, wet=0.1)
+
+
+# search words for the library (styles people know these sounds by)
+TAGS = {
+    "phone-trio": "tri-tone tritone text message imessage sms alert",
+    "phone-chirp": "tweet bird twitter chirp",
+    "phone-glow": "aurora shimmer magic",
+    "phone-chord": "note chord strum guitar",
+    "phone-bounce": "rebound boing ball",
+    "phone-ding": "bell ding desk reception",
+    "phone-pin": "pin ticker tick click 181779",
+    "phone-pin-seq": "pin ticker counter rolling ticking",
+    # v0.4.76 niche sounds
+    "crowd-swell-1": "stadium crowd fans football soccer atmosphere roar",
+    "crowd-swell-2": "stadium crowd fans atmosphere long",
+    "crowd-cheer-1": "crowd cheer roar goal celebration fans",
+    "whistle-1": "referee whistle football soccer kick off foul",
+    "whistle-3": "referee whistle full time final whistle three blasts",
+    "ring-bell-1": "boxing bell ring bell ding round mma ufc",
+    "ring-bell-3": "boxing bell ding ding ding round start fight",
+    "punch-1": "punch hit jab boxing glove fight",
+    "punch-2": "punch hook body shot boxing fight",
+    "punch-3": "punch knockout heavy hit boxing fight",
+    "arena-hit-1": "wrestling arena hit slam entrance impact",
+    "arena-boom-1": "pyro pyrotechnics boom arena entrance wrestling",
+    "flash-1": "camera flash paparazzi red carpet photographers press",
+    "flash-2": "camera flash single press photo",
+    "sparkle-1": "sparkle glitter shine magic award star twinkle",
+    "sparkle-2": "sparkle glitter twinkle short",
+    "warm-swell-1": "warm swell strings uplifting major hopeful",
+    "warm-swell-2": "choir organ swell heavenly church angelic",
+    "heartbeat-1": "heartbeat heart beat pulse tension",
+    "heartbeat-2": "heartbeat racing fast heart anxiety panic",
+    "projector-1": "film projector archive old film reel vintage 16mm",
+    "ticker-1": "stock ticker market numbers rising counter",
+    "ticker-2": "stock ticker market falling crash numbers",
+}
+
 # id, category, label, intensity 1..3, recipe, designed peak (dBFS)
 CATALOG = [
     ("pop-soft-1", "pop", "Soft pop, round", 1, lambda r: pop(r, 900, 280, 0.045), -16),
@@ -576,12 +889,46 @@ CATALOG = [
     ("cta-click-1", "cta-click", "Subscribe button click", 2, lambda r: click(r, 2300, 200, release=0.06), -13),
     ("cta-click-2", "cta-click", "Button click, soft", 1, lambda r: click(r, 1800, 180, dark=True, release=0.05), -13),
     ("cta-click-3", "cta-click", "Button click, bright", 2, lambda r: click(r, 3000, 230, release=0.05), -14),
+    # v0.4.74 phone & app sounds (manual use: the automatic plan never picks the "phone" category)
+    ("phone-trio", "phone", "Three-note alert (text message)", 1, lambda r: trio(r), -16),
+    ("phone-chirp", "phone", "Bird chirp alert", 1, lambda r: chirp(r), -17),
+    ("phone-glow", "phone", "Glow chime, shimmering", 1, lambda r: glow(r), -17),
+    ("phone-chord", "phone", "Soft chord alert", 1, lambda r: strum(r), -16),
+    ("phone-bounce", "phone", "Bounce alert", 1, lambda r: bounce(r), -16),
+    ("phone-ding", "phone", "Bell ding", 1, lambda r: bell(r, 2093, 1.1), -16),
+    ("phone-pin", "phone", "Pin tick", 1, lambda r: pin(r), -18),
+    ("phone-pin-seq", "phone", "Pin ticker, rolling", 1, lambda r: pin(r, 9), -19),
+    # v0.4.76 niche sounds (niches.py): used by the niche graphics and in place of generic families in a niche's
+    # automatic plan (sound.flavour); the whistles are for graphics and manual use only
+    ("crowd-swell-1", "crowd", "Stadium crowd swell", 2, lambda r: crowd(r, 3.2), -15),
+    ("crowd-swell-2", "crowd", "Stadium crowd swell, long", 1, lambda r: crowd(r, 4.8, 0.55), -16),
+    ("crowd-cheer-1", "crowd", "Crowd cheer (goal)", 3, lambda r: crowd(r, 3.0, 0.3, cheer=True), -12),
+    ("whistle-1", "whistle", "Referee whistle, short", 2, lambda r: whistle(r, 0.45), -17),
+    ("whistle-3", "whistle", "Referee whistle, full time", 2, lambda r: whistle(r, 0.38, blasts=3), -17),
+    ("ring-bell-1", "ring-bell", "Ring bell", 2, lambda r: ring_bell(r, 1), -14),
+    ("ring-bell-3", "ring-bell", "Ring bell, round start (three)", 3, lambda r: ring_bell(r, 3), -14),
+    ("punch-1", "punch", "Punch, jab", 1, lambda r: punch(r, 0.6), -11),
+    ("punch-2", "punch", "Punch, body shot", 2, lambda r: punch(r, 1.0), -10),
+    ("punch-3", "punch", "Punch, heavy (knockout)", 3, lambda r: punch(r, 1.6), -8),
+    ("arena-hit-1", "arena", "Arena hit", 2, lambda r: arena(r), -7),
+    ("arena-boom-1", "arena", "Arena boom (pyro)", 3, lambda r: arena(r, boom=True), -6.5),
+    ("flash-1", "flash", "Camera flashes (red carpet)", 2, lambda r: flash(r, 5), -15),
+    ("flash-2", "flash", "Camera flash, single", 1, lambda r: flash(r, 1), -16),
+    ("sparkle-1", "sparkle", "Sparkle (award)", 2, lambda r: sparkle(r, 8), -18),
+    ("sparkle-2", "sparkle", "Sparkle, short", 1, lambda r: sparkle(r, 4, 5200), -18),
+    ("warm-swell-1", "warm-swell", "Warm swell, strings", 1, lambda r: warm_swell(r, 4.0), -15),
+    ("warm-swell-2", "warm-swell", "Warm swell, choir", 2, lambda r: warm_swell(r, 4.5, 116.5, voices=True), -15),
+    ("heartbeat-1", "heartbeat", "Heartbeat", 1, lambda r: heartbeat(r, 2, 62), -10),
+    ("heartbeat-2", "heartbeat", "Heartbeat, racing", 2, lambda r: heartbeat(r, 4, 118), -10),
+    ("projector-1", "projector", "Film projector (archive)", 1, lambda r: projector(r), -18),
+    ("ticker-1", "ticker", "Market ticker, rising", 1, lambda r: ticker(r), -18),
+    ("ticker-2", "ticker", "Market ticker, falling", 1, lambda r: ticker(r, up=False), -18),
 ]
 BY_ID = {c[0]: c for c in CATALOG}
 CATEGORIES = sorted({c[1] for c in CATALOG})
 # where the sound lines up with the picture: "peak" (loudest moment) or "end" (risers, reverse whooshes)
 SYNC_AT_END = {"riser", "reverse-whoosh"}
-SYNC_AT_PEAK = {"whoosh", "tonal-sweep", "swell"}  # the loudest moment meets the picture
+SYNC_AT_PEAK = {"whoosh", "tonal-sweep", "swell", "crowd", "warm-swell"}  # the loudest moment meets the picture
 
 
 def folder(data):
@@ -664,4 +1011,4 @@ def path_of(data, sound_id):
 
 def catalog():
     """[{id, category, label, intensity}] without making any file."""
-    return [{"id": c[0], "category": c[1], "label": c[2], "intensity": c[3]} for c in CATALOG]
+    return [{"id": c[0], "category": c[1], "label": c[2], "intensity": c[3], **({"tags": TAGS[c[0]]} if c[0] in TAGS else {})} for c in CATALOG]

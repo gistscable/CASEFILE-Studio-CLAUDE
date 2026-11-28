@@ -24,6 +24,7 @@ export function normaliseSound(v) {
     lead: clamp(v.lead, L.lead, D.lead),
     duck: v.duck === undefined ? D.duck : !!v.duck,
     variation: v.variation === undefined ? D.variation : !!v.variation,
+    flavour: v.flavour === undefined ? D.flavour !== false : !!v.flavour, // v0.4.76 the niche's own sound families
     kinds: Object.fromEntries(Object.keys(D.kinds).map((k) => [k, (v.kinds || {})[k] === undefined ? D.kinds[k] : !!v.kinds[k]])),
     items: Array.isArray(v.items) ? v.items : [],
   };

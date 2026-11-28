@@ -7766,3 +7766,72 @@ body.resizing-row * {
 .preset-thumb.cap {
   background: linear-gradient(135deg, #3b4752, #20262c);
 }
+
+/* v0.4.76 the documentary niche picker (new project, episode setup) */
+.niche-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+.niche-grid > button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 74px;
+  padding: 12px 6px 10px;
+  border: 1px solid #3e444a;
+  background: #25292e;
+  border-radius: 6px;
+  color: #85909b;
+  text-align: center;
+}
+.niche-grid > button:hover:not(:disabled) {
+  border-color: #8a795c;
+  background: #2d2e2c;
+}
+.niche-grid > button.selected {
+  border-color: #aa9167;
+  background: #373126;
+  color: #c0a77f;
+}
+.niche-grid > button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.niche-grid strong {
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 1.2;
+  color: #c7cdcc;
+}
+.niche-grid .selected strong {
+  color: #e1d1b4;
+}
+.niche-grid.compact > button {
+  min-height: 60px;
+  padding: 9px 4px 8px;
+}
+.niche-check {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+.niche-about {
+  margin: 0 0 18px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #8b959e;
+}
+.niche-about b {
+  color: #c7cdcc;
+  font-weight: 550;
+}
+@media (max-width: 720px) {
+  .niche-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

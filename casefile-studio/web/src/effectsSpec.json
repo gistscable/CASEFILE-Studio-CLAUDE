@@ -1153,6 +1153,7 @@
       "lead": 0.0,
       "duck": true,
       "variation": true,
+      "flavour": true,
       "kinds": {
         "motion": true,
         "diagrams": true,

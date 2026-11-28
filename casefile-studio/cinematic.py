@@ -69,7 +69,7 @@ def catalog():
     return {"collections": [
         {"key": c.key, "label": c.label,
          "categories": [{"key": k.key, "label": k.label, "about": k.about, "looks": _looks(k)} for k in c.categories.values()]}
-        for c in registry().values()], "default": DEFAULT_COLLECTION,
+        for c in sorted(registry().values(), key=lambda c: (c.key != DEFAULT_COLLECTION, c.label))], "default": DEFAULT_COLLECTION,
         "dim": {"min": L.DIM[0], "max": L.DIM[1], "default": L.DIM[2]},
         "type": {"styles": [{"key": k, "label": lab} for k, (lab, _) in L.STYLES.items()], "size": list(L.SIZE),
                  "place": list(L.PLACE)}}
@@ -292,6 +292,22 @@ def _label(cat, payload):
         return "Conflicting accounts"
     if key == "digital":
         return "Evidence and route" if p.get("route") else f"Evidence log · {len(p.get('items') or [])} items"
+    # v0.4.76 the niche collections (football, combat sports, entertainment, documentary)
+    if key in ("stats", "impact", "figures") and p.get("stats"):
+        who = p.get("work") or p.get("subject") or p.get("team") or ""
+        return f"{who} · {len(p['stats'])} numbers" if who else f"{cat.label} · {len(p['stats'])} numbers"
+    if key == "bracket" and p.get("rounds"):
+        r = p["rounds"]
+        return " · ".join(x for x in [p.get("competition") or "Road to the final", f"{len(r)} rounds"] if x)
+    if key == "tactics" and p.get("formations"):
+        return "Tactics · " + " v ".join(f["text"] for f in p["formations"])
+    if key == "tape" and p.get("left") and p.get("right"):
+        return f"{p['left']} v {p['right']}"
+    if key in ("risefall", "career", "arc", "legacy", "journey"):
+        pts = p.get("points") or p.get("moments") or []
+        if pts:
+            span = f"{pts[0]['year']}–{pts[-1]['year']}" if pts[0]["year"] != pts[-1]["year"] else str(pts[0]["year"])
+            return " · ".join(x for x in [p.get("subject") or cat.label, span] if x)
     return cat.label
 
 

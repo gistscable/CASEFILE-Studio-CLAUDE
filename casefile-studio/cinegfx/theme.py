@@ -12,6 +12,9 @@ FONTS = {
     "poppins": "Poppins-Bold.ttf", "caladea": "Caladea-Bold.ttf", "serif": "LiberationSerif-Bold.ttf",
     "mono": "LiberationMono-Bold.ttf", "sans": "DejaVuSans.ttf", "sans-bold": "DejaVuSans-Bold.ttf",
     "carlito": "Carlito-Bold.ttf", "lib-sans": "LiberationSans-Bold.ttf",
+    # v0.4.77 sports editorial (cinegfx/sports): heavy condensed display + condensed labels
+    "anton": "Anton-Regular.ttf", "bebas": "BebasNeue-Regular.ttf",
+    "barlow-sb": "BarlowCondensed-SemiBold.ttf", "barlow-b": "BarlowCondensed-Bold.ttf",
 }
 
 

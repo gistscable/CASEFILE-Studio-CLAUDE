@@ -55,6 +55,23 @@ def json_result(text):
         ) from e
 
 
+def _research_focus(project):
+    """v0.4.76 What the research looks for, by the project's niche (true crime: exactly as before)."""
+    import niches
+    if niches.key_of(project) == "truecrime":
+        return """Use current web search, prioritizing court documents, official case records, reliable contemporaneous reporting, and clearly attributed interviews. Return a factual research brief, not a dramatic script. Include a sourced chronology, confirmed facts, disputed claims, legal status with date, potential privacy/rights concerns, and unanswered questions."""
+    n = niches.get(project)
+    return (f"This is a {n['label'].lower()} documentary. Use current web search. {n['research']} Return a factual research brief, "
+            "not a dramatic script. Include a sourced chronology, confirmed facts and figures, disputed claims, the current "
+            "status with date, potential privacy/rights concerns, and unanswered questions.")
+
+
+def voice_direction(project):
+    """v0.4.76 How the narration is read, by the project's niche (true crime: exactly as before)."""
+    import niches
+    return niches.get(project)["voice"] + " Do not add any words."
+
+
 def research(config, project, progress):
     progress(12, "Searching the web for attributable case sources")
     data = request(
@@ -67,7 +84,7 @@ def research(config, project, progress):
             "tool_choice": "required",
             "include": ["web_search_call.action.sources"],
             "max_output_tokens": 6500,
-            "input": f"""Research this documentary topic: {project["topic"]}. Use current web search, prioritizing court documents, official case records, reliable contemporaneous reporting, and clearly attributed interviews. Return a factual research brief, not a dramatic script. Include a sourced chronology, confirmed facts, disputed claims, legal status with date, potential privacy/rights concerns, and unanswered questions. Cite every case claim using the web search citation mechanism. Never invent a URL. State the date of each source when available. A source is a lead, not verified evidence.""",
+            "input": f"""Research this documentary topic: {project["topic"]}. {_research_focus(project)} Cite every case claim using the web search citation mechanism. Never invent a URL. State the date of each source when available. A source is a lead, not verified evidence.""",
         },
     ).json()
     report = output_text(data)
@@ -214,9 +231,7 @@ def generate_narration(config, project, progress, cancelled):
                     "response_format": "mp3",
                 }
                 if "mini-tts" in payload["model"]:
-                    payload["instructions"] = (
-                        "Read in a calm, clear, respectful documentary voice. Measured pacing, natural pauses. Do not add any words."
-                    )
+                    payload["instructions"] = voice_direction(project)
                 part.write_bytes(request(config, "/audio/speech", payload).content)
             else:
                 subprocess.run(

@@ -1,0 +1,955 @@
+{
+ "shots": [
+  {
+   "start": 0.0,
+   "end": 0.8,
+   "source": "messi_ars.mp4",
+   "in": 124.4,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "stadium at night, cold open",
+   "transition_in": null
+  },
+  {
+   "start": 0.8,
+   "end": 4.42,
+   "source": "messi_ars.mp4",
+   "in": 144.05,
+   "speed": 0.8,
+   "grade": "cool_desat",
+   "matte": true,
+   "shows": "close-up, fists clenched (name behind him)",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 4.42,
+   "end": 6.26,
+   "source": "messi_ars.mp4",
+   "in": 37.25,
+   "speed": 1.0,
+   "grade": "warm",
+   "matte": false,
+   "shows": "close-up, Messi on the pitch",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 6.26,
+   "end": 9.84,
+   "source": "messi_ars.mp4",
+   "in": 124.9,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "Camp Nou wide at night",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 9.84,
+   "end": 11.14,
+   "source": "messi_ars.mp4",
+   "in": 12.7,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "Camp Nou crowd",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 11.14,
+   "end": 14.62,
+   "source": "messi_ars.mp4",
+   "in": 66.6,
+   "speed": 1.0,
+   "grade": "natural",
+   "matte": false,
+   "shows": "centre circle wide (kick-off)",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 14.62,
+   "end": 18.62,
+   "source": "messi_ars.mp4",
+   "in": 91.7,
+   "speed": 0.8,
+   "grade": "low_key",
+   "matte": false,
+   "shows": "silhouettes against the floodlit pitch",
+   "transition_in": {
+    "kind": "dissolve",
+    "dur": 0.5,
+    "direction": 1,
+    "why": "into a quiet storytelling beat"
+   }
+  },
+  {
+   "start": 18.62,
+   "end": 26.6,
+   "source": "ballon_dor_2009.jpg",
+   "in": 0,
+   "speed": 1.0,
+   "grade": "archive",
+   "matte": true,
+   "shows": "photo: 2009 Ballon d'Or (controlled photo animation)",
+   "transition_in": {
+    "kind": "dissolve",
+    "dur": 0.6,
+    "direction": 1,
+    "why": "into archive material"
+   }
+  },
+  {
+   "start": 26.6,
+   "end": 29.9,
+   "source": "messi_ars.mp4",
+   "in": 108.3,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "match wide, open play",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "back to the present: hard cut"
+   }
+  },
+  {
+   "start": 29.9,
+   "end": 32.9,
+   "source": "messi_ars.mp4",
+   "in": 44.25,
+   "speed": 0.8,
+   "grade": "cool_desat",
+   "matte": false,
+   "shows": "Camp Nou crowd, tense",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 32.9,
+   "end": 33.98,
+   "source": "messi_ars.mp4",
+   "in": 9.05,
+   "speed": 1.0,
+   "grade": "natural",
+   "matte": false,
+   "shows": "Messi from behind, number 10",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 33.98,
+   "end": 35.66,
+   "source": "messi_ars.mp4",
+   "in": 49.0,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "celebration, arms raised",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 35.66,
+   "end": 38.72,
+   "source": "messi_ars.mp4",
+   "in": 15.4,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "team-mates celebrate with Messi",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 38.72,
+   "end": 40.08,
+   "source": "messi_ars.mp4",
+   "in": 46.6,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "Messi walks back, arms up",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 40.08,
+   "end": 44.62,
+   "source": "messi_ars.mp4",
+   "in": 21.6,
+   "speed": 1.0,
+   "grade": "mono_cool",
+   "matte": false,
+   "shows": "goal 1, 21': strike from the edge of the box (replay)",
+   "transition_in": {
+    "kind": "glitch",
+    "dur": 0.12,
+    "direction": 1,
+    "why": "headline exit"
+   }
+  },
+  {
+   "start": 44.62,
+   "end": 48.8,
+   "source": "messi_ars.mp4",
+   "in": 61.3,
+   "speed": 1.0,
+   "grade": "mono_cool",
+   "matte": false,
+   "shows": "goal 2, 37': past Almunia",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 48.8,
+   "end": 52.68,
+   "source": "messi_ars.mp4",
+   "in": 99.7,
+   "speed": 1.0,
+   "grade": "mono_cool",
+   "matte": false,
+   "shows": "goal 3, 42': the chip (stadium clock reads 41)",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 52.68,
+   "end": 56.6,
+   "source": "messi_ars.mp4",
+   "in": 138.7,
+   "speed": 1.0,
+   "grade": "mono_cool",
+   "matte": false,
+   "shows": "goal 4, 88': through his legs",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 56.6,
+   "end": 58.32,
+   "source": "messi_ars.mp4",
+   "in": 131.3,
+   "speed": 1.0,
+   "grade": "warm",
+   "matte": false,
+   "shows": "celebrations",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 58.32,
+   "end": 59.88,
+   "source": "messi_ars.mp4",
+   "in": 79.95,
+   "speed": 1.0,
+   "grade": "warm",
+   "matte": true,
+   "shows": "close-up celebrating",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 59.88,
+   "end": 64.62,
+   "source": "messi_ars.mp4",
+   "in": 118.9,
+   "speed": 1.0,
+   "grade": "warm",
+   "matte": true,
+   "shows": "close-up smiling (stats behind him)",
+   "transition_in": {
+    "kind": "luma",
+    "dur": 0.28,
+    "direction": 1,
+    "why": "out of the single-stat impact"
+   }
+  },
+  {
+   "start": 64.62,
+   "end": 67.9,
+   "source": "messi_ars.mp4",
+   "in": 125.8,
+   "speed": 1.0,
+   "grade": "punch",
+   "matte": false,
+   "shows": "Camp Nou wide, stats stacked",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 67.9,
+   "end": 69.7,
+   "source": "messi_ars.mp4",
+   "in": 87.2,
+   "speed": 1.0,
+   "grade": "warm",
+   "matte": false,
+   "shows": "team pile-on, Xavi (6) in shot",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  },
+  {
+   "start": 69.7,
+   "end": 77.6,
+   "source": "messi_ars.mp4",
+   "in": 144.0,
+   "speed": 0.45,
+   "grade": "cool_desat",
+   "matte": true,
+   "shows": "close-up, fists clenched (slow motion bookend)",
+   "transition_in": {
+    "kind": "cut",
+    "dur": 0.0,
+    "direction": 1,
+    "why": "hard cut"
+   }
+  }
+ ],
+ "graphics": [
+  {
+   "family": "name",
+   "in": 0.8,
+   "out": 4.140000000000001,
+   "data": {
+    "lines": [
+     [
+      "LIONEL",
+      0.8
+     ],
+     [
+      "MESSI",
+      1.66
+     ]
+    ]
+   },
+   "why": "a sentence that is only a name opens the story"
+  },
+  {
+   "family": "label",
+   "in": 7.44,
+   "out": 11.46,
+   "data": {
+    "lines": [
+     {
+      "text": "6 APRIL 2010",
+      "t": 7.44
+     },
+     {
+      "text": "CAMP NOU",
+      "t": 9.84
+     }
+    ]
+   },
+   "why": "a date is spoken with its venue/event"
+  },
+  {
+   "family": "minimal",
+   "in": 15.1,
+   "out": 18.7,
+   "data": {
+    "lines": [
+     {
+      "text": "BUT FIRST.",
+      "t0": 15.1,
+      "t1": 16.08
+     },
+     {
+      "text": "WE HAVE TO GO BACK",
+      "t0": 16.38,
+      "t1": 17.7
+     }
+    ]
+   },
+   "why": "the narration announces a step back in time"
+  },
+  {
+   "family": "label",
+   "in": 18.9,
+   "out": 25.82,
+   "data": {
+    "lines": [
+     {
+      "text": "DECEMBER 2009",
+      "t": 18.9
+     },
+     {
+      "text": "BALLON D'OR",
+      "t": 22.5
+     }
+    ]
+   },
+   "why": "a date is spoken with its venue/event"
+  },
+  {
+   "family": "headline",
+   "in": 33.98,
+   "out": 40.08,
+   "data": {
+    "text": "ONE-MAN SHOW",
+    "t": 33.98,
+    "sub": [
+     [
+      "MESSI",
+      37.1
+     ],
+     [
+      "3",
+      37.72
+     ],
+     [
+      "ARSENAL",
+      38.72
+     ],
+     [
+      "1",
+      39.02
+     ]
+    ]
+   },
+   "why": "a short defining statement"
+  },
+  {
+   "family": "numbered",
+   "in": 40.5,
+   "out": 56.120000000000005,
+   "data": {
+    "items": [
+     {
+      "n": 1,
+      "t": 40.5,
+      "label": "21' FROM THE EDGE OF THE BOX",
+      "tokens": [
+       [
+        "21'",
+        41.66
+       ],
+       [
+        "FROM",
+        42.58
+       ],
+       [
+        "THE",
+        43.1
+       ],
+       [
+        "EDGE",
+        43.24
+       ],
+       [
+        "OF",
+        43.44
+       ],
+       [
+        "THE",
+        43.54
+       ],
+       [
+        "BOX",
+        43.64
+       ]
+      ],
+      "end": 43.9
+     },
+     {
+      "n": 2,
+      "t": 44.62,
+      "label": "37' CALMLY PAST ALMUNIA",
+      "tokens": [
+       [
+        "37'",
+        45.64
+       ],
+       [
+        "CALMLY",
+        46.24
+       ],
+       [
+        "PAST",
+        47.14
+       ],
+       [
+        "ALMUNIA",
+        47.52
+       ]
+      ],
+      "end": 48.1
+     },
+     {
+      "n": 3,
+      "t": 48.8,
+      "label": "42' A CHIP OVER THE KEEPER",
+      "tokens": [
+       [
+        "42'",
+        49.84
+       ],
+       [
+        "A",
+        50.44
+       ],
+       [
+        "CHIP",
+        51.0
+       ],
+       [
+        "OVER",
+        51.22
+       ],
+       [
+        "THE",
+        51.52
+       ],
+       [
+        "KEEPER",
+        51.66
+       ]
+      ],
+      "end": 51.9
+     },
+     {
+      "n": 4,
+      "t": 52.68,
+      "label": "88' THROUGH HIS LEGS",
+      "tokens": [
+       [
+        "88'",
+        53.74
+       ],
+       [
+        "THROUGH",
+        54.24
+       ],
+       [
+        "HIS",
+        54.92
+       ],
+       [
+        "LEGS",
+        55.14
+       ]
+      ],
+      "end": 55.42
+     }
+    ]
+   },
+   "why": "4 spoken numbers in sequence, each followed by its point"
+  },
+  {
+   "family": "impact",
+   "in": 56.6,
+   "out": 59.88,
+   "data": {
+    "value": "4",
+    "t": 56.6,
+    "label": "GOALS",
+    "label_t": 57.22,
+    "sub": "ONE NIGHT",
+    "sub_t": 57.72
+   },
+   "why": "one number carries the sentence"
+  },
+  {
+   "family": "cumulative",
+   "in": 61.82,
+   "out": 68.16000000000001,
+   "data": {
+    "items": [
+     {
+      "value": "47",
+      "label": "GOALS",
+      "t": 61.82
+     },
+     {
+      "value": "53",
+      "label": "GAMES",
+      "t": 63.5
+     },
+     {
+      "value": "34",
+      "label": "IN LA LIGA",
+      "t": 64.92
+     }
+    ]
+   },
+   "why": "3 figures build on each other"
+  },
+  {
+   "family": "headline",
+   "in": 69.7,
+   "out": 76.14,
+   "data": {
+    "text": "A PLAYER LIKE THIS",
+    "t": 69.7,
+    "sub": [
+     [
+      "ONLY",
+      70.64
+     ],
+     [
+      "COMES",
+      71.04
+     ],
+     [
+      "ALONG",
+      71.36
+     ],
+     [
+      "EVERY",
+      71.64
+     ],
+     [
+      "25\u201330",
+      72.02
+     ],
+     [
+      "YEARS",
+      73.56
+     ]
+    ],
+    "sub_mode": "words",
+    "attrib": "\u2014 XAVI",
+    "attrib_t": 74.14,
+    "quote": true,
+    "behind": true
+   },
+   "why": "an attributed quote"
+  }
+ ],
+ "cues": [
+  {
+   "t": 0.8,
+   "sfx": "whoosh-short-1",
+   "why": "name line wipes in"
+  },
+  {
+   "t": 0.8,
+   "sfx": "bass-hit-2",
+   "why": "name lands"
+  },
+  {
+   "t": 1.66,
+   "sfx": "whoosh-short-2",
+   "why": "name line wipes in"
+  },
+  {
+   "t": 7.44,
+   "sfx": "sp-scramble",
+   "why": "scramble: 6 APRIL 2010"
+  },
+  {
+   "t": 7.86,
+   "sfx": "click-mech-2",
+   "why": "label locks"
+  },
+  {
+   "t": 9.84,
+   "sfx": "sp-scramble",
+   "why": "scramble: CAMP NOU"
+  },
+  {
+   "t": 10.2,
+   "sfx": "click-mech-2",
+   "why": "label locks"
+  },
+  {
+   "t": 15.1,
+   "sfx": "swell-2",
+   "why": "the room goes quiet"
+  },
+  {
+   "t": 18.9,
+   "sfx": "projector-1",
+   "why": "archive photo"
+  },
+  {
+   "t": 18.9,
+   "sfx": "sp-scramble",
+   "why": "scramble: DECEMBER 2009"
+  },
+  {
+   "t": 19.355,
+   "sfx": "click-mech-2",
+   "why": "label locks"
+  },
+  {
+   "t": 22.5,
+   "sfx": "sp-scramble",
+   "why": "scramble: BALLON D'OR"
+  },
+  {
+   "t": 22.885,
+   "sfx": "click-mech-2",
+   "why": "label locks"
+  },
+  {
+   "t": 26.6,
+   "sfx": "impact-tr-2",
+   "why": "hard cut back to the match"
+  },
+  {
+   "t": 33.98,
+   "sfx": "riser-2",
+   "why": "rise into the one-man show"
+  },
+  {
+   "t": 33.98,
+   "sfx": "crowd-cheer-1",
+   "why": "the crowd erupts"
+  },
+  {
+   "t": 33.98,
+   "sfx": "impact-tr-3",
+   "why": "headline slams in"
+  },
+  {
+   "t": 33.98,
+   "sfx": "rwhoosh-3",
+   "why": "suck into the slam"
+  },
+  {
+   "t": 37.1,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 37.72,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 38.72,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 39.02,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 40.08,
+   "sfx": "sp-glitch",
+   "why": "headline glitches out"
+  },
+  {
+   "t": 40.08,
+   "sfx": "sp-glitch",
+   "why": "glitch transition"
+  },
+  {
+   "t": 40.5,
+   "sfx": "thump-deep-2",
+   "why": "point 1 lands"
+  },
+  {
+   "t": 40.5,
+   "sfx": "whoosh-short-2",
+   "why": "rise"
+  },
+  {
+   "t": 44.62,
+   "sfx": "thump-deep-2",
+   "why": "point 2 lands"
+  },
+  {
+   "t": 44.62,
+   "sfx": "whoosh-short-2",
+   "why": "rise"
+  },
+  {
+   "t": 48.8,
+   "sfx": "thump-deep-2",
+   "why": "point 3 lands"
+  },
+  {
+   "t": 48.8,
+   "sfx": "whoosh-short-2",
+   "why": "rise"
+  },
+  {
+   "t": 52.68,
+   "sfx": "thump-deep-2",
+   "why": "point 4 lands"
+  },
+  {
+   "t": 52.68,
+   "sfx": "whoosh-short-2",
+   "why": "rise"
+  },
+  {
+   "t": 56.6,
+   "sfx": "impact-tr-3",
+   "why": "the number hits"
+  },
+  {
+   "t": 56.6,
+   "sfx": "thump-deep-1",
+   "why": "low end"
+  },
+  {
+   "t": 56.6,
+   "sfx": "sp-glitch",
+   "why": "ghost frame"
+  },
+  {
+   "t": 57.22,
+   "sfx": "tick-2",
+   "why": "label"
+  },
+  {
+   "t": 57.72,
+   "sfx": "whoosh-short-2",
+   "why": "sub line"
+  },
+  {
+   "t": 59.88,
+   "sfx": "whoosh-mid-2",
+   "why": "luma dissolve"
+  },
+  {
+   "t": 61.82,
+   "sfx": "bass-hit-1",
+   "why": "47 lands"
+  },
+  {
+   "t": 61.82,
+   "sfx": "whoosh-mid-1",
+   "why": "rise"
+  },
+  {
+   "t": 63.5,
+   "sfx": "bass-hit-1",
+   "why": "53 lands"
+  },
+  {
+   "t": 63.5,
+   "sfx": "whoosh-mid-1",
+   "why": "rise"
+  },
+  {
+   "t": 64.92,
+   "sfx": "bass-hit-1",
+   "why": "34 lands"
+  },
+  {
+   "t": 64.92,
+   "sfx": "whoosh-mid-1",
+   "why": "rise"
+  },
+  {
+   "t": 69.7,
+   "sfx": "impact-tr-3",
+   "why": "headline slams in"
+  },
+  {
+   "t": 69.7,
+   "sfx": "rwhoosh-3",
+   "why": "suck into the slam"
+  },
+  {
+   "t": 70.64,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 71.04,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 71.36,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 71.64,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 72.02,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  },
+  {
+   "t": 73.56,
+   "sfx": "tick-1",
+   "why": "supporting word"
+  }
+ ]
+}

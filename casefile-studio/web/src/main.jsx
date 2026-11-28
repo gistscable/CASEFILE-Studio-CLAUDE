@@ -110,6 +110,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
+import NichePicker, { useNiches, DEFAULT_NICHE, NicheBrief } from "./NichePicker.jsx";
 import { rememberSetup, cachedSetups, forgetSetup } from "./SessionBackup.js";
 import {
   keepWorkingFiles,
@@ -167,7 +168,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.75";
+const APP_VERSION = "0.4.77";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -2678,6 +2679,7 @@ function App() {
                   ))}
               </select>
             </label>
+            <NicheBrief project={project} kind="music" />
             {music ? (
               <MusicPanel
                 project={project}
@@ -3007,6 +3009,7 @@ function App() {
               {sub === "music" ? "Music settings: part of the track, loop, fades, ducking" : "Voice settings: level, transcribe and align"} <ArrowUpRight size={12} />
             </button>
             {sub === "music" && <p className="micro-note block">Supply music you have permission to use.</p>}
+            {sub === "music" && <NicheBrief project={project} kind="music" />}
           </div>
         );
     } else if (key === "text") {
@@ -6615,7 +6618,10 @@ function NewProjectModal({ onClose, onCreate }) {
   const [title, setTitle] = useState(""),
     [mode, setMode] = useState("topic"),
     [minutes, setMinutes] = useState(25),
+    [niche, setNiche] = useState(DEFAULT_NICHE),
     [busy, setBusy] = useState(false);
+  const niches = useNiches();
+  const hint = niches.niches.find((n) => n.key === niche)?.title_hint || "Case name or working title";
   return (
     <Modal
       title="Every story starts somewhere."
@@ -6627,15 +6633,18 @@ function NewProjectModal({ onClose, onCreate }) {
           e.preventDefault();
           setBusy(true);
           try {
-            await onCreate({ title, mode, target_minutes: minutes });
+            await onCreate({ title, mode, target_minutes: minutes, niche });
           } finally {
             setBusy(false);
           }
         }}
       >
         <div className="modal-body">
+          {/* v0.4.76 what kind of documentary: it decides the graphics, sound, music, research and voice direction */}
+          <label className="field">What kind of documentary?</label>
+          <NichePicker value={niche} onChange={setNiche} />
           <label className="field large">
-            Case name or working title
+            {hint}
             <input
               autoFocus
               required
@@ -6648,7 +6657,7 @@ function NewProjectModal({ onClose, onCreate }) {
           <label className="field">What are you starting with?</label>
           <div className="start-modes">
             {[
-              ["topic", "A case or topic", "Research, then write", Search],
+              ["topic", niche === "truecrime" ? "A case or topic" : "A topic", "Research, then write", Search],
               ["script", "A finished script", "Narrate & assemble", FileText],
               ["narration", "Narration + media", "Build around the voice", Mic],
               ["footage", "Raw footage", "Transcribe & shape", Film],
