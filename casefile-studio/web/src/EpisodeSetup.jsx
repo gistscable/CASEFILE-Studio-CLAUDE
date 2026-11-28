@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import "./episode.css";
 import SimpleDraft from "./SimpleDraft.jsx";
+import NichePicker, { nicheKey, nicheOf, useNiches, NICHE_ICONS } from "./NichePicker.jsx";
 import BaseImages from "./BaseImages.jsx";
 import FetchPanel from "./FetchPanel.jsx";
 import VoiceTiming from "./VoiceTiming.jsx";
@@ -720,6 +721,25 @@ function Cue({
     </details>
   );
 }
+// v0.4.76 One line with the project's kind of documentary; "Change" opens the tiles
+function EpisodeNiche({ project, disabled, onPick }) {
+  const [open, setOpen] = useState(false);
+  const n = nicheOf(project, useNiches());
+  const Icon = NICHE_ICONS[n.icon] || Clapperboard;
+  return (
+    <section className={`ep-niche ${open ? "open" : ""}`}>
+      <div className="ep-niche-row">
+        <Icon size={16} />
+        <span className="ep-niche-label">Kind of documentary</span>
+        <b>{n.label}</b>
+        <span className="ep-niche-sub">Sets the graphics, sound, music, research and voice defaults. Nothing already placed changes.</span>
+        <button className="btn" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>{open ? "Done" : "Change"}</button>
+      </div>
+      {open && <NichePicker compact value={nicheKey(project)} disabled={disabled} onChange={onPick} />}
+    </section>
+  );
+}
+
 export default function EpisodeSetup({
   project,
   api,
@@ -941,6 +961,10 @@ export default function EpisodeSetup({
           <b>03</b> Download when ready
         </span>
       </div>
+      {/* v0.4.76 the kind of documentary: the graphics offered first, the sound flavour, the music direction, the
+          research and voice direction. Changing it never changes anything already placed. */}
+      <EpisodeNiche project={project} disabled={disabled || project.is_demo}
+        onPick={(k) => { if (k !== nicheKey(project)) save("", "PATCH", { niche: k }); }} />
       <SimpleDraft
         project={project}
         busy={disabled}

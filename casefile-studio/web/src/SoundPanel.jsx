@@ -1,5 +1,6 @@
 import React from "react";
 import { Play, Square, Sparkles, Trash2, RotateCcw, Shuffle, Volume2, VolumeX, Headphones, Plus, Upload, Undo2, Search } from "lucide-react";
+import { NicheBrief, nicheHasFlavour, nicheOf, useNiches } from "./NichePicker.jsx";
 import { SFX, PRESETS, KIND_LABEL, normaliseSound, withPreset, editItem, editItems, scopeItems, graphicOf, soundUrl, peaks } from "./sound.js";
 import { Step, clock } from "./Effects.jsx";
 import LiveRange from "./LiveRange.jsx";
@@ -46,6 +47,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
   const items = plan?.items || [];
   const sel = items.find((x) => x.id === selectedId);
   const save = (patch) => onChange({ ...s, ...patch });
+  const niches = useNiches();
   const edit = (it, patch) => onChange(editItem(s, it, patch));
   const label = (sid) => (sid?.startsWith("a:") ? (project.assets || []).find((a) => a.id === sid.slice(2))?.name || "Your sound" : catalog?.byId[sid]?.label || sid);
   // v0.4.68 your sound effects only: never the narration or the music (they are separate kinds of audio)
@@ -175,6 +177,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
         Restrained effects placed on the animation itself: graphics, diagrams, typing, transitions, chapter changes, verified developments and the subscribe animation.
         Never on soundbites, the victim or family, or grief and violence in the narration. Your narration and soundbites are never changed.
       </p>
+      {!s.enabled && <NicheBrief project={project} kind="sound" />}
       </>)}
       {(s.enabled || (focus && sel)) && (
         <>
@@ -233,6 +236,13 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             <input type="checkbox" checked={s.variation} disabled={disabled} onChange={(e) => save({ variation: e.target.checked })} />
             Prevent repetition (rotate variations)
           </label>
+          {nicheHasFlavour(project, niches) && (
+            <label className="cs-check">
+              <input type="checkbox" checked={s.flavour} disabled={disabled} onChange={(e) => save({ flavour: e.target.checked })} />
+              {nicheOf(project, niches).label} sounds (in place of the generic ones)
+            </label>
+          )}
+          <NicheBrief project={project} kind="sound" />
           <div className="sfx-kinds">
             {Object.keys(s.kinds).map((k) => (
               <label key={k} className="cs-check">

@@ -118,6 +118,7 @@ def normalise(value):
         "lead": round(_num(v.get("lead"), *LIM["lead"], D["lead"]), 3),
         "duck": bool(v.get("duck", D["duck"])),
         "variation": bool(v.get("variation", D["variation"])),
+        "flavour": bool(v.get("flavour", D.get("flavour", True))),  # v0.4.76 the niche's own sound families
         "kinds": {k: bool((v.get("kinds") or {}).get(k, D["kinds"].get(k, True))) for k in KINDS if k != "manual"},
     }
     items, seen = [], set()
@@ -188,7 +189,11 @@ def _cinematic_files(project, it):
 _CINE_KIND = {"impact-tr": ("moments", 0.86), "bass-hit": ("moments", 0.84), "thump-deep": ("moments", 0.85), "riser": ("moments", 0.8),
               "whoosh": ("motion", 0.75), "rwhoosh": ("motion", 0.4), "sweep": ("motion", 0.6), "paper": ("documents", 0.75),
               "doc": ("documents", 0.7), "scan": ("diagrams", 0.62), "pulse-low": ("moments", 0.74), "notify": ("diagrams", 0.68),
-              "tick": ("diagrams", 0.68), "click": ("motion", 0.7), "type-strike": ("motion", 0.72), "key-soft": ("typing", 0.8)}
+              "tick": ("diagrams", 0.68), "click": ("motion", 0.7), "type-strike": ("motion", 0.72), "key-soft": ("typing", 0.8),
+              # v0.4.76 the niche collections' families
+              "crowd": ("moments", 0.72), "whistle": ("motion", 0.6), "ring-bell": ("moments", 0.7), "punch": ("moments", 0.8),
+              "arena": ("moments", 0.84), "flash": ("motion", 0.65), "sparkle": ("diagrams", 0.6), "warm-swell": ("moments", 0.7),
+              "heartbeat": ("moments", 0.74), "projector": ("diagrams", 0.6), "ticker": ("diagrams", 0.66), "pop": ("diagrams", 0.6)}
 
 
 def _cine_events(add, gid, it, cues, name):
@@ -739,10 +744,28 @@ def _family(cat):
 ACCENTS = (0.0, -1.2, -0.5, -1.6)
 
 
+def flavour_of(project, st=None):
+    """v0.4.76 The niche's sound families standing in for generic ones ({} when off or for true crime)."""
+    st = st or normalise(project.get("sound"))
+    if not st.get("flavour", True):
+        return {}
+    import niches
+    return niches.flavour(project)
+
+
+def _flavoured(cat, fl):
+    """A palette entry (category or (category, hint)) with the niche's family in place of a generic one."""
+    if not fl:
+        return cat
+    base = cat[0] if isinstance(cat, (list, tuple)) else cat
+    return fl.get(base, cat)
+
+
 def plan(project, settings=None, keep=(), held=()):
     """The automatic plan: [item] (source "auto"), and the decisions taken: {kept, silenced:
     [{t, label, why}], dropped: count}. `keep`: anchors already decided by you (not planned again)."""
     st = normalise(settings if settings is not None else project.get("sound"))
+    fl = flavour_of(project, st)
     sents = _sentences(project)
     ctx = context(project, sents)
     zones = protected(project, sents, ctx)
@@ -825,7 +848,8 @@ def plan(project, settings=None, keep=(), held=()):
             sid = g["sids"][g["n"] % len(g["sids"])]
         else:
             pool = []
-            for cat in e["cats"]:
+            cats = [_flavoured(c, fl) for c in e["cats"]] if e["kind"] != "cta" else e["cats"]  # v0.4.76 the niche's families
+            for cat in cats:
                 pool = _candidates(cat, st["intensity"])
                 if pool:
                     break
@@ -837,7 +861,7 @@ def plan(project, settings=None, keep=(), held=()):
                 sid = min(pool, key=lambda s: last_used.get(s, -1e9))
             else:
                 sid = pool[0]
-            sibs = [x for x in _family(next((c for c in e["cats"] if _candidates(c, st["intensity"])), e["cats"][0])) if x != sid]
+            sibs = [x for x in _family(next((c for c in cats if _candidates(c, st["intensity"])), cats[0])) if x != sid]
             group_sound[e["group"]] = {"sids": [sid] + (sibs if st["variation"] else []), "n": 0}
         last_used[sid] = e["t"]
         level = e["gain"] + (st["intensity"] - 0.4) * 8.0  # +-~5 dB around the designed level

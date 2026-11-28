@@ -38,7 +38,7 @@ FIELDS = (
     "script", "script_dirty", "script_origin", "script_approved_hash",
     "scenes", "assets", "look", "captions", "narration_id", "music_id", "music_volume", "narration_volume", "review",
     "episode", "caption_style", "effects", "aspect", "vertical_fit", "cta", "name_cards",
-    "watermark", "stickers", "motion", "sound", "music",
+    "watermark", "stickers", "motion", "sound", "music", "niche",
 )
 MISSING = "__casefile_missing__"
 # Of a media file only what you edit is undone; its preview stills, codec, thumbnail… are made by
@@ -230,7 +230,7 @@ FIELD_WORDS = {
     "look": "Look", "captions": "Captions on/off", "narration_id": "Narration track", "music_id": "Music track",
     "music_volume": "Music volume", "music": "Music placement", "narration_volume": "Narration volume", "review": "Review checklist", "episode": "Episode setup",
     "caption_style": "Caption style", "effects": "Effects", "aspect": "Format", "vertical_fit": "Vertical fill",
-    "name_cards": "Name cards", "watermark": "Watermark",
+    "name_cards": "Name cards", "watermark": "Watermark", "niche": "Documentary niche",
 }
 SIDE_EFFECTS = {"script", "script_dirty", "script_origin", "script_approved_hash", "review", "episode", "narration_id"}
 

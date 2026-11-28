@@ -129,7 +129,7 @@ def projects():
     return sorted(result, key=lambda x: x["updated_at"], reverse=True)
 
 
-def new_project(title, mode="topic", minutes=25, project_id=None):
+def new_project(title, mode="topic", minutes=25, project_id=None, niche=None):
     if project_id is not None and (
         not re.fullmatch(r"[a-f0-9]{16}", project_id)
         or (DATA / "projects" / f"{project_id}.json").exists()
@@ -167,6 +167,10 @@ def new_project(title, mode="topic", minutes=25, project_id=None):
         "created_at": now(),
         "updated_at": now(),
     }
+    if niche:  # v0.4.76: the kind of documentary (niches.py); it also picks the look a new project starts with
+        import niches
+        project["niche"] = niches.normalise(niche)
+        project["look"] = niches.get(niche)["look"]
     return save_project(project)
 
 

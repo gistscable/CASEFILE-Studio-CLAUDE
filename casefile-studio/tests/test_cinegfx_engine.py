@@ -100,16 +100,16 @@ def test_new_niche_registers_without_touching_core(story):
         return (0.9, {"score": m.group(0)}, ["scoreline"]) if m else None
 
     sport = core.Collection()
-    sport.key, sport.label = "football", "Football"
+    sport.key, sport.label = "toyball", "Toy ball"  # v0.4.76: not "football" (a real collection now: it must stay registered)
     from cinegfx.collections.truecrime import THEMES
     sport.add(core.Category("scoreline", "Scoreline", THEMES["turning"], detect_scoreline, Toy))
     core.register(sport)
     try:
         st = S.parse_script("# Final\n## Chapter 1 — The night\nThey won the final 3-1 on May 4. The city celebrated.\n")
-        beats = core.select(st, core.REGISTRY["football"])
+        beats = core.select(st, core.REGISTRY["toyball"])
         assert [b.category for b in beats] == ["scoreline"] and beats[0].payload["score"] == "3-1"
     finally:
-        core.REGISTRY.pop("football")
+        core.REGISTRY.pop("toyball")
 
 
 def test_timeline_alignment_snaps_sentence_ends_to_detected_pauses(texts):

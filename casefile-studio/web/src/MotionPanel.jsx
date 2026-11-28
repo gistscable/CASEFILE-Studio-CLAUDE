@@ -3,6 +3,7 @@ import { Plus, Trash2, Check, RotateCcw, Play, Sparkles, X, Shuffle, Film } from
 import { MG, TEMPLATES, STATUS, normaliseMotion, optionLabel, cleanLook } from "./motion.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 import { planFor } from "./MotionLayer.jsx";
+import { useNiches, nicheOf } from "./NichePicker.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const round3 = (t) => Math.round(t * 1000) / 1000;
@@ -508,7 +509,11 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
   const sel = m.items.find((x) => x.id === selectedId);
   const catalog = useCatalog();
   const [collection, setCollection] = React.useState("");
-  const coll = (catalog?.collections || []).find((c) => c.key === (collection || catalog?.default)) || catalog?.collections?.[0];
+  const niches = useNiches();
+  // v0.4.76 the project's niche picks the collection offered first (football -> Football ...); you can still change it
+  const nicheColl = nicheOf(project, niches)?.collection;
+  const firstKey = (catalog?.collections || []).some((c) => c.key === nicheColl) ? nicheColl : catalog?.default;
+  const coll = (catalog?.collections || []).find((c) => c.key === (collection || firstKey)) || catalog?.collections?.[0];
   const images = (project.assets || []).filter((a) => a.kind === "image");
   const [busy, setBusy] = React.useState("");
   const [narration, setNarration] = React.useState(null);

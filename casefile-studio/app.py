@@ -14,6 +14,7 @@ import ai, renderer, editorial, production, episode, fetcher, casedesk, discover
 import motion as motiongfx
 import sfxlib
 import presets as presetlib
+import niches
 import sound as sfxplan
 import music as musiclib
 from storage import (
@@ -36,7 +37,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.75", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.76", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -407,11 +408,20 @@ class NewProject(BaseModel):
     title: str = Field(default="Untitled documentary", max_length=180)
     mode: Literal["topic", "script", "narration", "footage"] = "topic"
     target_minutes: int = Field(default=25, ge=20, le=40)
+    niche: str | None = Field(default=None, max_length=40)  # v0.4.76 (niches.py); None: true crime, as before
 
 
 @app.post("/api/projects")
 def create_project(data: NewProject):
-    return new_project(data.title.strip(), data.mode, data.target_minutes)
+    if data.niche is not None and data.niche not in niches.BY_KEY:
+        raise HTTPException(422, "Unknown documentary niche.")
+    return new_project(data.title.strip(), data.mode, data.target_minutes, niche=data.niche)
+
+
+@app.get("/api/niches")
+def niche_catalog():
+    """v0.4.76 The kinds of documentary, with what each one sets up (graphics, sound, music, look)."""
+    return niches.catalog()
 
 
 @app.get("/api/projects/{id}")
@@ -602,6 +612,7 @@ async def update_project(id: str, request: Request):
             "motion",
             "sound",
             "music",
+            "niche",
         }
         if set(changes) - allowed:
             raise HTTPException(422, "Unsupported project field.")
@@ -676,6 +687,11 @@ async def update_project(id: str, request: Request):
             p["stickers"] = stickers.normalise(changes["stickers"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
         if "motion" in changes:
             p["motion"] = motiongfx.normalise(changes["motion"], {x["id"] for x in p["assets"] if x.get("kind") == "image"})
+        if "niche" in changes:  # v0.4.76: the kind of documentary (sets defaults; never changes what is placed)
+            try:
+                p["niche"] = niches.normalise(changes["niche"])
+            except ValueError as e:
+                raise HTTPException(422, str(e))
         if "music" in changes:  # v0.4.58: where the music plays and how it loops (never the timeline)
             p["music"] = musiclib.normalise(changes["music"])
         if "sound" in changes:  # v0.4.56: one edited sound leaves the rest of the plan as it is
@@ -1154,7 +1170,7 @@ async def motion_options(id: str, request: Request):
         start, end = float(body["start"]), float(body["end"])
     except (KeyError, TypeError, ValueError):
         raise HTTPException(422, "Choose a passage of the narration.")
-    opts, win = cinematic.options(p, start, end, body.get("collection") or cinematic.DEFAULT_COLLECTION)
+    opts, win = cinematic.options(p, start, end, body.get("collection") or niches.collection(p))
     return {"options": [{k: v for k, v in o.items() if k != "beat"} for o in opts], "sentences": list(win) if win else None}
 
 
@@ -1173,7 +1189,7 @@ async def motion_draft(id: str, request: Request):
         import cinematic
         prev = next((x for x in motiongfx.normalise(p.get("motion"))["items"] if body.get("id") and x["id"] == body["id"]), None)
         try:
-            item, opts = cinematic.draft(p, start, end, body.get("collection") or cinematic.DEFAULT_COLLECTION,
+            item, opts = cinematic.draft(p, start, end, body.get("collection") or niches.collection(p),
                                          body.get("category") or "auto", item_id=body.get("id") or None, prev=prev,
                                          window=body.get("window") if isinstance(body.get("window"), list) else None)
         except ValueError as e:
@@ -1208,7 +1224,7 @@ async def motion_suggest(id: str, request: Request):
         if cine:
             import cinematic
             try:
-                new = cinematic.suggest(p, keep, body.get("collection") or cinematic.DEFAULT_COLLECTION)
+                new = cinematic.suggest(p, keep, body.get("collection") or niches.collection(p))
             except ValueError as e:
                 raise HTTPException(422, str(e))
         else:

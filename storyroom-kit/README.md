@@ -56,7 +56,7 @@ storyroom-gfx plan examples/javits/script.md -o javits.json     # the approved J
 | Photos | `--photos DIR` | A folder with `sources.json` (file, subject, credit, month, people, places, tags per photo), or plain files named after the person, place or event (`okafor.jpg`). |
 | Look | `--look look.json` | The look for all graphics; see below. |
 | Timeline | `--offset 12.5`, `--fps 25` | Where the narration starts on your timeline, and its frame rate (24 by default, as in Casefile; also 25, 30, 48, 50 or 60). |
-| Niche | `--collection`, `--categories timeline,legal` | Only true crime ships today. `storyroom-gfx list` shows every graphic and what it can take. |
+| Niche | `--collection`, `--categories timeline,legal` | `truecrime` (the default), `football`, `combat` (boxing, MMA, wrestling), `entertainment` and `documentary` (history, business, psychology, faith, general). `storyroom-gfx list` shows every graphic and what it can take. |
 
 The script's spelling always wins. A transcript that writes "more" for "Moore" still times the script's
 "Moore". If under 85% of the script's words are found in the timings, the plan says so.

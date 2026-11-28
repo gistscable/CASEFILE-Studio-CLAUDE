@@ -1,6 +1,6 @@
 {
  "copied_from": "casefile-studio",
- "commit": "b3c3d45",
+ "commit": "f2e70ad",
  "patches": {
   "cinegfx/theme.py": 2,
   "cinegfx/sfx.py": 1
@@ -9,6 +9,11 @@
   "cinegfx/__init__.py": "cad0d2f434168ca6",
   "cinegfx/anim.py": "61863159dd48bb20",
   "cinegfx/collections/__init__.py": "211f435c6770a0e2",
+  "cinegfx/collections/_kit.py": "d39d436b0813c16e",
+  "cinegfx/collections/combat.py": "76eabe23a524eab2",
+  "cinegfx/collections/documentary.py": "f474e53f0e964a3f",
+  "cinegfx/collections/entertainment.py": "ec48faebc21dd193",
+  "cinegfx/collections/football.py": "c7966bf150c50c07",
   "cinegfx/collections/truecrime.py": "3d1adb02ce306e96",
   "cinegfx/core.py": "3f353e2b1b9c6897",
   "cinegfx/draw.py": "9efc268aedb8ebe3",
@@ -19,7 +24,7 @@
   "cinegfx/text.py": "1e1df04bfcaac1a1",
   "cinegfx/theme.py": "d6881360b70b356c",
   "cinegfx/timing.py": "9ec7ae53bb1207a3",
-  "sfxlib.py": "20ae6215d55bb846",
+  "sfxlib.py": "2192c0e6ec6ecbc3",
   "fonts/Caladea-Bold.ttf": "ae3cb2dcbc925809",
   "fonts/Carlito-Bold.ttf": "bb5d20f79b82599e",
   "fonts/DejaVuSans-Bold.ttf": "5c1247acef7f2b85",
