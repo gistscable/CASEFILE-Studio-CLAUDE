@@ -1444,3 +1444,36 @@ below its grid.
   tab, hover previews, toggles / transition on all scenes / sticker / sort saved to the project, no page errors).
 - **Next:** step 3 — the right panel follows what is selected (clip, sticker, caption, audio) and the Director;
   step 4 — polish for Mac screen sizes (the phone left panel is short).
+
+## v0.4.70 — CapCut step 3: the right panel follows what you select, the Director docks there
+
+User: "Step 3". Nothing removed: every editor still exists; where it shows depends on the screen.
+- **`focus` state** in `main.jsx` (`{kind, …}` or null): `sticker` (uses `stickerId`), `graphic` (`motionId`), `sound`
+  (`soundId`), `cta` (`at`, `end`), `caption` (`cap` = the clicked caption block). `focusRight(kind, extra)` sets it
+  when `dock` (= `layout.showRight && wide`, `wide` = matchMedia min-width 1071 px); otherwise it opens the old left
+  tab (`stickers/placed`, `graphics`, `effects/subscribe`, `audio/sfx`; a caption keeps the old behaviour). Cleared
+  by any `setSelectedTrack` (picking a scene / clip / narration / music), a project or page change, and the
+  "← Scene NN" button (it selects the scene under the playhead, where the item is).
+- **Who calls it:** timeline overlay clips (sticker, graphic, subscribe), the preview's sticker drag-select, Sound FX
+  marks, caption blocks, adding a sticker from the gallery (the gallery stays open), and the left lists ("On your
+  video", Graphics, Sound effects) which, when docked, render list-only.
+- **Panels:** `StickerPanel`, `MotionPanel`, `SoundPanel` take `focus` (only the selected item's editor) and
+  `listOnly` (everything but it, with "Its settings are in the right panel."). `stickersPanel(mode)`,
+  `motionPanel(mode)`, `soundPanel(mode)` pass `"focus"` / `"list"`. The subscribe clip shows `effectsPanel(["cta"])`;
+  a caption shows Words (the line, its time, "Edit the narration of scene NN" → Video › Story, Play from here, the
+  captions switch) / Style / Text / Box & position (`captionsPanel(section)`). `renderFocus` / `liveFocus` (a gone
+  item falls back to the scene view).
+- **Director:** `directorBody()` (history + `#direction` form) renders in exactly one place: the right panel
+  (`renderDockedDirector`, `section.cc-director-dock` role region "Director") when `layout.director && dock`, else the
+  floating `.cc-pilot-panel` dialog. Every right-panel view has a "Director" tab (`.cc-insp-director`, role tab); the
+  floating button keeps its labels ("Show / Hide the Director"). Selecting an item while docked closes the Director
+  (history kept).
+- **Subscribe card** (step 2) now says "On · choose a banner / the file" until `ctaReady`. Note: auto mode only
+  places the animation where the narration says "subscribe" (or ticked scenes / extra spots), so a demo without that
+  shows no clip — not a bug.
+- **CSS:** end of `capcut.css` (`.cc-focus-head`, `.cc-focus-icon.k-*`, `.cc-cap-line`, `.cc-director-dock`,
+  `.cc-insp-director`, `.cc-right-hint`).
+- **Checked:** eslint (no errors), `node --test` 71/71, pytest, puppeteer at 1512×900 and 1280×760 (sticker, caption,
+  subscribe clip, sound mark, back, docked Director with one `#direction`, hide/show) and 390×844 (each falls back to
+  the left tab, floating Director). No page errors.
+- **Next:** step 4 — polish for Mac screen sizes (13"/14"/16" and the phone's short left panel).

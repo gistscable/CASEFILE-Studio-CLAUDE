@@ -7,7 +7,7 @@ import { Step, clock, parseClock } from "./Effects.jsx";
 const pct = (v) => `${Math.round(v * 100)}%`;
 
 // v0.4.49 Stickers tab of the inspector: every sticker, and − / + for the selected one.
-export default function StickerPanel({ project, time, selectedId, onSelect, onChange, onOpenDialog, onSeek, disabled }) {
+export default function StickerPanel({ project, time, selectedId, onSelect, onChange, onOpenDialog, onSeek, disabled, focus = false, listOnly = false }) {
   const assets = project.assets || [];
   const list = normaliseStickers(project.stickers, assets);
   const sorted = [...list].sort((a, b) => a.start - b.start);
@@ -24,6 +24,9 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
   };
   return (
     <div className="inspector-content cs">
+      {/* v0.4.70 focus: the right panel shows only the selected sticker */}
+      {focus && !sel && <p className="micro-note block">This sticker is gone. Pick another on the timeline.</p>}
+      {!focus && (<>
       <div className="section-label">
         <span>STICKERS</span>
         <button className="btn" disabled={disabled} onClick={onOpenDialog}>
@@ -41,7 +44,9 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
           </button>
         ))}
       </div>
-      {sel && (() => {
+      </>)}
+      {sel && listOnly && <p className="micro-note block cc-right-hint">Its settings are in the right panel.</p>}
+      {sel && !listOnly && (() => {
         const local = Math.max(0, Math.min(sel.length, time - sel.start));
         const inside = time >= sel.start && time < sel.start + sel.length;
         const v = stickerAt(sel, local);
@@ -106,7 +111,7 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
           </div>
         );
       })()}
-      <p className="micro-note block">Stickers sit over the picture and the subscribe animation; captions and your logo stay on top. Download MP4 includes them.</p>
+      {!focus && <p className="micro-note block">Stickers sit over the picture and the subscribe animation; captions and your logo stay on top. Download MP4 includes them.</p>}
     </div>
   );
 }

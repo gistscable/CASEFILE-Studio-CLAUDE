@@ -28,7 +28,7 @@ import SearchPalette from "./SearchPalette.jsx";
 import { buildIndex } from "./searchIndex.js";
 import { AUDIO_ROLES, audioLists, audioRoleOf, roleBlock } from "./audioRoles.js";
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel } from "./stickers.js";
-import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, normaliseCta } from "./cta.js";
+import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, ctaReady, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
 import { LOOKS, TRANSITIONS, normaliseNameCards, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
 import { captionAt, captionCss, normaliseStyle, sceneCaptions, chunks as captionChunks, textUnit } from "./captionStyle.js";
@@ -105,6 +105,7 @@ import {
   Images,
   PanelLeft,
   ArrowUpDown,
+  ArrowLeft,
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
@@ -165,7 +166,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.69";
+const APP_VERSION = "0.4.70";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -466,9 +467,21 @@ function App() {
     [searchOpen, setSearchOpen] = useState(false), // v0.4.68
     [hoverLook, setHoverLook] = useState(null), // v0.4.69 the look you point at in Filters
     [mediaSort, setMediaSort] = useState("timeline"),
-    [unusedOnly, setUnusedOnly] = useState(false);
+    [unusedOnly, setUnusedOnly] = useState(false),
+    [focus, setFocus] = useState(null), // v0.4.70 what the right panel shows: a sticker, graphic, sound, caption or the subscribe clip (null: the scene)
+    [captionSub, setCaptionSub] = useState("words"),
+    [wide, setWide] = useState(() => typeof window === "undefined" || !window.matchMedia || window.matchMedia("(min-width: 1071px)").matches);
+  useEffect(() => {
+    // v0.4.70 the right panel sits beside the player only above 1070 px (below, it stacks)
+    const mq = window.matchMedia?.("(min-width: 1071px)");
+    if (!mq) return;
+    const on = () => setWide(mq.matches);
+    mq.addEventListener?.("change", on);
+    return () => mq.removeEventListener?.("change", on);
+  }, []);
   // v0.4.69 a look you were trying never sticks to the player when you leave Filters
   useEffect(() => setHoverLook(null), [leftTab, project?.id]);
+  useEffect(() => setFocus(null), [selectedTrack, project?.id, tab]); // v0.4.70 a clip or scene you pick shows the scene again
   const historyRef = useRef(() => {}),
     historyBusy = useRef(false),
     gesture = useRef(false);
@@ -1302,13 +1315,28 @@ function App() {
     setInspectorTab("video"); // v0.4.67 the right panel follows what you click, as in CapCut
   }
   // v0.4.49 stickers
+  // v0.4.70 CapCut's right panel: what you select (a sticker, graphic, sound, caption or the subscribe
+  // clip) shows its settings on the right; the left tab keeps its library. Where the right panel is
+  // hidden or stacked (≤ 1070 px), the left tab opens the settings as before.
+  const dock = !!(layout.showRight && wide);
+  function focusRight(kind, extra = {}) {
+    if (!dock) {
+      const left = { sticker: ["stickers", "placed"], graphic: ["graphics"], cta: ["effects", "subscribe"], sound: ["audio", "sfx"] }[kind];
+      if (left) openLeft(...left);
+      return;
+    }
+    setFocus({ kind, ...extra });
+    if (layout.director) setLayout({ director: false });
+  }
   function addSticker(kind, assetId) {
     const list = normaliseStickers(project.stickers, project.assets);
     const st = newSticker(kind, Math.min(time, Math.max(0, duration - 0.5)), assetId, list);
     queueSave({ stickers: [...list, st] });
     setStickerId(st.id);
     setStickerDialog(false);
-    openLeft("stickers", "placed"); // v0.4.69 straight to its size, timing and keyframes
+    // v0.4.69 straight to its size, timing and keyframes: v0.4.70 on the right (the gallery stays open)
+    if (dock) focusRight("sticker");
+    else openLeft("stickers", "placed");
     setPlaying(false);
     notify("Sticker added at the playhead. Drag it in the preview to move it.");
   }
@@ -2094,13 +2122,15 @@ function App() {
             />
     );
   }
-  function stickersPanel() {
+  function stickersPanel(mode) {
     return (
             <StickerPanel
+              focus={mode === "focus"}
+              listOnly={mode === "list"}
               project={project}
               time={time}
               selectedId={stickerId}
-              onSelect={setStickerId}
+              onSelect={(id) => { setStickerId(id); if (id && mode === "list") focusRight("sticker"); }}
               onChange={(list) => queueSave({ stickers: list })}
               onOpenDialog={() => setStickerDialog(true)}
               onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
@@ -2108,14 +2138,16 @@ function App() {
             />
     );
   }
-  function motionPanel() {
+  function motionPanel(mode) {
     return (
             <MotionPanel
+              focus={mode === "focus"}
+              listOnly={mode === "list"}
               project={project}
               time={time}
               playing={playing}
               selectedId={motionId}
-              onSelect={setMotionId}
+              onSelect={(id) => { setMotionId(id); if (id && mode === "list") focusRight("graphic"); }}
               onChange={(m) => queueSave({ motion: m })}
               onSuggest={async (body = {}) => {
                 await flushSave();
@@ -2141,16 +2173,18 @@ function App() {
             />
     );
   }
-  function soundPanel() {
+  function soundPanel(mode) {
     return (
             <SoundPanel
+              focus={mode === "focus"}
+              listOnly={mode === "list"}
               project={project}
               plan={soundPlan}
               planError={soundPlanError}
               time={time}
               playing={playing}
               selectedId={soundId}
-              onSelect={setSoundId}
+              onSelect={(id) => { setSoundId(id); if (id && mode === "list") focusRight("sound"); }}
               pin={sfxPin}
               onPin={setSfxPin}
               onChange={(v) => queueSave({ sound: v })}
@@ -2199,6 +2233,43 @@ function App() {
               onChange={(v) => queueSave({ caption_style: v })}
               onToggle={(v) => queueSave({ captions: v })}
             />
+    );
+  }
+  // v0.4.70 the Director's history and its box: in the right panel when it is beside the player,
+  // otherwise in the floating panel (only one of them is on the page, so #direction is unique)
+  function directorBody() {
+    return (
+      <>
+                  {directorHistory()}
+                  <form className="director-bar" onSubmit={direct}>
+                    <div className="director-input">
+                      <label htmlFor="direction">Tell the Director what to change</label>
+                      <input
+                        id="direction"
+                        value={command}
+                        onChange={(e) => setCommand(e.target.value)}
+                        placeholder={
+                          project.episode?.guide
+                            ? "Try “set music to 8%” or “use the archive look”…"
+                            : "Try “use the archive look” or “set scene 2 to 12 seconds”…"
+                        }
+                        disabled={locked}
+                      />
+                    </div>
+                    <button
+                      className="send-btn"
+                      type="submit"
+                      aria-label="Apply editing instruction"
+                      disabled={locked || !command.trim()}
+                    >
+                      {busy ? (
+                        <LoaderCircle className="spin" size={16} />
+                      ) : (
+                        <ArrowUpRight size={18} />
+                      )}
+                    </button>
+                  </form>
+      </>
     );
   }
   function directorHistory() {
@@ -2624,7 +2695,7 @@ function App() {
     const cards = [
       ["effects", "video", "Video effects", fxOn ? `${fxOn} on` : "Off", fxOn > 0, null, "fx"],
       ["effects", "logo", "Logo", wm.enabled ? (logo ? "On" : "On · choose a logo") : "Off", wm.enabled, (v) => queueSave({ watermark: { ...wm, enabled: v } }), "logo"],
-      ["effects", "subscribe", "Subscribe", cta.enabled ? "On" : "Off", cta.enabled, (v) => queueSave({ cta: { ...cta, enabled: v } }), "cta"],
+      ["effects", "subscribe", "Subscribe", cta.enabled ? (ctaReady(cta, assets) ? "On" : cta.source === "file" ? "On · choose the file" : "On · choose a banner") : "Off", cta.enabled, (v) => queueSave({ cta: { ...cta, enabled: v } }), "cta"],
       ["text", "names", "Name cards", nc.auto ? "Automatic" : scenes.some((x) => x.lower_third) ? "Typed on scenes" : "Off", nc.auto || scenes.some((x) => x.lower_third), null, "name"],
     ];
     return (
@@ -2767,7 +2838,7 @@ function App() {
       content =
         sub === "sfx" ? (
           <>
-            {soundPanel()}
+            {soundPanel(dock ? "list" : undefined)}
             <div className="inspector-content">{unsortedAudio("sfx")}</div>
           </>
         ) : (
@@ -2837,7 +2908,7 @@ function App() {
       const placed = normaliseStickers(project.stickers, project.assets).length;
       content =
         sub === "placed" ? (
-          stickersPanel()
+          stickersPanel(dock ? "list" : undefined)
         ) : (
           <div className="inspector-content">
             <div className="section-label">
@@ -2865,7 +2936,7 @@ function App() {
     else if (key === "transitions") content = effectsPanel(["transitions"]);
     else if (key === "captions") content = captionsPanel(sub);
     else if (key === "filters") content = effectsPanel(["looks"]);
-    else content = motionPanel();
+    else content = motionPanel(dock ? "list" : undefined);
     return (
       <>
         <div className="cc-tabs-wrap">
@@ -2909,7 +2980,134 @@ function App() {
   }
   // The right panel shows what is selected, as CapCut does: Video for the scene's clip,
   // Audio for the narration and the music.
+  // v0.4.70 the Director as a tab of the right panel (the floating button still opens and closes it)
+  function directorTab() {
+    return (
+      <button role="tab" aria-selected={false} className="cc-insp-director" title="Direct your edit in plain English" onClick={() => setLayout({ director: true })}>
+        <Sparkles size={13} /> Director
+      </button>
+    );
+  }
+  function liveFocus() {
+    if (!focus || !dock) return null;
+    if (focus.kind === "sticker") {
+      const st = overlayStickers.find((x) => x.id === stickerId);
+      return st && { ...focus, title: stickerLabel(st, assets), when: `${tc(st.start)} · ${st.length.toFixed(1)} s` };
+    }
+    if (focus.kind === "graphic") {
+      const g = overlayGraphics.find((x) => x.id === motionId);
+      return g && { ...focus, title: g.title || g.heading || g.lines?.[0]?.text || "Graphic", when: `${tc(g.start)}–${tc(g.end)} · ${{ approved: "approved", suggested: "suggested, not approved yet" }[g.status] || g.status}` };
+    }
+    if (focus.kind === "sound") {
+      const x = (soundPlan?.items || []).find((y) => y.id === soundId);
+      return x && { ...focus, title: x.label || "Sound", when: x.t != null ? tc(x.t) : "not placed" };
+    }
+    if (focus.kind === "cta") return { ...focus, title: "Subscribe animation", when: `${tc(focus.at)}–${tc(focus.end)}` };
+    if (focus.kind === "caption") {
+      const i = scenes.findIndex((x) => x.id === focus.cap.sceneId);
+      return i >= 0 && { ...focus, sceneIndex: i, title: `“${focus.cap.text}”`, when: `${tc(focus.cap.start)}–${tc(focus.cap.end)} · scene ${String(i + 1).padStart(2, "0")}` };
+    }
+    return null;
+  }
+  function renderFocus(f) {
+    const KIND = { sticker: ["Sticker", Sticker], graphic: ["Graphic", Shapes], sound: ["Sound effect", Zap], cta: ["Subscribe", WandSparkles], caption: ["Caption", Captions] }[f.kind];
+    const [kindLabel, Icon] = KIND;
+    const capSubs = [["words", "Words"], ["styles", "Style"], ["text", "Text"], ["box", "Box & position"]];
+    // Back shows the scene where this item is (under the playhead), as the player does
+    const hereIndex = (() => {
+      const i = scenes.findIndex((x, k) => time < (offsets[k] || 0) + x.duration);
+      return i < 0 ? scenes.length - 1 : i;
+    })();
+    const back = hereIndex >= 0 ? `Scene ${String(hereIndex + 1).padStart(2, "0")}` : "the scene";
+    return (
+      <>
+        <div className="inspector-tabs cc-insp-tabs" role="tablist" aria-label="Selected item">
+          <button role="tab" aria-selected className="active">{kindLabel}</button>
+          <span className="cc-insp-what" />
+          {directorTab()}
+        </div>
+        <div className="cc-focus-head">
+          <span className={`cc-focus-icon k-${f.kind}`}><Icon size={15} /></span>
+          <div className="cc-focus-what">
+            <b title={f.title}>{f.title}</b>
+            <small>{f.when}</small>
+          </div>
+          <button className="btn cc-focus-back" aria-label="Back to the scene" title={`Show ${back} again`} onClick={() => { setFocus(null); if (scenes[hereIndex]) setSelectedId(scenes[hereIndex].id); }}>
+            <ArrowLeft size={12} /> {back}
+          </button>
+        </div>
+        {f.kind === "caption" && (
+          <div className="cc-subtabs" role="tablist">
+            {capSubs.map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={captionSub === k} className={captionSub === k ? "active" : ""} onClick={() => setCaptionSub(k)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {f.kind === "sticker" && stickersPanel("focus")}
+        {f.kind === "graphic" && motionPanel("focus")}
+        {f.kind === "sound" && soundPanel("focus")}
+        {f.kind === "cta" && effectsPanel(["cta"])}
+        {f.kind === "caption" &&
+          (captionSub === "words" ? (
+            <div className="inspector-content">
+              <div className="section-label">
+                <span>THIS CAPTION</span>
+                <small>{f.when}</small>
+              </div>
+              <p className="cc-cap-line">{f.cap.text}</p>
+              <p className="micro-note block">
+                Captions are made from the narration of scene {String(f.sceneIndex + 1).padStart(2, "0")}, timed to the voice. To change the words, change the narration.
+              </p>
+              <div className="st-actions">
+                <button className="btn" onClick={() => { setFocus(null); setInspectorTab("video"); setVideoSub("story"); }}>
+                  Edit the narration of scene {String(f.sceneIndex + 1).padStart(2, "0")}
+                </button>
+                <button className="btn" onClick={() => { setTime(f.cap.start); setPlaying(true); }}>
+                  <Play size={12} /> Play from here
+                </button>
+              </div>
+              <label className="cs-toggle">
+                <input type="checkbox" aria-label="Captions in the video" checked={!!project.captions} disabled={locked} onChange={(e) => queueSave({ captions: e.target.checked })} />
+                <span>Captions in the video</span>
+              </label>
+            </div>
+          ) : (
+            captionsPanel(captionSub)
+          ))}
+      </>
+    );
+  }
+  function renderDockedDirector() {
+    return (
+      <>
+        <div className="inspector-tabs cc-insp-tabs" role="tablist" aria-label="Director">
+          <button role="tab" aria-selected={false} onClick={() => setLayout({ director: false })}>
+            {liveFocus() ? { sticker: "Sticker", graphic: "Graphic", sound: "Sound effect", cta: "Subscribe", caption: "Caption" }[focus.kind] : "Video"}
+          </button>
+          <span className="cc-insp-what" />
+          <button role="tab" aria-selected className="cc-insp-director active">
+            <Sparkles size={13} /> Director
+          </button>
+        </div>
+        <section className="cc-director-dock" role="region" aria-label="Director">
+          <header>
+            <b>Tell the Director what to change</b>
+            <small>{config.connected ? "AI connected" : "Local commands; AI when you connect a service"}</small>
+            <button type="button" className="layout-btn" aria-label="Close the Director" title="Close the Director (your history is kept)" onClick={() => setLayout({ director: false })}>
+              <X size={14} />
+            </button>
+          </header>
+          {directorBody()}
+        </section>
+      </>
+    );
+  }
   function renderInspector() {
+    if (layout.director && dock) return renderDockedDirector();
+    const f = liveFocus();
+    if (f) return renderFocus(f);
     const subs = inspectorTab === "audio"
       ? [["voice", "Voice"], ["music", "Music"]]
       : [["basic", "Basic"], ["picture", "Picture"], ["story", "Story"], ["tracks", "Tracks"]];
@@ -2936,6 +3134,7 @@ function App() {
           <span className="cc-insp-what">
             {selected ? `Scene ${String(scenes.indexOf(selected) + 1).padStart(2, "0")}` : "Nothing selected"}
           </span>
+          {dock && directorTab()}
         </div>
         <div className="cc-subtabs" role="tablist">
           {subs.map(([key, label]) => (
@@ -3843,7 +4042,7 @@ function App() {
                     height={frameSize.height}
                     selectedId={stickerId}
                     disabled={locked}
-                    onSelect={(id) => { setStickerId(id); openLeft("stickers"); }}
+                    onSelect={(id) => { setStickerId(id); focusRight("sticker"); }}
                     onMove={(id, x, y, local) => moveSticker(id, x, y, local)}
                   />
                   {(() => {
@@ -4232,7 +4431,7 @@ function App() {
                         {ctaEvents.map(([a, b]) => (
                           <button key={"cta" + a} className="fx-clip cta" title={`Subscribe animation ${tc(a)}–${tc(b)}`}
                             style={{ left: `${(a / duration) * 100}%`, width: `${((b - a) / duration) * 100}%` }}
-                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); openLeft("effects", "subscribe"); }}>
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); focusRight("cta", { at: a, end: b }); }}>
                             <span>Subscribe</span>
                           </button>
                         ))}
@@ -4240,14 +4439,14 @@ function App() {
                           <button key={"mg" + g.id} className={`fx-clip motion ${g.status} ${g.id === motionId ? "on" : ""}`}
                             title={`Graphic (${g.status}) ${tc(g.start)}–${tc(g.end)}${g.title ? ": " + g.title : ""}`}
                             style={{ left: `${(g.start / duration) * 100}%`, width: `${((Math.min(g.end, duration) - g.start) / duration) * 100}%` }}
-                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(g.start + 0.05); setMotionId(g.id); openLeft("graphics"); }}>
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(g.start + 0.05); setMotionId(g.id); focusRight("graphic"); }}>
                             <span>{g.title || g.heading || g.lines?.[0]?.text || "Graphic"}</span>
                           </button>
                         ))}
                         {overlayStickers.map((st) => (
                           <button key={"st" + st.id} className={`fx-clip sticker ${st.id === stickerId ? "on" : ""}`} title={`Sticker: ${stickerLabel(st, project.assets || [])} ${tc(st.start)}`}
                             style={{ left: `${(st.start / duration) * 100}%`, width: `${(Math.min(st.length, duration - st.start) / duration) * 100}%` }}
-                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(st.start + 0.05); setStickerId(st.id); openLeft("stickers"); }}>
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(st.start + 0.05); setStickerId(st.id); focusRight("sticker"); }}>
                             <span>{stickerLabel(st, project.assets || [])}</span>
                           </button>
                         ))}
@@ -4277,6 +4476,7 @@ function App() {
                               setTime(c.start + 0.001);
                               setSelectedId(c.sceneId);
                               setPlaying(false);
+                              focusRight("caption", { cap: c }); // v0.4.70 this caption's words and style on the right
                             }}
                           >
                             {c.text}
@@ -4468,7 +4668,7 @@ function App() {
                               // v0.4.60 selecting or moving a sound no longer pauses the playback
                               e.currentTarget.focus({ preventScroll: true });
                               setSoundId(x.id);
-                              openLeft("audio", "sfx");
+                              focusRight("sound"); // v0.4.70 its settings on the right
                               if (locked) return;
                               const content = timelineRef.current?.querySelector(".timeline-content");
                               if (!content) return;
@@ -4508,8 +4708,8 @@ function App() {
               </div>
             </section>
             {/* v0.4.67 the Director, as CapCut's floating helper: plain-English edits and their history */}
-            <div className={`cc-pilot ${layout.director ? "open" : ""}`}>
-              {layout.director && (
+            <div className={`cc-pilot ${layout.director ? "open" : ""} ${dock ? "docked" : ""}`}>
+              {layout.director && !dock && (
                 <div className="cc-pilot-panel" role="dialog" aria-label="Director">
                   <header>
                     <Sparkles size={14} />
@@ -4519,35 +4719,7 @@ function App() {
                       <X size={14} />
                     </button>
                   </header>
-                  {directorHistory()}
-                  <form className="director-bar" onSubmit={direct}>
-                    <div className="director-input">
-                      <label htmlFor="direction">Tell the Director what to change</label>
-                      <input
-                        id="direction"
-                        value={command}
-                        onChange={(e) => setCommand(e.target.value)}
-                        placeholder={
-                          project.episode?.guide
-                            ? "Try “set music to 8%” or “use the archive look”…"
-                            : "Try “use the archive look” or “set scene 2 to 12 seconds”…"
-                        }
-                        disabled={locked}
-                      />
-                    </div>
-                    <button
-                      className="send-btn"
-                      type="submit"
-                      aria-label="Apply editing instruction"
-                      disabled={locked || !command.trim()}
-                    >
-                      {busy ? (
-                        <LoaderCircle className="spin" size={16} />
-                      ) : (
-                        <ArrowUpRight size={18} />
-                      )}
-                    </button>
-                  </form>
+                  {directorBody()}
                 </div>
               )}
               <button
@@ -6190,10 +6362,13 @@ function App() {
                   Left: the icon tabs — Media, Audio, Text, Stickers, Effects,
                   Transitions, Captions, Filters and Graphics — hold everything
                   you add to the video. Middle: the player. Right: the settings
-                  of whatever you clicked (Video for a picture clip, Audio for the
-                  narration or the music). Bottom: the timeline with its tools
-                  (undo, split, zoom). The Director button, bottom right, takes
-                  edits in plain English. The pages (Episode setup, Research,
+                  of whatever you clicked: Video for a picture clip, Audio for the
+                  narration or the music, and a sticker, graphic, sound effect,
+                  caption or the subscribe animation when you click it on the
+                  timeline (“← Scene” goes back). Bottom: the timeline with its
+                  tools (undo, split, zoom). The Director takes edits in plain
+                  English: its tab sits in the right panel (or press the Director
+                  button, bottom right). The pages (Episode setup, Research,
                   Script, Review & export …) are in the top bar; the menu beside
                   the logo has Home, your projects, backups, help and settings.
                   Can't find something? Press Search in the top bar (or Ctrl+K / ⌘K)

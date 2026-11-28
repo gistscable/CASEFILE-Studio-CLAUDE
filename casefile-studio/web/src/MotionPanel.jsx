@@ -503,7 +503,7 @@ function AutoPresent({ m, save, onPresent, onSeek, onSelect, disabled }) {
   );
 }
 
-export default function MotionPanel({ project, time, playing, selectedId, onSelect, onChange, onSuggest, onDraft, onPresent, onSeek, onPlayFrom, disabled, previewStatus }) {
+export default function MotionPanel({ project, time, playing, selectedId, onSelect, onChange, onSuggest, onDraft, onPresent, onSeek, onPlayFrom, disabled, previewStatus, focus = false, listOnly = false }) {
   const m = normaliseMotion(project.motion);
   const sel = m.items.find((x) => x.id === selectedId);
   const catalog = useCatalog();
@@ -598,6 +598,9 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
 
   return (
     <div className="inspector-content cs mg">
+      {/* v0.4.70 focus: the right panel shows only the selected graphic's editor */}
+      {focus && !sel && <p className="micro-note block">This graphic is gone. Pick another on the timeline.</p>}
+      {!focus && (<>
       <div className="section-label">
         <span>MOTION GRAPHICS</span>
       </div>
@@ -689,12 +692,17 @@ export default function MotionPanel({ project, time, playing, selectedId, onSele
       {m.items.some((x) => x.status === "approved") && !m.enabled && (
         <p className="micro-note block mg-warn">Approved graphics are not exported until “Add approved graphics to the export” is on.</p>
       )}
+      </>)}
+      {focus && sel && sel.status === "approved" && !m.enabled && (
+        <p className="micro-note block mg-warn">Approved graphics are not exported until “Add approved graphics to the export” is on (Graphics tab).</p>
+      )}
 
-      {sel && sel.template === "cinematic" && (
+      {sel && listOnly && <p className="micro-note block cc-right-hint">Its settings are in the right panel.</p>}
+      {sel && !listOnly && sel.template === "cinematic" && (
         <CinematicEditor sel={sel} info={info} images={images} catalog={catalog} disabled={disabled} busy={busy} update={update} onPlayFrom={onPlayFrom}
           onRemove={() => { setItems(m.items.filter((x) => x.id !== sel.id)); onSelect(null); }} onRemake={remake} previewStatus={previewStatus} time={time} />
       )}
-      {sel && sel.template !== "cinematic" && (
+      {sel && !listOnly && sel.template !== "cinematic" && (
         <div className="st-edit">
           <div className="section-label sub">
             <span>{TEMPLATES[sel.template].label.toUpperCase()}</span>
