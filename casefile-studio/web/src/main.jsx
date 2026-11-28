@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { nextTime, speechAt } from "./previewClock.js";
-import { normaliseLayout, timelineHeight, rulerTicks, captionBlocks, zoomScroll, LIMITS, LAYOUT_DEFAULTS } from "./editLayout.js";
+import { normaliseLayout, timelineHeight, fitEdit, rulerTicks, captionBlocks, zoomScroll, LIMITS, LAYOUT_DEFAULTS } from "./editLayout.js";
 import CaseDesk from "./CaseDesk.jsx";
 import Recut from "./Recut.jsx";
 import CaptionStyles from "./CaptionStyles.jsx";
@@ -166,7 +166,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.70";
+const APP_VERSION = "0.4.71";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -416,6 +416,9 @@ function App() {
     [muted, setMuted] = useState(false);
   const [layout, setLayoutState] = useState(() => normaliseLayout(preference.get("casefile-edit-layout"))),
     [gridHeight, setGridHeight] = useState(600),
+    // v0.4.71 the grid's width and how tall the timeline's tracks are, to fit the screen
+    [gridWidth, setGridWidth] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth)),
+    [tlNeed, setTlNeed] = useState(0),
     [laneWidth, setLaneWidth] = useState(800);
   const setLayout = (patch) =>
     setLayoutState((cur) => {
@@ -532,6 +535,8 @@ function App() {
   const overlayGraphics = project ? normaliseMotion(project.motion).items : [];
   const overlayStickers = project ? normaliseStickers(project.stickers, project.assets) : [];
   const overlayOn = !!(overlayGraphics.length || overlayStickers.length || ctaEvents.length);
+  // v0.4.71 what the Edit grid draws on this screen (the saved layout is kept as you left it)
+  const fit = fitEdit(layout, { width: gridWidth, gridHeight, need: tlNeed, pad: GRID_PAD });
   const sfxPreview = useRef(null);
   if (!sfxPreview.current) sfxPreview.current = new SfxPreview();
   // v0.4.58 Levels while a slider moves (heard at once, saved when you let go): {narration, music, master}
@@ -918,9 +923,21 @@ function App() {
     if (tab !== "edit") return;
     const fit = () => {
       const g = gridRef.current;
-      if (g) setGridHeight(Math.max(420, window.innerHeight - g.getBoundingClientRect().top));
+      if (g) {
+        setGridHeight(Math.max(420, window.innerHeight - g.getBoundingClientRect().top));
+        setGridWidth(g.clientWidth || window.innerWidth);
+      }
       const t = timelineRef.current;
       if (t) setLaneWidth(t.clientWidth || 800);
+      // v0.4.71 the tracks' own height (tool row + ruler + each track + room for the scrollbar)
+      const sec = g?.querySelector("section.timeline");
+      const lanes = sec?.querySelector(".timeline-lanes");
+      const heads = lanes?.querySelector(".track-labels");
+      if (sec && lanes && heads) {
+        const top = lanes.getBoundingClientRect().top - sec.getBoundingClientRect().top;
+        const rows = [...heads.children].reduce((n, c) => n + c.getBoundingClientRect().height, 0);
+        if (rows > 0) setTlNeed(Math.ceil(top + rows + 14));
+      }
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -931,7 +948,7 @@ function App() {
       ro.disconnect();
       window.removeEventListener("resize", fit);
     };
-  }, [tab, project?.id, layout.compact]);
+  }, [tab, project?.id, layout.compact, overlayOn, soundOn]);
   // Keep the playhead in view while playing (CapCut follows it the same way).
   useEffect(() => {
     const el = timelineRef.current;
@@ -1762,10 +1779,27 @@ function App() {
     }
     setZoom(z);
   }
+  // v0.4.71 The Edit grid's size on this screen. Wide (a Mac): three columns fitted by fitEdit.
+  // Tablet (581-1070 px): two columns, the timeline as tall as its tracks (at most 45%).
+  // Phone (580 px and under): no fixed height — the page scrolls, so the media panel gets a
+  // usable height and the timeline shows every track.
+  function editGridStyle() {
+    const w = window.innerWidth;
+    if (w <= 580) return tlNeed ? { "--cc-tl-h": `${tlNeed}px` } : {};
+    if (w <= 1070) {
+      const tl = tlNeed ? Math.round(Math.min(tlNeed, Math.max(170, gridHeight * 0.45))) : 210;
+      return { height: gridHeight, gridTemplateRows: `minmax(240px, 1fr) ${tl}px` };
+    }
+    return {
+      height: gridHeight,
+      gridTemplateColumns: `${fit.left}px minmax(0, 1fr) ${fit.right}px`,
+      gridTemplateRows: `minmax(200px, 1fr) ${fit.timeline}px`,
+    };
+  }
   // Drag a panel edge. kind: left | right | timeline.
   function resizePanel(e, kind) {
     e.preventDefault();
-    const start = { x: e.clientX, y: e.clientY, v: layout[kind] };
+    const start = { x: e.clientX, y: e.clientY, v: fit[kind] ?? layout[kind] };
     document.body.classList.add(kind === "timeline" ? "resizing-row" : "resizing-col");
     const move = (ev) => {
       const d = kind === "left" ? ev.clientX - start.x : kind === "right" ? start.x - ev.clientX : start.y - ev.clientY;
@@ -2942,20 +2976,12 @@ function App() {
         <div className="cc-tabs-wrap">
           <div className="cc-tabs" role="tablist" aria-label="Add to your video">
             {LEFT_TABS.map(([k, label, Icon]) => (
-              <button key={k} role="tab" aria-selected={leftTab === k} className={leftTab === k ? "active" : ""} onClick={() => setLeftTab(k)}>
+              <button key={k} role="tab" aria-selected={leftTab === k} aria-label={label} title={label} className={leftTab === k ? "active" : ""} onClick={() => setLeftTab(k)}>
                 <Icon size={17} />
                 <span>{label}</span>
               </button>
             ))}
           </div>
-          <button
-            className="cc-tabs-more"
-            aria-label="More tabs"
-            title="More tabs"
-            onClick={(e) => e.currentTarget.previousSibling.scrollBy({ left: 160, behavior: "smooth" })}
-          >
-            <ChevronRight size={14} />
-          </button>
         </div>
         <div className={`cc-left-body ${subs ? "" : "no-sub"}`}>
           {subs && (
@@ -3829,11 +3855,7 @@ function App() {
           <div
             className={`edit-grid ${layout.showLeft ? "" : "no-left"} ${layout.showRight ? "" : "no-right"}`}
             ref={gridRef}
-            style={window.innerWidth <= 1070 ? { height: gridHeight } : {
-              height: gridHeight,
-              gridTemplateColumns: `${layout.showLeft ? layout.left : 0}px minmax(0, 1fr) ${layout.showRight ? layout.right : 0}px`,
-              gridTemplateRows: `minmax(200px, 1fr) ${timelineHeight(layout.timeline, gridHeight)}px`,
-            }}
+            style={editGridStyle()}
           >
             {layout.showLeft && (
               <div
@@ -3841,7 +3863,7 @@ function App() {
                 role="separator"
                 aria-label="Resize the media panel"
                 title="Drag to resize · double-click to reset"
-                style={{ left: layout.left + GRID_PAD, bottom: timelineHeight(layout.timeline, gridHeight) + 2 * GRID_PAD }}
+                style={{ left: fit.left + GRID_PAD, bottom: fit.timeline + 2 * GRID_PAD }}
                 onPointerDown={(e) => resizePanel(e, "left")}
                 onDoubleClick={() => setLayout({ left: LAYOUT_DEFAULTS.left })}
               />
@@ -3852,7 +3874,7 @@ function App() {
                 role="separator"
                 aria-label="Resize the inspector"
                 title="Drag to resize · double-click to reset"
-                style={{ right: layout.right + GRID_PAD, bottom: timelineHeight(layout.timeline, gridHeight) + 2 * GRID_PAD }}
+                style={{ right: fit.right + GRID_PAD, bottom: fit.timeline + 2 * GRID_PAD }}
                 onPointerDown={(e) => resizePanel(e, "right")}
                 onDoubleClick={() => setLayout({ right: LAYOUT_DEFAULTS.right })}
               />
@@ -3862,7 +3884,7 @@ function App() {
               role="separator"
               aria-label="Resize the timeline"
               title="Drag to make the timeline taller or shorter · double-click to reset"
-              style={{ bottom: timelineHeight(layout.timeline, gridHeight) + GRID_PAD }}
+              style={{ bottom: fit.timeline + GRID_PAD }}
               onPointerDown={(e) => resizePanel(e, "timeline")}
               onDoubleClick={() => setLayout({ timeline: LAYOUT_DEFAULTS.timeline })}
             />
@@ -6374,7 +6396,11 @@ function App() {
                   Can't find something? Press Search in the top bar (or Ctrl+K / ⌘K)
                   and type what you want: a tool, a setting, a scene or a word from
                   the narration. Narration, music and sound effects each have their
-                  own place under Audio.
+                  own place under Audio. The page fits your screen: on a 13-inch
+                  laptop the side panels narrow a little so the player stays big,
+                  and the timeline is never taller than its tracks (drag its top
+                  edge to make it shorter). On a phone the page scrolls: player,
+                  then the tabs, then the timeline.
                 </p>
               </section>
             </div>

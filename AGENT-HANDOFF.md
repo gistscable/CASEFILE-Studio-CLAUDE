@@ -1477,3 +1477,29 @@ User: "Step 3". Nothing removed: every editor still exists; where it shows depen
   subscribe clip, sound mark, back, docked Director with one `#direction`, hide/show) and 390×844 (each falls back to
   the left tab, floating Director). No page errors.
 - **Next:** step 4 — polish for Mac screen sizes (13"/14"/16" and the phone's short left panel).
+
+## v0.4.71 — CapCut step 4: the Edit page fits Mac screens (13", 14", 16") and phones
+
+User: "Step 4". Measured with puppeteer at 1280×690, 1440×789, 1470×845, 1512×870, 1710×1000, 1728×1005, 2056×1210,
+1024×768 and 390×844 (phone). What was wrong before, and the fix:
+- **Left tabs hid behind an arrow at every size** (the nine tabs needed ~490 px in a 440 px panel; Graphics was
+  off-screen). Now they share the row (`flex: 1 1 auto`, 11 px labels); `.cc-tabs-wrap` is a size container:
+  ≤425 px → 10 px labels, ≤372 px → icons only (each tab has `aria-label`/`title` = its name). The "More tabs"
+  arrow (`.cc-tabs-more`) is gone.
+- **The timeline was always 326 px** even with 4 tracks (~90 px of empty rows) — on a 13" screen the player was
+  352×198. The fit effect now measures the tracks (`tlNeed` = tool row + ruler + every track header + 14 px; it
+  re-measures when the Overlays or Sound FX track appears) and the timeline is never taller than that.
+- **`fitEdit(layout, {width, gridHeight, need, pad})`** in `editLayout.js` (tested in `editLayout.test.mjs`) gives
+  what is drawn: side panels give way (proportionally, floors `FIT_FLOORS` left 340 / right 288) so the player
+  keeps ≥42% of the width; the timeline ≤ `need` and the player keeps ≥50% of a short grid. The saved layout is
+  untouched; a drag starts from the drawn size (`resizePanel` uses `fit[kind]`). Result at 1280×690: player
+  498×280 (was 352×198); at 1470×845 the top row went from 451 to 533 px.
+- **`editGridStyle()`** in `main.jsx`: >1070 px the three fitted columns; 581–1070 px two columns with the
+  timeline as tall as its tracks (≤45%); ≤580 px no inline height at all — the page scrolls.
+- **Phone (the short left panel)**: the inline `height: gridHeight` beat styles.css's `height: auto`, so the
+  stacked panels were squeezed into one screen (left panel 187 px, ~half a row of tiles; Music track cut). Now
+  the left panel is `clamp(380px, 62svh, 540px)` (523 px on a 390×844 phone), the timeline uses the measured
+  `--cc-tl-h`, the timeline tool row scrolls sideways (zoom/fit were off-screen) and the Director button is
+  `position: fixed`.
+- **Splitters are hidden ≤1070 px**: they were invisible but still sat over the player on phones and tablets
+  (a touch there started a resize).
