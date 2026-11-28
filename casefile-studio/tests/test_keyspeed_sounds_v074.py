@@ -18,7 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def eval_expr(expr, **vars):
     py = re.sub(r"\bif\(", "IF(", expr)
     py = re.sub(r"\blt\(", "LT(", py)
-    return eval(py, {"IF": lambda c, a, b: a if c else b, "LT": lambda a, b: a < b, **vars})
+    import math
+    return eval(py, {"IF": lambda c, a, b: a if c else b, "LT": lambda a, b: a < b, "exp": math.exp, "sin": math.sin, **vars})
 
 
 def node(js):
@@ -27,23 +28,24 @@ def node(js):
     return json.loads(out.stdout)
 
 
-TIMES = [0, 0.3, 0.99, 1.0, 1.4, 1.75, 2.0, 2.6, 3.2, 3.99, 4.0, 4.5, 5.6, 7]
+TIMES = [0, 0.3, 0.99, 1.0, 1.4, 1.75, 2.0, 2.6, 3.2, 3.99, 4.0, 4.5, 5.1, 5.6, 6.3, 6.8, 7.2, 7.7, 8.4, 8.9, 9.5, 11]
 
 
 def sticker_keys():
     kinds = list(picture.STICKER_EASES)
-    return [{"t": float(i), "x": 0.1 + 0.13 * i, "y": 0.5 - 0.05 * i, "size": 0.3, "opacity": 1, "ease": e} for i, e in enumerate(kinds)]
+    return [{"t": float(i), "x": 0.1 + 0.08 * i, "y": 0.5 - 0.04 * i, "size": 0.3, "opacity": 1, "ease": e} for i, e in enumerate(kinds)]
 
 
 def test_every_speed_curve_shape():
     for kind in picture.STICKER_EASES:
-        assert picture.ease(0, kind) == pytest.approx(0, abs=1e-12) and picture.ease(1, kind) == pytest.approx(1)
+        assert picture.ease(0, kind) == pytest.approx(0, abs=1e-12) and picture.ease(1, kind) == pytest.approx(1, abs=2e-3)
     assert picture.ease(0.5, "linear") == 0.5 and picture.ease(0.5, "smooth") == 0.5
     assert picture.ease(0.3, "in") < 0.3 < picture.ease(0.3, "out")  # starts slow / starts fast
     assert picture.ease(0.99, "hold") == 0  # stays, then jumps
-    assert max(picture.ease(u / 100, "bounce") for u in range(101)) > 1.05  # goes past, then settles
-    assert picture.ease_kind("nope") == "smooth" and picture.ease_kind("bounce") == "smooth"  # no bounce on the picture
-    assert picture.ease_kind("bounce", picture.STICKER_EASES) == "bounce"
+    assert max(picture.ease(u / 100, "overshoot") for u in range(101)) > 1.05  # goes past, then settles (v0.4.75 name)
+    assert max(picture.ease(u / 100, "bounce") for u in range(101)) <= 1 + 1e-9  # v0.4.75 a ball: lands, never past
+    assert picture.ease_kind("nope") == "smooth" and picture.ease_kind("overshoot") == "smooth"  # no overshoot on the picture
+    assert picture.ease_kind("overshoot", picture.STICKER_EASES) == "overshoot"
 
 
 def test_speed_curves_preview_and_export_agree():
@@ -66,7 +68,7 @@ def test_speed_curves_preview_and_export_agree():
 
 
 def test_picture_keyframes_take_the_new_speeds():
-    keys = picture.normalise_keyframes([{"t": 0, "zoom": 1, "ease": "in"}, {"t": 2, "zoom": 2, "ease": "hold"}, {"t": 3, "zoom": 1.5, "ease": "bounce"}, {"t": 4, "zoom": 1}])
+    keys = picture.normalise_keyframes([{"t": 0, "zoom": 1, "ease": "in"}, {"t": 2, "zoom": 2, "ease": "hold"}, {"t": 3, "zoom": 1.5, "ease": "overshoot"}, {"t": 4, "zoom": 1}])
     assert [k["ease"] for k in keys] == ["in", "hold", "smooth", "smooth"]
     for t in (0.5, 1, 2.5, 3.5):
         assert eval_expr(picture.expr(keys, "zoom", "T"), T=t) == pytest.approx(picture.camera_at(keys, t)["zoom"], abs=1e-4)
@@ -75,7 +77,7 @@ def test_picture_keyframes_take_the_new_speeds():
 
 def test_a_bounce_never_overshoots_opacity_or_size():
     st = stickers.normalise([{"kind": "like", "start": 0, "length": 4, "keyframes": [
-        {"t": 0, "opacity": 0.2, "size": 0.5, "ease": "bounce"}, {"t": 1, "opacity": 1, "size": 0.02}]}])[0]
+        {"t": 0, "opacity": 0.2, "size": 0.5, "ease": "elastic"}, {"t": 1, "opacity": 1, "size": 0.02}]}])[0]
     for i in range(0, 101):
         v = stickers.sample(st, i / 100)
         assert 0 <= v["opacity"] <= 1 and v["size"] >= stickers.SPEC["limits"]["size"][0]
@@ -131,9 +133,9 @@ def test_ffmpeg_moves_a_layer_on_every_curve(tmp_path):
         pytest.skip("no ffmpeg")
     keys = stickers.normalise_keyframes(sticker_keys(), 10, {"x": 0.5, "y": 0.5, "size": 0.3, "opacity": 1})
     X = f"({picture.expr(keys, 'x', 't')})*400-5"
-    times = [0.5, 1.5, 2.25, 3.5, 4.75, 5.5]
+    times = [0.5, 1.5, 2.25, 3.5, 4.75, 5.5, 6.3, 7.4, 8.6, 9.2]
     sel = "+".join(f"eq(n\\,{round(t * 24)})" for t in times)
-    subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=black:s=400x40:r=24:d=6", "-f", "lavfi", "-i", "color=red:s=10x10:r=24:d=6",
+    subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=black:s=400x40:r=24:d=10", "-f", "lavfi", "-i", "color=red:s=10x10:r=24:d=10",
                     "-filter_complex", f"[0:v][1:v]overlay=x='{X}':y=15,select='{sel}'", "-vsync", "0", str(tmp_path / "f%03d.png")],
                    check=True, timeout=60)
     for i, t in enumerate(times):

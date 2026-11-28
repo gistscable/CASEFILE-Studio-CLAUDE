@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers, history
 import motion as motiongfx
 import sfxlib
+import presets as presetlib
 import sound as sfxplan
 import music as musiclib
 from storage import (
@@ -35,7 +36,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.74", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.75", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1279,6 +1280,48 @@ def motion_frame(h: str, k: int):
 
 
 # ------------------------------------------------------------------ v0.4.56 sound design
+
+# v0.4.75 your saved presets (stickers & text templates with their moves, picture moves, caption styles):
+# one list for the whole app, so a preset made in one project is there in every project.
+class PresetIn(BaseModel):
+    kind: Literal["sticker", "move", "caption"]
+    name: str = Field(default="", max_length=200)
+    data: dict
+
+
+class PresetRename(BaseModel):
+    name: str = Field(max_length=200)
+
+
+@app.get("/api/presets")
+def presets_list():
+    return {"presets": presetlib.load()}
+
+
+@app.post("/api/presets")
+def presets_add(body: PresetIn):
+    try:
+        return presetlib.add(body.kind, body.name, body.data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/presets/{pid}")
+def presets_rename(pid: str, body: PresetRename):
+    try:
+        return presetlib.rename(pid, body.name)
+    except KeyError:
+        raise HTTPException(404, "That preset is gone.")
+
+
+@app.delete("/api/presets/{pid}")
+def presets_delete(pid: str):
+    try:
+        presetlib.remove(pid)
+    except KeyError:
+        raise HTTPException(404, "That preset is gone.")
+    return {"ok": True}
+
 
 @app.get("/api/sound/catalog")
 def sound_catalog():

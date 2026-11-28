@@ -1579,3 +1579,17 @@ and a fix for the Episode setup page ("not full").
 - `SoundPanel`: the LIBRARY is shown with sound design off too; adding a sound while off sets `enabled: true, mode: "manual"` (only your sounds export, nothing automatic).
 
 **Tests:** `tests/test_keyspeed_sounds_v074.py` (curve shapes, Python↔FFmpeg-expression↔JS agreement on every curve, picture keys, bounce clamps, `retimeKeys`, FFmpeg really moving a layer on every curve, the phone sounds: level, no cut-off tail, tags, never auto-chosen).
+
+## v0.4.75 — Saved presets, keyframe speed made clear (+ more curves, manual time), snapping guides
+
+**Saved presets** (`presets.py`, `/api/presets` GET/POST/PATCH/DELETE, file `<data>/presets.json`, one list for the whole app, max 300, names ≤ 40):
+- `sticker`: a sticker or text template as set up (kind, size, place, opacity, ratio, text/lines, strength, length, keyframes with speeds); cleaned by `stickers.normalise`; image stickers refused (their asset belongs to one project). Save: StickerPanel › "PRESETS · USE IT AGAIN" › "Save this sticker as a preset". Use: Stickers › **Saved** (+ Add at the playhead; rename ✎ / double-click, delete ×); saved text templates also appear on top of Text › Templates. "Use a saved move…" puts a saved sticker's keyframes on the selected sticker from where it is (`moveOnto`: positions shifted, size scaled, squeezed to fit).
+- `move`: a picture move (scene zoom/position keyframes) stored from its first key; Effects › keyframes › "SAVED MOVES" (save / Apply, squeezed to fit the scene).
+- `caption`: a caption style (`captionstyle.normalise`); Captions › Styles › "YOUR STYLES".
+- Front end: `presets.js` (pure: load/save/rename/delete, `usePresets(kind)` shared cache, `moveOnto`) + `PresetUI.jsx` (`SavePresetForm`, `PresetRow`).
+
+**Keyframe speed** (`KeyframeUI.jsx`, used by `Effects.jsx` and `StickerPanel.jsx`): between two keyframes a **curve chip** (drawn from the real maths) opens a grid of curves with a moving-dot demo and a one-line explanation, and **"takes [− 1.00 s +]"** (typed or stepped; later keyframes ripple: `setSegment`). Below: **Whole move [s]** (`setSpan`) and **½× ¾× 1.5× 2×** (`retimeKeys`). Curves: picture `linear smooth in out snap bounce hold`, stickers also `anticipate overshoot elastic` (`picture.EASES / STICKER_EASES`, expression via `_ease_expr` with `if/lt/exp/sin`). NB "bounce" now means a ball bounce (≤ 1); the v0.4.74 overshoot is now "overshoot".
+
+**Snapping guides** (`snap.js` `snapMove` / `snapSize`, `StickerLayer.jsx`): while dragging/resizing a sticker it snaps (7 screen px) to the centre lines (pink), the other stickers' edges/centres (cyan), the frame edges, the 5% safe margins and the thirds (dashed yellow); a readout shows `x% · y%` (+ "centred"). **Alt/Option** = no snapping. Arrow keys nudge the selected sticker (1/1920 of the width; Shift ×10).
+
+**Tests:** `tests/test_presets_snap_v075.py` (curves Python↔JS, picture curves stay in range, manual speed, snapping, presets API cleaning/limits/rename/delete/broken file, `moveOnto`); `test_keyspeed_sounds_v074.py` updated for the renamed overshoot and the 10 curves (FFmpeg moves a layer on every curve).

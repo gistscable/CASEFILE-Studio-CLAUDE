@@ -14,7 +14,7 @@ import StickerLayer from "./StickerLayer.jsx";
 import { makeTracker, grabFrame, simplifyPath, TRACK } from "./tracker.js";
 import StickerDialog, { StickerGallery } from "./StickerDialog.jsx";
 import { sortMedia } from "./mediaSort.js";
-import StickerPanel from "./StickerPanel.jsx";
+import StickerPanel, { SavedStickers } from "./StickerPanel.jsx";
 import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
 import { graphicAt, graphicsAt, normaliseMotion } from "./motion.js";
@@ -28,7 +28,7 @@ import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransf
 import SearchPalette from "./SearchPalette.jsx";
 import { buildIndex } from "./searchIndex.js";
 import { AUDIO_ROLES, audioLists, audioRoleOf, roleBlock } from "./audioRoles.js";
-import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel } from "./stickers.js";
+import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel, CATALOG as CATALOG_ST } from "./stickers.js";
 import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, ctaReady, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
 import { LOOKS, TRANSITIONS, normaliseNameCards, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
@@ -167,7 +167,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.74";
+const APP_VERSION = "0.4.75";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -1349,9 +1349,11 @@ function App() {
     setFocus({ kind, ...extra });
     if (layout.director) setLayout({ director: false });
   }
-  function addSticker(kind, assetId) {
+  function addSticker(kind, assetId, preset) {
     const list = normaliseStickers(project.stickers, project.assets);
-    const st = newSticker(kind, Math.min(time, Math.max(0, duration - 0.5)), assetId, list);
+    let st = newSticker(kind, Math.min(time, Math.max(0, duration - 0.5)), assetId, list);
+    // v0.4.75 from a saved preset: everything it kept (words, size, place, move), at the playhead
+    if (preset) st = { ...st, ...preset, id: st.id, start: st.start, kind };
     queueSave({ stickers: [...list, st] });
     setStickerId(st.id);
     setStickerDialog(false);
@@ -2717,7 +2719,7 @@ function App() {
     ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
     ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
     ["text", "Text", Type, [["templates", "Templates"], ["titles", "Scene titles"], ["names", "Name cards"]]],
-    ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["text", "Text templates"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
+    ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["text", "Text templates"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["saved", "Saved"], ["placed", "On your video"]]],
     ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
     ["transitions", "Transitions", ArrowLeftRight, null],
     ["captions", "Captions", Captions, [["styles", "Styles"], ["text", "Text"], ["box", "Box & position"]]],
@@ -3015,6 +3017,7 @@ function App() {
             <div className="section-label">
               <span>CLICK TO ADD AT {tc(time)}</span>
             </div>
+            <SavedStickers disabled={locked} empty={false} only={(d) => CATALOG_ST[d.kind]?.tab === "text"} onAdd={(data) => addSticker(data.kind, null, data)} />
             <StickerGallery tab="text" assets={assets} grid="sticker-grid cc-sticker-grid" onAdd={(kind) => addSticker(kind)} onUpload={uploadSticker} />
           </div>
         ) : sub === "names" ? (
@@ -3053,6 +3056,14 @@ function App() {
       content =
         sub === "placed" ? (
           stickersPanel(dock ? "list" : undefined)
+        ) : sub === "saved" ? (
+          // v0.4.75 your presets: set up once, add again in any project
+          <div className="inspector-content">
+            <div className="section-label">
+              <span>YOUR PRESETS · CLICK + ADD TO PUT ONE AT {tc(time)}</span>
+            </div>
+            <SavedStickers disabled={locked} onAdd={(data) => addSticker(data.kind, null, data)} />
+          </div>
         ) : (
           <div className="inspector-content">
             <div className="section-label">

@@ -1,4 +1,5 @@
 import React from "react";
+import { snapMove, snapSize } from "./snap.js";
 import { normaliseStickers, stickerAt, stickerAspect, stickerFrameUrl, cycleFrames, CATALOG, ST, regionOf, strengthOf, blurPx } from "./stickers.js";
 
 // v0.4.49 Animated stickers load every frame once, so playback does not flicker.
@@ -46,18 +47,34 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
     e.stopPropagation();
     onSelect?.(s.id);
     const el = e.currentTarget;
-    el.setPointerCapture?.(e.pointerId);
+    try {
+      el.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* not a live pointer (synthetic event): the drag still works without capture */
+    }
     const local = time - s.start;
     const ratio = stickerAspect(s, assets);
     const from = { px: e.clientX, py: e.clientY, x: v.x, y: v.y, size: v.size, ratio };
     const box = el.closest(".sticker-layer")?.getBoundingClientRect();
     const scale = box && box.width ? W / box.width : 1; // the frame may be drawn smaller (CSS)
+    // v0.4.75 snap to the centre, the edges, the safe margins, the thirds and the other stickers (Alt: free)
+    const tolX = 7 / (box?.width || W);
+    const tolY = 7 / (box?.height || H);
+    const others = shown.filter((o) => o.id !== s.id && !regionOf(o)).map((o) => {
+      const p = stickerAt(o, time - o.start);
+      return { x: p.x, y: p.y, w: p.size, h: (p.size * W) / stickerAspect(o, assets) / H };
+    });
     let last = null;
     const move = (ev) => {
       const dx = ((ev.clientX - from.px) * scale) / W;
       const dy = ((ev.clientY - from.py) * scale) / H;
-      if (mode === "move") last = { id: s.id, x: from.x + dx, y: from.y + dy, size: from.size, ratio: from.ratio };
-      else {
+      if (mode === "move") {
+        last = { id: s.id, x: from.x + dx, y: from.y + dy, size: from.size, ratio: from.ratio, guides: [] };
+        if (!ev.altKey) {
+          const sn = snapMove({ x: last.x, y: last.y, w: from.size, h: (from.size * W) / from.ratio / H }, others, tolX, tolY);
+          last = { ...last, x: sn.x, y: sn.y, guides: sn.guides };
+        }
+      } else {
         const w0 = from.size * W;
         const h0 = w0 / from.ratio;
         let w = w0;
@@ -68,11 +85,18 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
           h = h0 * k;
         } else if (mode === "right") w = w0 + 2 * dx * W;
         else h = h0 + 2 * dy * H;
+        let guides = [];
+        if (!ev.altKey) {
+          const sn = snapSize({ x: from.x, y: from.y, w: w / W, h: h / H }, others, tolX, tolY, { keep: mode === "corner", edge: mode });
+          w = sn.w * W;
+          h = sn.h * H;
+          guides = sn.guides;
+        }
         const size = clamp(w / W, ST.limits.size);
         const r = mode === "corner" ? from.ratio : clamp((size * W) / Math.max(4, h), ST.limits.ratio);
-        last = { id: s.id, x: from.x, y: from.y, size, ratio: r };
+        last = { id: s.id, x: from.x, y: from.y, size, ratio: r, guides };
       }
-      setDrag(last);
+      setDrag({ ...last, mode });
     };
     const up = () => {
       el.removeEventListener("pointermove", move);
@@ -116,6 +140,17 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
               className={`sticker ${region ? `sticker-region r-${region}` : ""} ${sel ? "selected" : ""}`}
               title="Drag to move · drag a handle to resize · settings on the right"
               data-sticker={s.id}
+              tabIndex={sel ? 0 : -1}
+              aria-label={sel ? "Selected sticker: arrow keys move it (Shift: 10×)" : undefined}
+              onKeyDown={(e) => {
+                // v0.4.75 nudge: arrow keys move the selected sticker by a hair (Shift: ten times more)
+                const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+                if (!sel || !k || disabled) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const n = e.shiftKey ? 10 : 1;
+                onMove?.(s.id, v.x + (k[0] * n) / 1920, v.y + (k[1] * n) / 1080, local);
+              }}
               onPointerDown={(e) => gesture(e, s, v, "move")}
               style={{ left: cx - w / 2, top: cy - h / 2, width: w, height: h }}
             >
@@ -138,6 +173,15 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
           </React.Fragment>
         );
       })}
+      {drag?.guides?.map((g, i) => (
+        <i key={i} aria-hidden="true" className={`snap-guide ${g.axis} k-${g.kind}`} style={g.axis === "v" ? { left: g.at * W } : { top: g.at * H }} />
+      ))}
+      {drag && (
+        <span className="snap-readout" aria-live="polite" style={{ left: drag.x * W, top: drag.y * H - ((drag.size * W) / drag.ratio) / 2 - 26 }}>
+          {drag.mode === "move" ? `${Math.round(drag.x * 1000) / 10}% · ${Math.round(drag.y * 1000) / 10}%` : `${Math.round(drag.size * 1000) / 10}% wide`}
+          {drag.guides?.some((g) => g.kind === "centre") ? " · centred" : ""}
+        </span>
+      )}
       {picking && (
         <div
           className="sticker-pick"

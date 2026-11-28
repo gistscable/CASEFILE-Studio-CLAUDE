@@ -53,31 +53,64 @@ export function containBox(W, H, sw, sh, crop, inset = 1) {
 
 // ---------------------------------------------------------------- keyframes
 
-// v0.4.74 keyframe speed — same as picture.ease / EASES / STICKER_EASES.
-export const EASES = ["linear", "smooth", "in", "out", "hold"];
-export const STICKER_EASES = [...EASES, "bounce"];
-export const EASE_LABELS = { linear: "Steady", smooth: "Smooth", in: "Speed up", out: "Slow down", hold: "Jump", bounce: "Bounce" };
+// v0.4.74/75 keyframe speed — same as picture.ease / EASES / STICKER_EASES.
+export const EASES = ["linear", "smooth", "in", "out", "snap", "bounce", "hold"];
+export const STICKER_EASES = [...EASES, "anticipate", "overshoot", "elastic"];
+export const EASE_LABELS = {
+  linear: "Steady", smooth: "Smooth", in: "Speed up", out: "Slow down", snap: "Fast middle", bounce: "Bounce",
+  hold: "Jump", anticipate: "Pull back", overshoot: "Overshoot", elastic: "Spring",
+};
 export const EASE_HINTS = {
   linear: "The same speed all the way",
   smooth: "Starts and ends gently",
   in: "Starts slow, ends fast",
   out: "Starts fast, ends slow",
-  hold: "Stays, then jumps at the next keyframe",
-  bounce: "Goes a little past, then settles",
+  snap: "Very gentle start and end, quick in the middle",
+  bounce: "Lands and bounces, like a ball",
+  hold: "Stays still, then jumps at the next keyframe",
+  anticipate: "Moves back a little first, then goes",
+  overshoot: "Goes a little past, then settles",
+  elastic: "Wobbles into place, like a spring",
 };
 export const easeKind = (v, allowed = EASES) => (allowed.includes(v) ? v : "smooth");
 
+const B1 = 1.70158, B3 = 2.70158, N1 = 7.5625, D1 = 2.75, C4 = (2 * Math.PI) / 3, LN2x10 = 10 * Math.log(2);
 export function ease(u, kind) {
   const x = Math.min(1, Math.max(0, u));
-  if (kind === "linear") return x;
-  if (kind === "in") return x * x * x;
-  if (kind === "out") return 1 - (1 - x) ** 3;
-  if (kind === "hold") return x >= 1 ? 1 : 0;
-  if (kind === "bounce") {
-    const v = x - 1;
-    return 1 + 2.70158 * v * v * v + 1.70158 * v * v;
+  switch (kind) {
+    case "linear": return x;
+    case "in": return x * x * x;
+    case "out": return 1 - (1 - x) ** 3;
+    case "snap": return x < 0.5 ? 16 * x ** 5 : 1 - (2 - 2 * x) ** 5 / 2;
+    case "bounce": {
+      if (x < 1 / D1) return N1 * x * x;
+      if (x < 2 / D1) { const v = x - 1.5 / D1; return N1 * v * v + 0.75; }
+      if (x < 2.5 / D1) { const v = x - 2.25 / D1; return N1 * v * v + 0.9375; }
+      const v = x - 2.625 / D1;
+      return N1 * v * v + 0.984375;
+    }
+    case "hold": return x >= 1 ? 1 : 0;
+    case "anticipate": return B3 * x * x * x - B1 * x * x;
+    case "overshoot": { const v = x - 1; return 1 + B3 * v * v * v + B1 * v * v; }
+    case "elastic": return Math.exp(-LN2x10 * x) * Math.sin((10 * x - 0.75) * C4) + 1;
+    default: return x * x * (3 - 2 * x);
   }
-  return x * x * (3 - 2 * x);
+}
+
+// v0.4.75 manual speed: one move (keyframe i → i+1) takes `seconds`; the later keyframes shift with it.
+// null when it would run past `length`.
+export function setSegment(keys, i, seconds, length) {
+  if (!keys?.[i + 1]) return null;
+  const d = Math.max(0.05, Math.round(seconds * 1000) / 1000) - (keys[i + 1].t - keys[i].t);
+  const out = keys.map((k, j) => (j > i ? { ...k, t: Math.round((k.t + d) * 1000) / 1000 } : k));
+  return out[out.length - 1].t > length + 1e-6 ? null : out;
+}
+
+// v0.4.75 the whole move takes `seconds` (first to last keyframe), every part in proportion.
+export function setSpan(keys, seconds, length) {
+  if (!keys || keys.length < 2) return null;
+  const span = keys[keys.length - 1].t - keys[0].t;
+  return span > 0 ? retimeKeys(keys, seconds / span, length) : null;
 }
 
 // v0.4.74 keyframe speed for the whole move: the keyframes closer together (factor < 1, faster)

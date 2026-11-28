@@ -2,7 +2,10 @@ import React from "react";
 import { Plus, Trash2, Copy, Crosshair, Square } from "lucide-react";
 import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, stickerAspect, textOf, strengthOf, cleanText, cleanLine, linesOf, CATALOG, ST } from "./stickers.js";
 import { upsertKey, STICKER_EASES } from "./picture.js";
-import { Step, clock, parseClock, EaseSelect, KeySpeed } from "./Effects.jsx";
+import { Step, clock, parseClock } from "./Effects.jsx";
+import { KeyframeList } from "./KeyframeUI.jsx";
+import { usePresets, savePreset, moveOnto } from "./presets.js";
+import { SavePresetForm, PresetRow } from "./PresetUI.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
@@ -34,6 +37,64 @@ function StickerText({ sticker, disabled, onChange }) {
 }
 
 // v0.4.49 Stickers tab of the inspector: every sticker, and − / + for the selected one.
+// v0.4.75 Your saved stickers & text templates (Stickers › Saved, and on top of Text › Templates)
+export function SavedStickers({ onAdd, only, disabled, empty = true }) {
+  const list = usePresets("sticker").filter((p) => !only || only(p.data));
+  if (!list.length)
+    return empty ? (
+      <p className="micro-note block">
+        Nothing saved yet. Select a sticker or text template on your video and click “Save this sticker as a preset” (under its keyframes): its words, size, place and move are kept for every project.
+      </p>
+    ) : null;
+  return (
+    <div className="preset-list">
+      {list.map((p) => {
+        const c = CATALOG[p.data.kind];
+        const src = c && !c.region ? stickerFrameUrl(p.data.kind, c.once ? 1e6 : c.animated ? c.cycle * 0.6 : 0, p.data) : null;
+        return (
+          <PresetRow key={p.id} preset={p} useLabel="+ Add" disabled={disabled} onUse={(x) => onAdd(x.data)}
+            preview={<span className="preset-thumb">{src ? <img src={src} alt="" /> : <small>{c?.label || p.data.kind}</small>}{p.data.keyframes?.length > 1 && <i title="Has a move">◆</i>}</span>} />
+        );
+      })}
+    </div>
+  );
+}
+
+// v0.4.75 Save this sticker (with its words, size, place and move) to use again in any project,
+// or put a saved move on it (the same path and speeds, from where it is now).
+function StickerPresets({ sel, v, disabled, onKeys }) {
+  const moves = usePresets("sticker").filter((p) => p.data.keyframes?.length > 1);
+  const [pick, setPick] = React.useState("");
+  const { id, start, ...data } = sel; // eslint-disable-line no-unused-vars
+  return (
+    <div className="st-presets">
+      <div className="section-label sub">
+        <span>PRESETS · USE IT AGAIN</span>
+      </div>
+      {sel.kind === "image" ? (
+        <p className="micro-note">Your own pictures belong to this project, so they cannot be saved as presets.</p>
+      ) : (
+        <SavePresetForm label="Save this sticker as a preset" placeholder={stickerLabel(sel)} disabled={disabled} onSave={(name) => savePreset("sticker", name, data)} />
+      )}
+      {moves.length > 0 && (
+        <div className="preset-apply">
+          <select aria-label="Use a saved move" value={pick} disabled={disabled} onChange={(e) => setPick(e.target.value)}>
+            <option value="">Use a saved move…</option>
+            {moves.map((p) => (
+              <option key={p.id} value={p.id}>{p.name} ({p.data.keyframes.length} keyframes)</option>
+            ))}
+          </select>
+          <button className="btn subtle" disabled={disabled || !pick} title="The same path and speeds, starting from where this sticker is now" onClick={() => {
+            const p = moves.find((x) => x.id === pick);
+            if (p) onKeys(normaliseStickerKeys(moveOnto(p.data.keyframes, { x: v.x, y: v.y, size: v.size }, sel.length), sel.length, sel));
+            setPick("");
+          }}>Apply</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // v0.4.73 A text template's paragraphs (CapCut's "The 1st … 4th paragraph"), one box each.
 function StickerLines({ sticker, disabled, onChange }) {
   const cat = CATALOG[sticker.kind];
@@ -180,21 +241,10 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
                 ? `Position, size and opacity follow the keyframes. At ${local.toFixed(2)} s: changes ${at ? "edit this keyframe" : "add a keyframe here"}. Dragging it in the preview does the same.`
                 : "Add a keyframe, move the playhead, then drag the sticker or change a value: it moves between keyframes (for example an arrow that follows someone)."}
             </p>
-            <div className="kf-list">
-              {sel.keyframes.map((k, i) => (
-                <div key={k.t} className={`kf-item ${at === k ? "on" : ""}`}>
-                  <button className="kf-time" onClick={() => onSeek(sel.start + k.t + 0.001)}>◆ {k.t.toFixed(2)} s</button>
-                  <span>{pct(k.x)}, {pct(k.y)} · {pct(k.size)}</span>
-                  {i < sel.keyframes.length - 1 && (
-                    <EaseSelect value={k.ease} kinds={STICKER_EASES} disabled={disabled}
-                      onChange={(ease) => update(sel.id, { keyframes: sel.keyframes.map((x) => (x === k ? { ...x, ease } : x)) })} />
-                  )}
-                  <button className="danger-link" aria-label={`Remove keyframe at ${k.t.toFixed(2)} s`} disabled={disabled}
-                    onClick={() => update(sel.id, { keyframes: sel.keyframes.filter((x) => x !== k) })}>×</button>
-                </div>
-              ))}
-            </div>
-            <KeySpeed keys={sel.keyframes} length={sel.length} disabled={disabled} onChange={(keyframes) => update(sel.id, { keyframes })} />
+            <KeyframeList keys={sel.keyframes} kinds={STICKER_EASES} length={sel.length} at={at} disabled={disabled}
+              describe={(k) => `${pct(k.x)}, ${pct(k.y)} · ${pct(k.size)}`}
+              onSeek={(k) => onSeek(sel.start + k.t + 0.001)}
+              onChange={(keyframes) => update(sel.id, { keyframes })} />
             <div className="kf-actions">
               <button className="btn" disabled={disabled || !inside || !!at}
                 onClick={() => update(sel.id, { keyframes: upsertKey(sel.keyframes, local, { x: v.x, y: v.y, size: v.size, opacity: v.raw }, (k) => normaliseStickerKeys(k, sel.length, sel)) })}>
@@ -202,6 +252,7 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
               </button>
               {sel.keyframes.length > 0 && <button className="text-link" disabled={disabled} onClick={() => update(sel.id, { keyframes: [] })}>Clear keyframes</button>}
             </div>
+            <StickerPresets sel={sel} v={v} disabled={disabled} onKeys={(keyframes) => update(sel.id, { keyframes })} />
             <div className="st-actions">
               <button className="btn" disabled={disabled} onClick={() => {
                 let n = list.length + 1;

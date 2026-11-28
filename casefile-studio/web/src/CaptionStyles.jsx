@@ -1,5 +1,7 @@
 import React from "react";
 import { FONTS, PRESETS, LIMITS, normaliseStyle, applyPreset, captionCss } from "./captionStyle.js";
+import { usePresets, savePreset } from "./presets.js";
+import { SavePresetForm, PresetRow } from "./PresetUI.jsx";
 
 // v0.4.25 Captions tab in the Edit inspector: a gallery of looks, then size,
 // font, colours, outline, box, shadow, position, words per caption, case and
@@ -34,6 +36,30 @@ function Slider({ label, k, value, onChange, disabled, scale = 1000, unit = "", 
         onChange={(e) => onChange(Number(e.target.value) / scale)}
       />
     </label>
+  );
+}
+
+// v0.4.75 your own caption looks: save the style you made, use it in any project
+function MyCaptionStyles({ s, disabled, onChange }) {
+  const mine = usePresets("caption");
+  return (
+    <div className="st-presets">
+      <div className="section-label sub">
+        <span>YOUR STYLES</span>
+      </div>
+      <SavePresetForm label="Save this caption style" placeholder={`My ${PRESETS.find((p) => p.id === s.preset)?.label || "style"}`} disabled={disabled} onSave={(name) => savePreset("caption", name, s)} />
+      {mine.length > 0 && (
+        <div className="preset-list">
+          {mine.map((p) => {
+            const css = captionCss(p.data, 160, 90);
+            return (
+              <PresetRow key={p.id} preset={p} disabled={disabled} onUse={(x) => onChange(normaliseStyle(x.data))}
+                preview={<span className="preset-thumb cap"><b style={{ ...css.text, fontSize: 11, padding: "1px 4px" }}>Aa</b></span>} />
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -89,6 +115,7 @@ export default function CaptionStyles({ value, enabled, onChange, onToggle, disa
           <PresetCard key={p.id} preset={p} selected={s.preset === p.id} disabled={disabled} onPick={(id) => onChange(applyPreset(s, id))} />
         ))}
       </div>
+      <MyCaptionStyles s={s} disabled={disabled} onChange={onChange} />
       </>)}
       {show("text") && (<>
 

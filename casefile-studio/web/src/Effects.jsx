@@ -2,7 +2,10 @@ import React from "react";
 import { TRANSITIONS, MOTIONS, LOOKS, normaliseEffects, transitionId, transitionLength, normaliseNameCards, transitionStyle, transitionUnder } from "./effects.js";
 import { Check } from "lucide-react";
 import { normaliseCta } from "./cta.js";
-import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf, EASES, EASE_LABELS, EASE_HINTS, retimeKeys } from "./picture.js";
+import { PIC, fitOf, normaliseKeyframes, cameraAt, upsertKey, cropOf } from "./picture.js";
+import { KeyframeList } from "./KeyframeUI.jsx";
+import { usePresets, savePreset, moveOnto } from "./presets.js";
+import { SavePresetForm, PresetRow } from "./PresetUI.jsx";
 import { normaliseWatermark, watermarkBox, WM_POSITIONS, WM_DEFAULTS } from "./watermark.js";
 
 // v0.4.26 Effects tab in the Edit inspector: the look of the whole video
@@ -21,28 +24,26 @@ function Pct({ label, value, onChange, disabled }) {
 }
 
 // v0.4.49 A value with − / + buttons (and a typed value), like the Shot Inspector.
-// v0.4.74 keyframe speed: how it moves to the next keyframe (CapCut's keyframe curves)
-export function EaseSelect({ value, kinds = EASES, disabled, onChange }) {
+// v0.4.75 a picture move (zoom/position keyframes with their speeds) saved to use on any scene
+function MovePresets({ keys, length, disabled, onApply }) {
+  const saved = usePresets("move");
   return (
-    <select className="kf-ease" aria-label="Speed to the next keyframe" title={EASE_HINTS[value]} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
-      {kinds.map((k) => (
-        <option key={k} value={k} title={EASE_HINTS[k]}>{EASE_LABELS[k]}</option>
-      ))}
-    </select>
-  );
-}
-
-// v0.4.74 the speed of the whole move: keyframes closer together or further apart (from the first)
-export function KeySpeed({ keys, length, disabled, onChange }) {
-  if (!keys || keys.length < 2) return null;
-  const span = keys[keys.length - 1].t - keys[0].t;
-  const faster = retimeKeys(keys, 0.8, length);
-  const slower = retimeKeys(keys, 1.25, length);
-  return (
-    <div className="kf-speed">
-      <span>Move speed <small>{span.toFixed(2)} s from first to last keyframe</small></span>
-      <button className="btn subtle" disabled={disabled || !slower} title={slower ? "Spread the keyframes out (×1.25)" : "It would run past the end"} onClick={() => onChange(slower)}>Slower</button>
-      <button className="btn subtle" disabled={disabled || !faster} title={faster ? "Bring the keyframes closer (×0.8)" : "The keyframes are already very close"} onClick={() => onChange(faster)}>Faster</button>
+    <div className="st-presets">
+      <div className="section-label sub">
+        <span>SAVED MOVES · USE THEM ON ANY SCENE</span>
+      </div>
+      {keys.length > 1 && <SavePresetForm label="Save this move" placeholder="My picture move" disabled={disabled} onSave={(name) => savePreset("move", name, { keyframes: keys })} />}
+      {saved.length > 0 ? (
+        <div className="preset-list">
+          {saved.map((p) => (
+            <PresetRow key={p.id} preset={p} useLabel="Apply" disabled={disabled}
+              preview={<span className="preset-thumb move">◆ {p.data.keyframes.length}</span>}
+              onUse={(x) => onApply(moveOnto(x.data.keyframes, {}, length, { shift: [], scale: [] }))} />
+          ))}
+        </div>
+      ) : (
+        keys.length < 2 && <p className="micro-note">Make a move with two or more keyframes, then save it here to use it on other scenes and projects.</p>
+      )}
     </div>
   );
 }
@@ -229,23 +230,15 @@ function PictureKeys({ scene, local, disabled, onScene, onSeek, sceneStart }) {
           <Step label="Up ↕ down" value={cam.y} display={pct(cam.y)} step={0.02} min={0} max={1} disabled={disabled} onChange={(v) => set({ y: v })} />
         </>
       )}
-      <div className="kf-list">
-        {keys.map((k, i) => (
-          <div key={k.t} className={`kf-item ${at === k ? "on" : ""}`}>
-            <button className="kf-time" onClick={() => onSeek(sceneStart + k.t + 0.001)}>◆ {k.t.toFixed(2)} s</button>
-            <span>{Math.round(k.zoom * 100)}% · {pct(k.x)}, {pct(k.y)}</span>
-            {i < keys.length - 1 && (
-              <EaseSelect value={k.ease} disabled={disabled} onChange={(ease) => onScene({ keyframes: keys.map((x) => (x === k ? { ...x, ease } : x)) })} />
-            )}
-            <button className="danger-link" aria-label={`Remove keyframe at ${k.t.toFixed(2)} s`} disabled={disabled} onClick={() => onScene({ keyframes: keys.filter((x) => x !== k) })}>×</button>
-          </div>
-        ))}
-      </div>
-      <KeySpeed keys={keys} length={scene.duration} disabled={disabled} onChange={(keyframes) => onScene({ keyframes })} />
+      <KeyframeList keys={keys} length={scene.duration} at={at} disabled={disabled}
+        describe={(k) => `${Math.round(k.zoom * 100)}% · ${pct(k.x)}, ${pct(k.y)}`}
+        onSeek={(k) => onSeek(sceneStart + k.t + 0.001)}
+        onChange={(keyframes) => onScene({ keyframes })} />
       <div className="kf-actions">
         <button className="btn" disabled={disabled || !!at} onClick={() => set({})}>◆ Add keyframe ({local.toFixed(2)} s)</button>
         {keys.length > 0 && <button className="text-link" disabled={disabled} onClick={() => onScene({ keyframes: [] })}>Clear keyframes</button>}
       </div>
+      <MovePresets keys={keys} length={scene.duration} disabled={disabled} onApply={(k) => onScene({ keyframes: normaliseKeyframes(k, scene.duration) })} />
     </>
   );
 }
