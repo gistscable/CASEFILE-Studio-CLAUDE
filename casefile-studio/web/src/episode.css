@@ -1341,10 +1341,26 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* v0.4.72 the page fills the window under the top bar (it was 196 px short: the old header).
+   The workspace is a column, so this holds when the top bar wraps onto two rows too. */
 .episode-setup {
-  height: calc(100dvh - 196px);
+  height: calc(100dvh - 50px);
   min-height: 480px;
   overscroll-behavior: contain;
+}
+@media (min-width: 801px) {
+  .workspace:has(> .episode-setup) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+  .workspace > .topbar {
+    flex: none;
+  }
+  .workspace > .episode-setup {
+    height: auto;
+    flex: 1 1 0;
+  }
 }
 .ep-cue-scroll {
   max-height: 620px;

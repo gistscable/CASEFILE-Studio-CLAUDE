@@ -1,13 +1,42 @@
 import React from "react";
-import { Plus, Trash2, Copy } from "lucide-react";
-import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, ST } from "./stickers.js";
+import { Plus, Trash2, Copy, Crosshair, Square } from "lucide-react";
+import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, stickerAspect, textOf, strengthOf, cleanText, CATALOG, ST } from "./stickers.js";
 import { upsertKey } from "./picture.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
+// v0.4.72 The words on a sticker. You type freely (spaces too); what is kept is one tidy line.
+function StickerText({ sticker, disabled, onChange }) {
+  const saved = textOf(sticker);
+  const [draft, setDraft] = React.useState(saved);
+  React.useEffect(() => {
+    if (cleanText(draft) !== saved) setDraft(saved);
+  }, [sticker.id, saved]);
+  return (
+    <label className="st-text">
+      <span>Words on it</span>
+      <input
+        aria-label="Words on the sticker"
+        value={draft}
+        maxLength={ST.limits.text + 8}
+        disabled={disabled}
+        placeholder={CATALOG[sticker.kind]?.text}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange(cleanText(e.target.value) || CATALOG[sticker.kind]?.text);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+      />
+      <small>{Array.from(cleanText(draft)).length}/{ST.limits.text}</small>
+    </label>
+  );
+}
+
 // v0.4.49 Stickers tab of the inspector: every sticker, and − / + for the selected one.
-export default function StickerPanel({ project, time, selectedId, onSelect, onChange, onOpenDialog, onSeek, disabled, focus = false, listOnly = false }) {
+// v0.4.72 tracking: { id, progress, note } while the preview follows something; onFollow(id, pick)
+// follows from where the sticker is (pick false) or after you click the thing (pick true).
+export default function StickerPanel({ project, time, selectedId, onSelect, onChange, onOpenDialog, onSeek, disabled, focus = false, listOnly = false, tracking = null, picking = false, onFollow, onStopFollow }) {
   const assets = project.assets || [];
   const list = normaliseStickers(project.stickers, assets);
   const sorted = [...list].sort((a, b) => a.start - b.start);
@@ -38,7 +67,7 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
         {sorted.map((s) => (
           <button key={s.id} className={`st-item ${s.id === selectedId ? "on" : ""} ${time >= s.start && time < s.start + s.length ? "now" : ""}`}
             onClick={() => { onSelect(s.id); if (!(time >= s.start && time < s.start + s.length)) onSeek(s.start + 0.05); }}>
-            <img src={s.kind === "image" ? assets.find((a) => a.id === s.asset_id)?.url : stickerFrameUrl(s.kind, 1.5)} alt="" />
+            <img src={s.kind === "image" ? assets.find((a) => a.id === s.asset_id)?.url : stickerFrameUrl(s.kind, 1.5, s)} alt="" />
             <span>{stickerLabel(s, assets)}</span>
             <small>{clock(s.start)} · {s.length.toFixed(1)} s{s.keyframes.length ? ` · ◆${s.keyframes.length}` : ""}</small>
           </button>
@@ -60,10 +89,52 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
             <Step label="Length" value={sel.length} display={`${sel.length.toFixed(1)} s`} step={0.5} min={ST.limits.length[0]} max={ST.limits.length[1]} disabled={disabled}
               onChange={(x) => update(sel.id, { length: x, keyframes: sel.keyframes.filter((k) => k.t <= x) })} />
             <button className="text-link" disabled={disabled} onClick={() => update(sel.id, { start: Math.round(time * 1000) / 1000 })}>Start it at the playhead ({clock(time)})</button>
+            {CATALOG[sel.kind]?.text && <StickerText sticker={sel} disabled={disabled} onChange={(text) => update(sel.id, { text })} />}
             <Step label="Size" value={v.size} display={pct(v.size)} step={0.01} min={ST.limits.size[0]} max={ST.limits.size[1]} disabled={disabled} onChange={(x) => setLook(sel, { size: x })} />
+            {CATALOG[sel.kind]?.ratio && (() => {
+              const ratio = stickerAspect(sel, assets);
+              return (
+                <Step label="Shape (wide ↔ tall)" value={ratio} display={ratio >= 1 ? `${ratio.toFixed(1)} : 1` : `1 : ${(1 / ratio).toFixed(1)}`}
+                  step={ratio >= 1.5 ? 0.25 : 0.1} min={ST.limits.ratio[0]} max={ST.limits.ratio[1]} disabled={disabled} onChange={(x) => update(sel.id, { ratio: x })} />
+              );
+            })()}
+            {CATALOG[sel.kind]?.region && (
+              <Step label={CATALOG[sel.kind].region === "spot" ? "Darken the rest" : "Blur amount"} value={strengthOf(sel)} display={pct(strengthOf(sel))}
+                step={0.05} min={ST.limits.strength[0]} max={ST.limits.strength[1]} disabled={disabled} onChange={(x) => update(sel.id, { strength: x })} />
+            )}
             <Step label="Opacity" value={v.raw} display={pct(v.raw)} step={0.05} min={ST.limits.opacity[0]} max={1} disabled={disabled} onChange={(x) => setLook(sel, { opacity: x })} />
             <Step label="Left ↔ right" value={v.x} display={pct(v.x)} step={0.01} min={ST.limits.xy[0]} max={ST.limits.xy[1]} disabled={disabled} onChange={(x) => setLook(sel, { x })} />
             <Step label="Up ↕ down" value={v.y} display={pct(v.y)} step={0.01} min={ST.limits.xy[0]} max={ST.limits.xy[1]} disabled={disabled} onChange={(y) => setLook(sel, { y })} />
+            <div className="section-label sub">
+              <span>FOLLOW SOMETHING ON SCREEN</span>
+            </div>
+            {tracking?.id === sel.id && !tracking.done ? (
+              <div className="st-track busy" role="status">
+                <div className="st-track-bar"><i style={{ width: pct(tracking.progress || 0) }} /></div>
+                <span>Following… {pct(tracking.progress || 0)}</span>
+                <button className="btn" onClick={onStopFollow}><Square size={11} /> Stop</button>
+              </div>
+            ) : picking ? (
+              <div className="st-track busy" role="status">
+                <span>Click the face, object or spot in the preview.</span>
+                <button className="text-link" onClick={onStopFollow}>Cancel</button>
+              </div>
+            ) : (
+              <>
+                <p className="micro-note block">
+                  {tracking?.done && tracking.id === sel.id ? tracking.note : "Mark a face, a car or any spot: the sticker stays on it while it moves, from the playhead to the sticker’s end. It writes keyframes, so you can fix any of them below."}
+                </p>
+                <div className="st-track">
+                  <button className="btn primary" disabled={disabled || !inside || !onFollow} onClick={() => onFollow(sel.id, true)} title="Then click the thing in the preview">
+                    <Crosshair size={12} /> Click what to follow
+                  </button>
+                  <button className="btn" disabled={disabled || !inside || !onFollow} onClick={() => onFollow(sel.id, false)} title="Follows what is under the sticker now">
+                    Follow from here
+                  </button>
+                </div>
+                {!inside && <p className="micro-note block">Move the playhead onto this sticker first.</p>}
+              </>
+            )}
             <div className="section-label sub">
               <span>KEYFRAMES · MAKE IT MOVE</span>
             </div>

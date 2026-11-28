@@ -14,6 +14,11 @@ export function StickerGallery({ tab, assets = [], onAdd, onUpload, grid = "stic
   const mine = showAll ? all : yours;
   return (
     <>
+      {tab === "mark" && (
+        <p className="micro-note block st-mark-note">
+          Point at, box, blur or spotlight anything. Add one, drag it onto the face or object, then “Click what to follow” keeps it there while it moves.
+        </p>
+      )}
       <div className={grid}>
         {tab !== "yours" &&
           ST.catalog
@@ -57,7 +62,7 @@ export function StickerGallery({ tab, assets = [], onAdd, onUpload, grid = "stic
 
 // v0.4.49 "Stickers · add at the playhead": built-in stickers and your own.
 export default function StickerDialog({ time, assets = [], onAdd, onUpload, onClose }) {
-  const [tab, setTab] = React.useState("subscribe");
+  const [tab, setTab] = React.useState("mark");
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal sticker-modal" role="dialog" aria-label="Stickers">

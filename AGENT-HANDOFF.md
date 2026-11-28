@@ -1503,3 +1503,49 @@ User: "Step 4". Measured with puppeteer at 1280×690, 1440×789, 1470×845, 1512
   `position: fixed`.
 - **Splitters are hidden ≤1070 px**: they were invisible but still sat over the player on phones and tablets
   (a touch there started a resize).
+
+## v0.4.72 — Point & mark stickers that follow things; words, shape and size; Episode setup fills the window
+
+User asked for CapCut-style stickers that point at / box / blur / spotlight an item, face or spot and *stay on it*
+(tracking), keyframes on stickers, editable sticker text, resizing, a spotlight that darkens the rest of the frame,
+and a fix for the Episode setup page ("not full").
+
+- **New kinds** (Stickers → *Point & mark*, the first sub-tab; also the dialog's default tab), all in
+  `effectsSpec.json` → `stickers.catalog`: `spotlight` (region `spot`), `blur` (region `blur`), `block`, `box`,
+  `ring` (animated), `pointer` (animated), `callout` ("LOOK HERE"), `label` ("EVIDENCE"). Kinds with `ratio: true`
+  can change shape; kinds with `text` take your words (subscribed/share/comment/rec-frame too).
+- **Data** (`stickers.normalise` ⇄ `stickers.js normaliseStickers`, tested equal): optional `text` (one line, control
+  chars removed, ≤ `limits.text` 28 characters), `ratio` (`limits.ratio` 0.2–6) and `strength` (regions,
+  `limits.strength` 0.1–1, default 0.6) are stored **only when they differ from the default**, so older projects
+  normalise exactly as before. `keyframes_max` 120 (was the picture limit).
+- **Export** (`stickers.py`): `draw(kind, t, w, text, ratio)`; regions are made per output frame by
+  `_prepare_region` → `region_frame` (de-duplicated by pixel position/size/opacity, hard-linked):
+  spotlight = black RGBA layer, alpha `strength × opacity` outside a soft ellipse (ramp 0.8→1 of the radius,
+  `region_soft`); blur = grey mask, the scene `boxblur`red (radius `blur_radius(W, strength)` =
+  W·0.035·strength, 2…W/16) and `alphamerge`d back over itself. `GET /api/stickers/{kind}/{frame}.png?text=&ratio=`
+  serves customised frames (cached by hash).
+- **Preview** (`StickerLayer.jsx`): spotlight = full-frame `radial-gradient` (`spotlightCss`); blur =
+  `backdrop-filter: blur(0.82 × radius)` in a soft-edged ellipse. The selected sticker has handles: corner = size
+  (keeps shape), right/bottom = width/height (`ratio`) for ratio kinds; with keyframes a resize writes a keyframe at
+  the playhead (`resizeSticker` in `main.jsx`).
+- **Follow something** (`tracker.js`, tested in `tests/js/tracker.test.mjs`): `followSticker(id, point?)` in
+  `main.jsx` steps the playhead through the sticker's time at 12 pictures/s; `grabFrame` draws the scene's
+  `.fx-media .pic-media` img/video where the page draws them (crop, fill and camera included; no captions, titles or
+  stickers) into a 240-px grey canvas; `makeTracker` finds the patch (20–48 px from the sticker size) again by
+  normalised cross-correlation within ±22 px of where it was heading (a distance penalty `stay` stops it jumping to a
+  look-alike), learns slowly, and stops when the match drops below 0.42 (left the picture / shot changed).
+  `simplifyPath` (RDP, ≤120) turns the path into linear keyframes from the playhead on (earlier ones kept).
+  While following, `trackRef` makes the video re-seek exactly (slack 0.01). UI: right panel → "Click what to
+  follow" (then click in the player; Esc cancels) or "Follow from here"; progress + Stop (keeps the path so far).
+  Checked in Chrome on a camera push-in (zoom 1→1.5): end point within 0.01 of the true position, 13 keyframes.
+- **Sticker panel**: "Words on it" (free typing, saved cleaned, n/28), "Shape (wide ↔ tall)", "Darken the rest" /
+  "Blur amount", plus the follow section above the keyframes.
+- **Episode setup**: `episode.css` had `height: calc(100dvh - 196px)` (the old header) under a 50-px top bar,
+  leaving a ~146-px black band and clipping the page. Now the workspace is a flex column on that page
+  (`.workspace:has(> .episode-setup)`, > 800 px) so it fills the window even when the top bar wraps (≤1100 px).
+- **Top bar**: on pages with more tools the title was squeezed to "T" and the save state to "Auto saved:".
+  `.cc-top-left` is a size container: the title keeps ≥96 px; below 470 px the save words hide (tick stays, words in
+  the tooltip), below 300 px the "Fictional sample" badge hides.
+- **Tests**: `tests/test_stickers_v072.py` (spec, drawing, words, normalise, region frames, API, a real render with a
+  moving spotlight + blur + block, JS twin), `tests/js/tracker.test.mjs`. Help text and Ctrl+K search
+  ("Point & mark") updated.

@@ -157,6 +157,28 @@
 .cc-topbar .save-state svg {
   flex: none;
 }
+/* v0.4.72 when the pages and the tools leave little room, the title keeps its room: the
+   save words go first (the tick stays), then the "Fictional sample" badge */
+.cc-top-left {
+  container-type: inline-size;
+}
+.cc-title h1 {
+  min-width: min(96px, 40cqw);
+}
+.cc-topbar .save-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container (max-width: 470px) {
+  .cc-topbar .save-state .save-text {
+    display: none;
+  }
+}
+@container (max-width: 300px) {
+  .cc-title .badge {
+    display: none;
+  }
+}
 /* the pages, as one segmented control in the middle */
 .cc-topbar .stage-nav.cc-pages {
   flex: none;
@@ -1927,5 +1949,19 @@
   }
   .workspace.cc .timeline-toolbar.cc-tl-toolbar > * {
     flex: none;
+  }
+}
+
+/* v0.4.72 phone: the tools wrap onto a second row instead of running off the left edge
+   (Search and Undo were off-screen on Episode setup, Case desk …) */
+@media (max-width: 580px) {
+  .cc-topbar .cc-top-right {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    max-width: 100%;
+    row-gap: 6px;
+  }
+  .cc-topbar .aspect-switch {
+    white-space: nowrap;
   }
 }

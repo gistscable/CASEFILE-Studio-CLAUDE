@@ -11,6 +11,7 @@ import Home, { HomeIcon } from "./Home.jsx";
 import CtaOverlay from "./CtaOverlay.jsx";
 import PictureLayer from "./PictureLayer.jsx";
 import StickerLayer from "./StickerLayer.jsx";
+import { makeTracker, grabFrame, simplifyPath, TRACK } from "./tracker.js";
 import StickerDialog, { StickerGallery } from "./StickerDialog.jsx";
 import { sortMedia } from "./mediaSort.js";
 import StickerPanel from "./StickerPanel.jsx";
@@ -166,7 +167,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.71";
+const APP_VERSION = "0.4.72";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -450,6 +451,8 @@ function App() {
     [toast, setToast] = useState(null),
   [command, setCommand] = useState("");
   const [stickerId, setStickerId] = useState(null),
+    [stickerTrack, setStickerTrack] = useState(null), // v0.4.72 { id, progress } while following, { id, done, note } after
+    [stickerPick, setStickerPick] = useState(null), // v0.4.72 the sticker waiting for you to click what it follows
     [motionId, setMotionId] = useState(null),
     [motionStatus, setMotionStatus] = useState(""),
     [soundId, setSoundId] = useState(null), // v0.4.56 the selected sound effect
@@ -497,6 +500,7 @@ function App() {
     initialPoll = useRef(true);
   const audioRef = useRef(null),
     videoRef = useRef(null),
+    trackRef = useRef(null), // v0.4.72 the follow in progress ({ stop }), so the preview seeks exactly
     screenRef = useRef(null),
     fileRef = useRef(null),
     audioFileRef = useRef(null),
@@ -1076,7 +1080,7 @@ function App() {
         const expected = trimStart + (local % cropDur);
         // Tolerate more drift while playing so picture re-seeks stay rare;
         // during an audio break the clip's own sound must not be interrupted.
-        const slack = playing ? (isBreak ? 0.6 : 0.45) : 0.3;
+        const slack = trackRef.current ? 0.01 : playing ? (isBreak ? 0.6 : 0.45) : 0.3;
         if (
           Number.isFinite(expected) &&
           !v.seeking &&
@@ -1382,6 +1386,100 @@ function App() {
         return { ...s, keyframes: normaliseStickerKeys([...s.keyframes.filter((k) => k !== near), { ...(near || {}), size: v.size, opacity: v.raw, x, y, t: at }], s.length, s) };
       }),
     });
+  }
+  // v0.4.72 Esc: no longer waiting for a click on the thing to follow
+  useEffect(() => {
+    if (!stickerPick) return undefined;
+    const esc = (e) => e.key === "Escape" && setStickerPick(null);
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [stickerPick]);
+  // v0.4.72 a resize handle in the preview: size (with keyframes, at this moment) and shape
+  function resizeSticker(id, patch, local) {
+    const list = normaliseStickers(projectRef.current.stickers, projectRef.current.assets);
+    queueSave({
+      stickers: list.map((s) => {
+        if (s.id !== id) return s;
+        const shape = patch.ratio ? { ratio: patch.ratio } : {};
+        if (!s.keyframes.length) return { ...s, size: patch.size, ...shape };
+        const v = stickerAt(s, local);
+        const near = s.keyframes.find((k) => Math.abs(k.t - local) < 0.05);
+        const at = near ? near.t : Math.round(local * 1000) / 1000;
+        return { ...s, ...shape, keyframes: normaliseStickerKeys([...s.keyframes.filter((k) => k !== near), { ...(near || {}), x: v.x, y: v.y, opacity: v.raw, size: patch.size, t: at }], s.length, s) };
+      }),
+    });
+  }
+  // v0.4.72 Follow something: step the preview through the sticker's time from the playhead,
+  // find the marked patch in each picture, and keep the path as keyframes.
+  async function followSticker(id, point = null) {
+    if (trackRef.current) return;
+    const list = normaliseStickers(projectRef.current.stickers, projectRef.current.assets);
+    const s = list.find((x) => x.id === id);
+    const box = document.querySelector(".video-frame");
+    if (!s || !box) return;
+    const t0 = Math.max(0, Math.min(s.length - TRACK.step, time - s.start));
+    const v0 = stickerAt(s, t0);
+    const start = point ? { x: point.x, y: point.y } : { x: v0.x, y: v0.y };
+    const run = { stop: false };
+    trackRef.current = run;
+    setPlaying(false);
+    setStickerTrack({ id, progress: 0 });
+    const frame = () => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
+    const settle = async () => {
+      await frame();
+      const until = Date.now() + 2500;
+      for (;;) {
+        const v = videoRef.current;
+        const imgs = [...box.querySelectorAll(".fx-media img.pic-media")];
+        const ready = (!v || (!v.seeking && v.readyState >= 2)) && imgs.every((im) => im.complete);
+        if (ready || Date.now() > until) break;
+        await new Promise((ok) => setTimeout(ok, 30));
+      }
+      await frame();
+    };
+    const pts = [];
+    let note = "";
+    try {
+      setTime(s.start + t0);
+      await settle();
+      const tr = makeTracker();
+      const f0 = grabFrame(box);
+      if (!f0 || !tr.start(f0, start.x, start.y, v0.size)) throw new Error("Casefile could not read this picture to follow it.");
+      pts.push({ t: t0, ...start });
+      const steps = Math.floor((s.length - t0) / TRACK.step);
+      for (let i = 1; i <= steps && !run.stop; i++) {
+        const t = Math.round((t0 + i * TRACK.step) * 1000) / 1000;
+        setTime(s.start + t);
+        await settle();
+        const f = grabFrame(box);
+        const r = f && tr.next(f);
+        if (!r || r.lost) {
+          note = `Lost it at ${(s.start + t).toFixed(1)} s (it left the picture or the shot changed): the sticker stays where it last was. Start another follow there if you need to.`;
+          break;
+        }
+        pts.push({ t, x: r.x, y: r.y });
+        setStickerTrack({ id, progress: i / steps });
+      }
+      if (run.stop) note = "Stopped: the path so far is kept.";
+      // the path, as keyframes from the playhead on (earlier keyframes stay)
+      const path = simplifyPath(pts).map((p) => {
+        const v = stickerAt(s, p.t);
+        return { t: p.t, x: p.x, y: p.y, size: v.size, opacity: v.raw, ease: "linear" };
+      });
+      const cur = normaliseStickers(projectRef.current.stickers, projectRef.current.assets);
+      queueSave({
+        stickers: cur.map((x) => (x.id !== id ? x : { ...x, keyframes: normaliseStickerKeys([...x.keyframes.filter((k) => k.t < t0 - 0.02), ...path], x.length, x) })),
+      });
+      const secs = pts.length > 1 ? pts[pts.length - 1].t - t0 : 0;
+      note = `${note ? note + " " : ""}Followed for ${secs.toFixed(1)} s · ${path.length} keyframes.`;
+    } catch (e) {
+      note = e.message || String(e);
+    } finally {
+      trackRef.current = null;
+      setStickerTrack({ id, done: true, note });
+      setTime(s.start + t0);
+      notify(note);
+    }
   }
   function updateScene(fields) {
     if (!selected) return;
@@ -2168,7 +2266,11 @@ function App() {
               onChange={(list) => queueSave({ stickers: list })}
               onOpenDialog={() => setStickerDialog(true)}
               onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
-              disabled={locked}
+              disabled={locked || !!stickerTrack && !stickerTrack.done}
+              tracking={stickerTrack}
+              picking={!!stickerPick}
+              onFollow={(id, pick) => { setStickerTrack(null); if (pick) { setPlaying(false); setStickerPick(id); } else followSticker(id); }}
+              onStopFollow={() => { setStickerPick(null); if (trackRef.current) trackRef.current.stop = true; }}
             />
     );
   }
@@ -2615,7 +2717,7 @@ function App() {
     ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
     ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
     ["text", "Text", Type, [["titles", "Scene titles"], ["names", "Name cards"]]],
-    ["stickers", "Stickers", Sticker, [["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
+    ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
     ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
     ["transitions", "Transitions", ArrowLeftRight, null],
     ["captions", "Captions", Captions, [["styles", "Styles"], ["text", "Text"], ["box", "Box & position"]]],
@@ -3593,7 +3695,7 @@ function App() {
             </div>
             <span
               className={`save-state ${saving === "error" ? "error" : ""}`}
-              title={`${project.target_minutes} min target · ${tc(duration)} ${project.episode?.guide ? (voice ? "planned" : project.episode?.timings ? "timed plan · audio missing" : "estimated plan") : "assembled"}`}
+              title={`${saving === "saved" ? `Auto saved${savedClock(project.updated_at)} · ` : ""}${project.target_minutes} min target · ${tc(duration)} ${project.episode?.guide ? (voice ? "planned" : project.episode?.timings ? "timed plan · audio missing" : "estimated plan") : "assembled"}`}
             >
               {saving === "saving" || saving === "pending" ? (
                 <LoaderCircle size={12} className="spin" />
@@ -3602,11 +3704,14 @@ function App() {
               ) : (
                 <CheckCircle2 size={12} />
               )}
-              {saving === "saved"
-                ? `Auto saved${savedClock(project.updated_at)}`
-                : saving === "error"
-                  ? "Save failed — retry editing"
-                  : "Saving…"}
+              {/* v0.4.72 the words go when the bar is tight (the icon stays; the words are in the tooltip) */}
+              <span className="save-text">
+                {saving === "saved"
+                  ? `Auto saved${savedClock(project.updated_at)}`
+                  : saving === "error"
+                    ? "Save failed — retry editing"
+                    : "Saving…"}
+              </span>
             </span>
           </div>
         <nav className="stage-nav cc-pages" aria-label="Pages">
@@ -4063,9 +4168,12 @@ function App() {
                     width={frameSize.width}
                     height={frameSize.height}
                     selectedId={stickerId}
-                    disabled={locked}
+                    disabled={locked || !!stickerTrack && !stickerTrack.done}
                     onSelect={(id) => { setStickerId(id); focusRight("sticker"); }}
                     onMove={(id, x, y, local) => moveSticker(id, x, y, local)}
+                    onResize={(id, patch, local) => resizeSticker(id, patch, local)}
+                    picking={!!stickerPick}
+                    onPick={(x, y) => { const id = stickerPick; setStickerPick(null); moveSticker(id, x, y, Math.max(0, time - (normaliseStickers(project.stickers, project.assets).find((q) => q.id === id)?.start || 0))); setTimeout(() => followSticker(id, { x, y }), 0); }}
                   />
                   {(() => {
                     // v0.4.52 a motion graphic: the one you are editing, else the approved ones
@@ -6401,6 +6509,26 @@ function App() {
                   and the timeline is never taller than its tracks (drag its top
                   edge to make it shorter). On a phone the page scrolls: player,
                   then the tabs, then the timeline.
+                </p>
+              </section>
+            </div>
+            <div>
+              <Sticker size={18} />
+              <section>
+                <h3>Point at, blur or spotlight anything — and keep it there</h3>
+                <p>
+                  Stickers → Point &amp; mark has a spotlight (the rest of the
+                  picture darkens), a blur for a face or a number plate, a black
+                  bar, a box, a pulse ring, a pointer, a callout and a label. Add
+                  one, then on the right press “Click what to follow” and click
+                  the face, car or spot in the player: Casefile watches the
+                  picture and moves the sticker with it until the sticker ends,
+                  writing keyframes you can fix by hand (Esc cancels; “Stop”
+                  keeps the path so far). Drag the corner handle to resize it,
+                  the side handles to make it wider or taller. A callout, label
+                  or button with words has a “Words on it” box. Spotlight
+                  darkness and blur amount have their own setting. The export
+                  draws exactly what the player shows.
                 </p>
               </section>
             </div>

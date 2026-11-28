@@ -15,6 +15,7 @@ const TOOLS = [
   ["Scene titles", "Text", { left: ["text", "titles"] }, "title heading chapter text"],
   ["Name cards", "Text", { left: ["text", "names"] }, "lower third lowerthird name tag caption person who"],
   ["Stickers", "Stickers", { left: ["stickers"] }, "emoji arrow shape subscribe like bell overlay"],
+  ["Point & mark (follow, blur, spotlight)", "Stickers", { left: ["stickers", "mark"] }, "track tracking follow face blur censor hide pixelate spotlight highlight darken box circle pointer callout label point mark"],
   ["Video effects", "Effects", { left: ["effects", "video"] }, "vignette grain letterbox film blur glow"],
   ["Logo", "Effects", { left: ["effects", "logo"] }, "watermark brand channel corner bug"],
   ["Subscribe animation", "Effects", { left: ["effects", "subscribe"] }, "cta call to action like bell subscribe button"],

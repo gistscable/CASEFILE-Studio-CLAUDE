@@ -11,6 +11,19 @@ opacity, keyframes: [{t, x, y, size, opacity, ease}]}]`
   instead (t = seconds after the sticker starts).
 * Built-in stickers are drawn here with Pillow, for the export and, through
   /api/stickers/<kind>/<frame>.png, for the preview: they look the same.
+
+v0.4.72 "Point & mark":
+* `text` (stickers whose catalog entry has a `text`): your words instead of
+  the default ("LOOK HERE", "SHARE" ...). Stored only when you changed it.
+* `ratio` (catalog `ratio: true`): width / height, so a box, a black bar or a
+  blur can be wide or tall. Stored only when it differs from the default.
+* `strength` (regions): how dark the spotlight is / how strong the blur.
+* Regions (catalog `region`): "spot" darkens the whole frame except an
+  ellipse; "blur" blurs inside an ellipse. They are drawn full-frame for each
+  output frame (position baked in), so no overlay maths: a full-frame dark
+  layer for the spotlight, a full-frame mask for the blur.
+* Keyframes: up to `keyframes_max` (120) so a sticker that follows something
+  (tracked in the editor) keeps a smooth path.
 """
 from __future__ import annotations
 
@@ -21,8 +34,10 @@ import shutil
 from functools import lru_cache
 from pathlib import Path
 
+import hashlib
+
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 import effects
 import picture
@@ -91,9 +106,44 @@ def normalise(value, image_assets=None):
         }
         if kind == "image":
             st["asset_id"] = str(s["asset_id"])
+        _extras(st, s, cat)
         st["keyframes"] = normalise_keyframes(s.get("keyframes"), length, st)
         out.append(st)
     return out
+
+
+def clean_text(v):
+    """Your words on a sticker: one line, no control characters, at most limits.text."""
+    if not isinstance(v, str):
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", v)).strip()[: SPEC["limits"]["text"]]
+
+
+def _extras(st, s, cat):
+    """v0.4.72 text / ratio / strength, kept only when they differ from the default
+    (so older projects normalise exactly as before)."""
+    lim = SPEC["limits"]
+    if cat.get("text"):
+        t = clean_text(s.get("text"))
+        if t and t != cat["text"]:
+            st["text"] = t
+    if cat.get("ratio"):
+        r = _num(s.get("ratio"), *lim["ratio"], None)
+        if r is not None and abs(r - cat["aspect"]) > 1e-4:
+            st["ratio"] = round(r, 4)
+    if cat.get("region"):
+        g = _num(s.get("strength"), *lim["strength"], None)
+        if g is not None and abs(g - SPEC["defaults"]["strength"]) > 1e-4:
+            st["strength"] = round(g, 3)
+
+
+def text_of(st):
+    c = CATALOG.get(st.get("kind")) or {}
+    return st.get("text") or c.get("text") or ""
+
+
+def strength_of(st):
+    return float(st.get("strength") or SPEC["defaults"]["strength"])
 
 
 def normalise_keyframes(value, length, base):
@@ -101,7 +151,7 @@ def normalise_keyframes(value, length, base):
         return []
     lim = SPEC["limits"]
     out = {}
-    for k in value[: picture.KF["max"] * 2]:
+    for k in value[: SPEC["keyframes_max"] * 2]:
         if not isinstance(k, dict):
             continue
         t = picture._num(k.get("t"), 0.0, float(length), None)
@@ -115,7 +165,7 @@ def normalise_keyframes(value, length, base):
             "opacity": round(_num(k.get("opacity"), *lim["opacity"], base["opacity"]), 3),
             "ease": "linear" if k.get("ease") == "linear" else "smooth",
         }
-    return [out[t] for t in sorted(out)][: picture.KF["max"]]
+    return [out[t] for t in sorted(out)][: SPEC["keyframes_max"]]
 
 
 def sample(st, local):
@@ -134,7 +184,7 @@ def aspect(st, assets):
     if st["kind"] == "image":
         a = (assets or {}).get(st.get("asset_id")) or {}
         return float(a.get("width") or 1) / float(a.get("height") or 1)
-    return float(CATALOG[st["kind"]]["aspect"])
+    return float(st.get("ratio") or CATALOG[st["kind"]]["aspect"])
 
 
 def cycle_frames(kind):
@@ -244,12 +294,14 @@ def _cursor(pen, x, y, size, pressed):
     pen.d.polygon(q, fill=WHITE, outline=(0, 0, 0, 255), width=max(1, round(1.2 * s * pen.k)))
 
 
-def draw(kind, t, width_px):
-    """The sticker `t` seconds into its animation, `width_px` wide (RGBA)."""
+def draw(kind, t, width_px, text=None, ratio=None):
+    """The sticker `t` seconds into its animation, `width_px` wide (RGBA).
+    `text`: your words (stickers with a catalog `text`); `ratio`: width/height."""
     c = CATALOG[kind]
     if c.get("animated") and c["cycle"] > 0:
         t = t % c["cycle"]
-    pen = Pen(width_px, c["aspect"])
+    words = clean_text(text) or c.get("text") or ""
+    pen = Pen(width_px, float(ratio) if ratio and c.get("ratio") else c["aspect"])
     k = pen.k
     H = pen.h
     if kind == "subscribe-click":
@@ -276,7 +328,7 @@ def draw(kind, t, width_px):
     elif kind == "subscribed":
         pen.rr(10, 10, 990, H - 10, 22, RED)
         pen.paste(icon("thumb", 110, WHITE, k=k), 50, H / 2 - 55)
-        pen.text(500, H / 2 + 3, "SUBSCRIBED", 70, WHITE, max_w=640)
+        pen.text(500, H / 2 + 3, words, 70, WHITE, max_w=640)
         pen.paste(icon("bell", 110, WHITE, k=k), 840, H / 2 - 55)
     elif kind == "bell":
         pen.ellipse(40, 40, 960, 960, fill=YELLOW)
@@ -287,14 +339,14 @@ def draw(kind, t, width_px):
     elif kind == "share":
         pen.rr(10, 10, 990, H - 10, (H - 20) / 2, WHITE)
         pen.paste(icon("share", 150, DARK, k=k), 130, H / 2 - 75)
-        pen.text(600, H / 2 + 3, "SHARE", 92, DARK, max_w=520)
+        pen.text(600, H / 2 + 3, words, 92, DARK, max_w=520)
     elif kind == "comment":
         top, bot = 10, H - 70
         pen.rr(10, top, 990, bot, 40, WHITE)
         pen.poly([(90, bot - 10), (80, H - 8), (200, bot - 10)], WHITE)
         for i in range(3):
             pen.ellipse(85 + i * 70, (top + bot) / 2 - 24, 133 + i * 70, (top + bot) / 2 + 24, fill=BLUE)
-        pen.text(640, (top + bot) / 2 + 3, "COMMENT", 84, DARK, max_w=560)
+        pen.text(640, (top + bot) / 2 + 3, words, 84, DARK, max_w=560)
     elif kind in ("arrow-ne", "arrow-nw"):
         p0, p1, p2 = (110, H - 70), (400, 170), (850, 150)
         pts = [((1 - u) ** 2 * p0[0] + 2 * (1 - u) * u * p1[0] + u * u * p2[0], (1 - u) ** 2 * p0[1] + 2 * (1 - u) * u * p1[1] + u * u * p2[1])
@@ -320,7 +372,49 @@ def draw(kind, t, width_px):
             pen.stroke([(x, y + dy * L), (x, y), (x + dx * L, y)], WHITE, s)
         if t < 0.6:
             pen.ellipse(m + 45, m + 40, m + 85, m + 80, fill=(235, 30, 30, 255))
-        pen.text(m + 150, m + 61, "REC", 40, WHITE)
+        pen.text(m + 150, m + 61, words, 40, WHITE)
+    elif kind == "spotlight":  # the tile; the export draws the region full-frame (region_frame)
+        pen.rr(0, 0, 1000, H, 60, (16, 16, 19, 255))
+        glow = Image.new("RGBA", pen.im.size, (0, 0, 0, 0))
+        ImageDraw.Draw(glow).ellipse(pen.p(260, H * 0.2, 740, H * 0.8), fill=(255, 238, 205, 255))
+        pen.im.alpha_composite(glow.filter(ImageFilter.GaussianBlur(40 * k)))
+    elif kind == "blur":  # the tile
+        pen.rr(0, 0, 1000, H, 60, (92, 96, 104, 255))
+        for i, col in enumerate(((230, 190, 160, 255), (70, 60, 55, 255), (200, 200, 210, 255))):
+            pen.ellipse(220 + i * 150, H * 0.25 + i * 60, 520 + i * 150, H * 0.65 + i * 60, fill=col)
+        pen.im = pen.im.filter(ImageFilter.GaussianBlur(70 * k))
+        pen.d = ImageDraw.Draw(pen.im)
+        pen.rr(0, 0, 1000, H, 60, None, outline=(255, 255, 255, 255), width=14)
+    elif kind == "block":
+        pen.rr(0, 0, 1000, H, min(1000, H) * 0.06, (10, 10, 12, 255))
+    elif kind == "box":
+        sw = 26
+        pen.rr(sw / 2, sw / 2, 1000 - sw / 2, H - sw / 2, min(1000, H) * 0.06, None, outline=PEN, width=sw)
+    elif kind == "ring":
+        u = t / c["cycle"]
+        cx, cy = 500, H / 2
+        r0 = 290
+        r1 = r0 + 190 * u
+        a = round(255 * (1 - u) ** 1.4)
+        if a > 0:
+            pen.ellipse(cx - r1, cy - r1, cx + r1, cy + r1, outline=(PEN[0], PEN[1], PEN[2], a), width=26)
+        pen.ellipse(cx - r0, cy - r0, cx + r0, cy + r0, outline=PEN, width=40)
+        pen.ellipse(cx - 60, cy - 60, cx + 60, cy + 60, fill=PEN)
+    elif kind == "pointer":
+        b = 30 + 150 * (0.5 - 0.5 * math.cos(2 * math.pi * t / c["cycle"]))
+        tip = H - 200 + b
+        pts = [(380, b), (620, b), (620, tip - 380), (860, tip - 380), (500, tip), (140, tip - 380), (380, tip - 380)]
+        pen.d.polygon([(x * k, y * k) for x, y in pts], fill=PEN, outline=WHITE, width=max(1, round(34 * k)))
+    elif kind == "callout":
+        bot = H - 92
+        pen.rr(8, 8, 992, bot, 34, WHITE)
+        pen.poly([(110, bot - 6), (90, H - 4), (250, bot - 6)], WHITE)
+        pen.rr(8, 8, 40, bot, 16, PEN)
+        pen.text(520, bot / 2 + 6, words, min(118, bot * 0.52), DARK, max_w=860)
+    elif kind == "label":
+        pen.rr(0, 0, 1000, H, 22, (18, 18, 22, 236))
+        pen.rr(0, 0, 44, H, 14, YELLOW)
+        pen.text(530, H / 2 + 4, words, min(124, H * 0.48), WHITE, max_w=850)
     elif kind == "waveform":
         n = 31
         for i in range(n):
@@ -332,20 +426,67 @@ def draw(kind, t, width_px):
     return pen.done(width_px)
 
 
-def preview_frame(kind, i, folder):
-    """Frame `i` of a built-in sticker for the preview (cached PNG)."""
+def preview_frame(kind, i, folder, text=None, ratio=None):
+    """Frame `i` of a built-in sticker for the preview (cached PNG). v0.4.72 with
+    your words (`text`) and shape (`ratio`) when the sticker has them."""
     if kind not in CATALOG:
         raise KeyError(kind)
+    c = CATALOG[kind]
     n = cycle_frames(kind)
     i = max(0, min(n - 1, int(i)))
+    words = clean_text(text) if c.get("text") else ""
+    if words == c.get("text"):
+        words = ""
+    r = _num(ratio, *SPEC["limits"]["ratio"], None) if c.get("ratio") else None
+    if r is not None and abs(r - c["aspect"]) < 1e-4:
+        r = None
+    r = round(r, 3) if r is not None else None
     folder = Path(folder) / kind
-    out = folder / f"{i:04d}.png"
+    tag = "" if not words and r is None else "-" + hashlib.sha1(f"{words}|{r}".encode()).hexdigest()[:12]
+    out = folder / f"{i:04d}{tag}.png"
     if not out.exists():
         folder.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp.png")
-        draw(kind, i / FPS, SPEC["preview_width"]).save(tmp)
+        draw(kind, i / FPS, SPEC["preview_width"], words or None, r).save(tmp)
         os.replace(tmp, out)
     return out
+
+
+# ---------------------------------------------------------------- regions (v0.4.72)
+
+def region_frame(kind, width, height, x, y, size, ratio, strength, opacity):
+    """A full-frame layer for a region sticker: "spot" -> RGBA dark everywhere except a soft
+    ellipse; "blur" -> L mask, white inside a soft ellipse. The ellipse is `size` of the
+    frame width wide and `ratio` wide-for-tall, centred at (x, y). The edge ramps from
+    `region_soft` to 1 of the radius, exactly as the preview's CSS radial-gradient."""
+    rx = max(1.0, size * width / 2)
+    ry = max(1.0, rx / max(0.05, ratio))
+    cx, cy = x * width, y * height
+    soft = SPEC["region_soft"]
+    x0, x1 = max(0, int(cx - rx) - 1), min(width, int(math.ceil(cx + rx)) + 1)
+    y0, y1 = max(0, int(cy - ry) - 1), min(height, int(math.ceil(cy + ry)) + 1)
+    inside = None
+    if x1 > x0 and y1 > y0:
+        X = (np.arange(x0, x1, dtype=np.float32) + 0.5 - cx) / rx
+        Y = (np.arange(y0, y1, dtype=np.float32) + 0.5 - cy) / ry
+        r = np.sqrt(X[None, :] ** 2 + Y[:, None] ** 2)
+        inside = np.clip((r - soft) / (1 - soft), 0.0, 1.0)  # 0 in the middle, 1 outside
+    if kind == "spot":
+        a = np.full((height, width), strength * opacity * 255, dtype=np.float32)
+        if inside is not None:
+            a[y0:y1, x0:x1] *= inside
+        arr = np.zeros((height, width, 4), dtype=np.uint8)
+        arr[..., 3] = np.round(a).astype(np.uint8)
+        return Image.fromarray(arr, "RGBA")
+    m = np.zeros((height, width), dtype=np.float32)
+    if inside is not None:
+        m[y0:y1, x0:x1] = (1.0 - inside) * opacity * 255
+    return Image.fromarray(np.round(m).astype(np.uint8), "L")
+
+
+def blur_radius(width, strength):
+    """boxblur's radius (power 2) for a blur sticker; the preview's CSS blur is 0.82 x this."""
+    return max(2, min(round(width * SPEC["blur_radius"] * strength), round(width / 16)))
 
 
 # ---------------------------------------------------------------- export
@@ -379,6 +520,10 @@ def prepare(project, assets, width, height, folder, total, image_path):
         if frames < 1:
             continue
         ratio = aspect(st, assets)
+        region = (CATALOG.get(st["kind"]) or {}).get("region")
+        if region:
+            out.append(_prepare_region(st, region, n, frames, start, ratio, width, height, folder))
+            continue
         sizes = [st["size"]] + [k["size"] for k in st["keyframes"]]
         bw = round(width * max(sizes) / 2) * 2 + 2
         bh = round(bw / ratio / 2) * 2 + 2
@@ -401,7 +546,7 @@ def prepare(project, assets, width, height, folder, total, image_path):
                 if base_img is not None:
                     img = base_img.resize((pw, max(1, round(pw / ratio))), Image.LANCZOS)
                 else:
-                    img = draw(st["kind"], (f % cyc) / FPS, pw)
+                    img = draw(st["kind"], (f % cyc) / FPS, pw, st.get("text"), st.get("ratio"))
                 img = _with_opacity(img, key[2])
                 box = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
                 box.alpha_composite(img.crop((0, 0, min(bw, img.width), min(bh, img.height))),
@@ -413,6 +558,26 @@ def prepare(project, assets, width, height, folder, total, image_path):
         out.append({"start": round(start * FPS) / FPS, "end": round(start * FPS) / FPS + frames / FPS, "dir": d,
                     "w": bw, "h": bh, "keys": st["keyframes"], "x": st["x"], "y": st["y"]})
     return out
+
+
+def _prepare_region(st, region, n, frames, start, ratio, width, height, folder):
+    d = Path(folder) / f"st{n}"
+    d.mkdir(parents=True, exist_ok=True)
+    strength = strength_of(st)
+    made = {}
+    for f in range(frames):
+        v = sample(st, f / FPS)
+        key = (round(v["x"] * width), round(v["y"] * height), round(v["size"] * width), round(v["opacity"], 2))
+        src = made.get(key)
+        if src is None:
+            img = region_frame(region, width, height, key[0] / width, key[1] / height, key[2] / width, ratio, strength, key[3])
+            src = d / f"u{len(made):05d}.png"
+            img.save(src, compress_level=1)
+            made[key] = src
+        _link(src, d / f"{f:05d}.png")
+    s0 = round(start * FPS) / FPS
+    return {"start": s0, "end": s0 + frames / FPS, "dir": d, "w": width, "h": height, "keys": [], "x": 0.5, "y": 0.5,
+            "region": region, "radius": blur_radius(width, strength)}
 
 
 def overlay_filters(layer, k, scene_start, scene_len, width, height):
@@ -433,6 +598,18 @@ def overlay_filters(layer, k, scene_start, scene_len, width, height):
         X = f"{layer['x'] * width - layer['w'] / 2:.2f}"
         Y = f"{layer['y'] * height - layer['h'] / 2:.2f}"
     args = ["-framerate", str(FPS), "-start_number", str(first), "-i", str(Path(layer["dir"]) / "%05d.png")]
+    if layer.get("region") == "blur":
+        # v0.4.72 the scene blurred, kept only inside the mask (a full-frame frame per output frame)
+        text = (
+            f"[stb{k}];[stb{k}]split[sba{k}][sbb{k}];"
+            f"[sbb{k}]boxblur=luma_radius={layer['radius']}:luma_power=2,format=rgba[sbl{k}];"
+            f"[{k}:v]format=gray,setpts=PTS-STARTPTS,tpad=start_duration={ra:.4f}:color=black[sbm{k}];"
+            f"[sbl{k}][sbm{k}]alphamerge[sbx{k}];"
+            f"[sba{k}][sbx{k}]overlay=0:0:eof_action=pass:enable='between(t,{ra:.4f},{rb:.4f})':format=auto"
+        )
+        return args, text
+    if layer.get("region") == "spot":
+        X, Y = "0", "0"
     text = (
         f"[stb{k}];[{k}:v]format=rgba,setpts=PTS-STARTPTS+{ra:.4f}/TB[stv{k}];"
         f"[stb{k}][stv{k}]overlay=x='{X}':y='{Y}':eof_action=pass:enable='between(t,{ra:.4f},{rb:.4f})':format=auto"

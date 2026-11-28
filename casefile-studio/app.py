@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.71", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.72", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1108,10 +1108,11 @@ def auto_crop(id: str, asset_id: str):
 
 
 @app.get("/api/stickers/{kind}/{frame}.png")
-def sticker_frame(kind: str, frame: int):
-    """v0.4.49 A built-in sticker drawn by the export's own code, for the preview."""
+def sticker_frame(kind: str, frame: int, text: str | None = None, ratio: float | None = None):
+    """v0.4.49 A built-in sticker drawn by the export's own code, for the preview.
+    v0.4.72 `text` (your words) and `ratio` (width / height) for the stickers that have them."""
     try:
-        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers")
+        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers", text, ratio)
     except KeyError:
         raise HTTPException(404, "Unknown sticker.")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
