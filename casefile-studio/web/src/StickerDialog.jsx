@@ -14,6 +14,16 @@ export function StickerGallery({ tab, assets = [], onAdd, onUpload, grid = "stic
   const mine = showAll ? all : yours;
   return (
     <>
+      {tab === "text" && (
+        <p className="micro-note block st-mark-note">
+          Add one, then type its words on the right (each line has its own box). It plays its intro, holds, and fades out at its end; size, keyframes and “Click what to follow” work as on any sticker.
+        </p>
+      )}
+      {tab === "mark" && (
+        <p className="micro-note block st-mark-note">
+          Point at, box, blur or spotlight anything. Add one, drag it onto the face or object, then “Click what to follow” keeps it there while it moves.
+        </p>
+      )}
       <div className={grid}>
         {tab !== "yours" &&
           ST.catalog
@@ -21,7 +31,7 @@ export function StickerGallery({ tab, assets = [], onAdd, onUpload, grid = "stic
             .map((c) => (
               <button key={c.id} className="sticker-card" aria-label={`Add sticker ${c.label}`} title={`Add “${c.label}” at the playhead`} onClick={() => onAdd(c.id)}>
                 {c.animated && <span className="sticker-badge">Animated</span>}
-                <img src={`/api/stickers/${c.id}/${c.animated ? Math.round(c.cycle * 24 * 0.6) : 0}.png`} alt="" draggable={false}
+                <img src={`/api/stickers/${c.id}/${c.once ? Math.round(c.cycle * 24) - 1 : c.animated ? Math.round(c.cycle * 24 * 0.6) : 0}.png`} alt="" draggable={false}
                   style={{ maxWidth: c.aspect >= 1.5 ? "86%" : "56%" }} />
                 <span>{c.label}</span>
                 <i className="tile-add" aria-hidden="true"><Plus size={13} /></i>
@@ -57,7 +67,7 @@ export function StickerGallery({ tab, assets = [], onAdd, onUpload, grid = "stic
 
 // v0.4.49 "Stickers · add at the playhead": built-in stickers and your own.
 export default function StickerDialog({ time, assets = [], onAdd, onUpload, onClose }) {
-  const [tab, setTab] = React.useState("subscribe");
+  const [tab, setTab] = React.useState("mark");
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal sticker-modal" role="dialog" aria-label="Stickers">

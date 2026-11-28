@@ -506,6 +506,113 @@ def bell(rng, base=1320, decay=0.9, strikes=1):
     return _room(_band(y, hi=7000), rng, rt=1.0, wet=0.2)
 
 
+# ---------------------------------------------------------------- v0.4.74 phone & app sounds
+# Short alert sounds in the style of phone notifications, made here like everything else: nothing
+# is copied from a phone maker's or an editing app's library (those recordings belong to them).
+
+def _mallet(f, m, decay, rng, hard=1.0, wood=False):
+    """A struck bar: an FM bite that settles into the note, a high partial (wood: marimba-like,
+    else glassy) that dies first, and the soft tap of the mallet."""
+    t = _t(m)
+    bite = hard * 2.4 * np.exp(-t / 0.012)
+    y = np.sin(2 * np.pi * f * t + bite * np.sin(2 * np.pi * f * (3.0 if wood else 2.0) * t))
+    y += 0.35 * np.sin(2 * np.pi * f * (3.93 if wood else 4.0) * t) * np.exp(-t / max(1e-3, decay * 0.18))
+    y *= _env(m, 0.001, decay)
+    y += 0.2 * hard * _band(rng.standard_normal(m), lo=f, hi=f * 5) * _env(m, 0.0002, 0.002)
+    return y
+
+
+def _notes(notes, rng, total, **kw):
+    """[(at seconds, Hz, decay, level)] struck one after another, mono."""
+    n = _n(total)
+    y = np.zeros(n)
+    for at, f, d, a in notes:
+        s = _n(at)
+        y[s:] += a * _mallet(f, n - s, d, rng, **kw)
+    return y * _tail(n, min(0.4, total / 3))  # rings out, never cut off
+
+
+def trio(rng, root=1568.0):
+    """Three quick bright notes, up and back down a step: the classic text-message alert shape."""
+    notes = [(0.0, root, 0.09, 1.0), (0.095, root * 1.335, 0.09, 0.9), (0.19, root * 1.122, 0.24, 0.95)]
+    return _room(_band(_notes(notes, rng, 1.1, wood=True), hi=9000), rng, rt=0.35, wet=0.1)
+
+
+def chirp(rng, count=2):
+    """A small bird: quick upward whistles with a flutter."""
+    n = _n(0.11 * count + 0.2)
+    y = np.zeros(n)
+    for k in range(count):
+        s = _n(0.11 * k + rng.uniform(0, 0.004))
+        m = _n(0.075 if k < count - 1 else 0.09)
+        p = np.linspace(0, 1, m)
+        f = 2500 + 2300 * np.sin(np.pi * 0.5 * p) ** 1.5 + 160 * np.sin(2 * np.pi * 42 * p * m / SR)
+        ph = 2 * np.pi * np.cumsum(f) / SR
+        tone = (np.sin(ph) + 0.15 * np.sin(2 * ph)) * np.sin(np.pi * p) ** 1.2
+        y[s:s + m] += tone[: n - s]
+    return _room(y, rng, rt=0.3, wet=0.12)
+
+
+def glow(rng, root=784.0):
+    """A soft shimmering arpeggio that rises and rings out in a big space."""
+    ratios = [1.0, 1.26, 1.5, 2.0, 2.52]
+    notes = [(0.075 * i, root * r, 0.9, 0.75 - 0.07 * i) for i, r in enumerate(ratios)]
+    y = _notes(notes, rng, 2.2, hard=0.35)
+    y *= 1 + 0.25 * np.sin(2 * np.pi * 5.5 * _t(len(y)))  # the shimmer
+    return _room(_band(y * _tail(len(y), 0.6), hi=7000), rng, rt=1.8, wet=0.35, width=1.2)
+
+
+def strum(rng, root=523.25):
+    """A quick plucked major chord, low to high."""
+    n = _n(1.3)
+    y = np.zeros(n)
+    for i, r in enumerate((1.0, 1.26, 1.5, 2.0)):
+        s = _n(0.018 * i)
+        m = n - s
+        f = root * r
+        y[s:] += _partials([f, 2 * f, 3 * f, 4.01 * f], [0.5, 0.25, 0.12, 0.07], [1, 0.45, 0.25, 0.12], m, rng)
+        y[s:] += 0.12 * _band(rng.standard_normal(m), lo=f * 2, hi=f * 8) * _env(m, 0.0003, 0.003)
+    return _room(_band(y * _tail(n, 0.4), hi=8000), rng, rt=0.7, wet=0.15)
+
+
+def bounce(rng, f=1180.0):
+    """A ball bouncing to rest: three falling-pitch blips, each sooner, higher and softer."""
+    n = _n(0.7)
+    y = np.zeros(n)
+    for at, a, ff in ((0.0, 1.0, f), (0.15, 0.62, f * 1.06), (0.25, 0.38, f * 1.12)):
+        s = _n(at)
+        m = min(_n(0.3), n - s)
+        tone = _glide(ff * 1.25, ff, m, 0.25) * _env(m, 0.001, 0.055)
+        tone += 0.3 * _glide(ff * 2.5, ff * 2, m, 0.25) * _env(m, 0.001, 0.025)
+        y[s:s + m] += a * tone
+    return _room(y, rng, rt=0.35, wet=0.1)
+
+
+def pin(rng, count=1, gap=0.055):
+    """A tiny bright tick (a pin dropping onto a map, a counter rolling over)."""
+    n = _n(gap * (count - 1) + 0.07)
+    y = np.zeros(n)
+    for k in range(count):
+        s = _n(gap * k)
+        m = min(_n(0.06), n - s)
+        f = 5200 * (1 + (0.04 if k % 2 else 0)) * rng.uniform(0.985, 1.015)
+        y[s:s + m] += (0.9 ** k) * (_partials([f, f * 1.52, f * 0.5], [0.0035, 0.002, 0.006], [1, 0.5, 0.35], m, rng)
+                                    + 0.5 * _band(rng.standard_normal(m), lo=3000) * _env(m, 0.0001, 0.0008))
+    return _room(y, rng, rt=0.15, wet=0.05)
+
+
+# search words for the library (styles people know these sounds by)
+TAGS = {
+    "phone-trio": "tri-tone tritone text message imessage sms alert",
+    "phone-chirp": "tweet bird twitter chirp",
+    "phone-glow": "aurora shimmer magic",
+    "phone-chord": "note chord strum guitar",
+    "phone-bounce": "rebound boing ball",
+    "phone-ding": "bell ding desk reception",
+    "phone-pin": "pin ticker tick click 181779",
+    "phone-pin-seq": "pin ticker counter rolling ticking",
+}
+
 # id, category, label, intensity 1..3, recipe, designed peak (dBFS)
 CATALOG = [
     ("pop-soft-1", "pop", "Soft pop, round", 1, lambda r: pop(r, 900, 280, 0.045), -16),
@@ -576,6 +683,15 @@ CATALOG = [
     ("cta-click-1", "cta-click", "Subscribe button click", 2, lambda r: click(r, 2300, 200, release=0.06), -13),
     ("cta-click-2", "cta-click", "Button click, soft", 1, lambda r: click(r, 1800, 180, dark=True, release=0.05), -13),
     ("cta-click-3", "cta-click", "Button click, bright", 2, lambda r: click(r, 3000, 230, release=0.05), -14),
+    # v0.4.74 phone & app sounds (manual use: the automatic plan never picks the "phone" category)
+    ("phone-trio", "phone", "Three-note alert (text message)", 1, lambda r: trio(r), -16),
+    ("phone-chirp", "phone", "Bird chirp alert", 1, lambda r: chirp(r), -17),
+    ("phone-glow", "phone", "Glow chime, shimmering", 1, lambda r: glow(r), -17),
+    ("phone-chord", "phone", "Soft chord alert", 1, lambda r: strum(r), -16),
+    ("phone-bounce", "phone", "Bounce alert", 1, lambda r: bounce(r), -16),
+    ("phone-ding", "phone", "Bell ding", 1, lambda r: bell(r, 2093, 1.1), -16),
+    ("phone-pin", "phone", "Pin tick", 1, lambda r: pin(r), -18),
+    ("phone-pin-seq", "phone", "Pin ticker, rolling", 1, lambda r: pin(r, 9), -19),
 ]
 BY_ID = {c[0]: c for c in CATALOG}
 CATEGORIES = sorted({c[1] for c in CATALOG})
@@ -664,4 +780,4 @@ def path_of(data, sound_id):
 
 def catalog():
     """[{id, category, label, intensity}] without making any file."""
-    return [{"id": c[0], "category": c[1], "label": c[2], "intensity": c[3]} for c in CATALOG]
+    return [{"id": c[0], "category": c[1], "label": c[2], "intensity": c[3], **({"tags": TAGS[c[0]]} if c[0] in TAGS else {})} for c in CATALOG]

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 import httpx
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 import ai, renderer, editorial, production, episode, fetcher, casedesk, discovery, voicegen, autotiming, recut, colabvoice, captionstyle, effects, cta, watermark, cutaways, basefill, picture, stickers, history
 import motion as motiongfx
 import sfxlib
+import presets as presetlib
 import sound as sfxplan
 import music as musiclib
 from storage import (
@@ -35,7 +36,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.71", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.75", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1108,10 +1109,12 @@ def auto_crop(id: str, asset_id: str):
 
 
 @app.get("/api/stickers/{kind}/{frame}.png")
-def sticker_frame(kind: str, frame: int):
-    """v0.4.49 A built-in sticker drawn by the export's own code, for the preview."""
+def sticker_frame(kind: str, frame: int, text: str | None = None, ratio: float | None = None, l: list[str] | None = Query(None)):
+    """v0.4.49 A built-in sticker drawn by the export's own code, for the preview.
+    v0.4.72 `text` (your words) and `ratio` (width / height) for the stickers that have them.
+    v0.4.73 `l` (repeated): a text template's paragraphs, in order."""
     try:
-        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers")
+        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers", text, ratio, l)
     except KeyError:
         raise HTTPException(404, "Unknown sticker.")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
@@ -1277,6 +1280,48 @@ def motion_frame(h: str, k: int):
 
 
 # ------------------------------------------------------------------ v0.4.56 sound design
+
+# v0.4.75 your saved presets (stickers & text templates with their moves, picture moves, caption styles):
+# one list for the whole app, so a preset made in one project is there in every project.
+class PresetIn(BaseModel):
+    kind: Literal["sticker", "move", "caption"]
+    name: str = Field(default="", max_length=200)
+    data: dict
+
+
+class PresetRename(BaseModel):
+    name: str = Field(max_length=200)
+
+
+@app.get("/api/presets")
+def presets_list():
+    return {"presets": presetlib.load()}
+
+
+@app.post("/api/presets")
+def presets_add(body: PresetIn):
+    try:
+        return presetlib.add(body.kind, body.name, body.data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/presets/{pid}")
+def presets_rename(pid: str, body: PresetRename):
+    try:
+        return presetlib.rename(pid, body.name)
+    except KeyError:
+        raise HTTPException(404, "That preset is gone.")
+
+
+@app.delete("/api/presets/{pid}")
+def presets_delete(pid: str):
+    try:
+        presetlib.remove(pid)
+    except KeyError:
+        raise HTTPException(404, "That preset is gone.")
+    return {"ok": True}
+
 
 @app.get("/api/sound/catalog")
 def sound_catalog():

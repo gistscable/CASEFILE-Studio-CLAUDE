@@ -157,9 +157,92 @@ def fit_filter(fit, width, height):
 
 # ---------------------------------------------------------------- keyframes
 
+# v0.4.74 keyframe speed: how a move goes from one keyframe to the next (the earlier key's `ease`).
+# v0.4.75 more curves. Every value stays between the two keyframes except the sticker-only ones
+# that go past on purpose (anticipate, overshoot, elastic): a picture's zoom must never go below 1.
+#   linear   Steady       the same speed all the way
+#   smooth   Smooth       starts and ends gently
+#   in       Speed up     starts slow, ends fast
+#   out      Slow down    starts fast, ends slow
+#   snap     Fast middle  very gentle ends, quick in the middle
+#   bounce   Bounce       lands and bounces, like a ball
+#   hold     Jump         stays, then jumps at the next keyframe
+#   anticipate  Pull back first   (stickers)
+#   overshoot   Overshoot         (stickers) goes a little past, then settles
+#   elastic     Spring            (stickers) wobbles into place
+EASES = ("linear", "smooth", "in", "out", "snap", "bounce", "hold")
+STICKER_EASES = EASES + ("anticipate", "overshoot", "elastic")
+_B1, _B3 = 1.70158, 2.70158
+_N1, _D1 = 7.5625, 2.75
+_C4 = 2 * math.pi / 3
+_LN2x10 = 10 * math.log(2)
+
+
+def ease_kind(value, allowed=EASES):
+    return value if value in allowed else "smooth"
+
+
 def ease(u, kind):
     u = min(1.0, max(0.0, u))
-    return u if kind == "linear" else u * u * (3 - 2 * u)
+    if kind == "linear":
+        return u
+    if kind == "in":
+        return u * u * u
+    if kind == "out":
+        return 1 - (1 - u) ** 3
+    if kind == "snap":
+        return 16 * u ** 5 if u < 0.5 else 1 - (2 - 2 * u) ** 5 / 2
+    if kind == "bounce":
+        if u < 1 / _D1:
+            return _N1 * u * u
+        if u < 2 / _D1:
+            v = u - 1.5 / _D1
+            return _N1 * v * v + 0.75
+        if u < 2.5 / _D1:
+            v = u - 2.25 / _D1
+            return _N1 * v * v + 0.9375
+        v = u - 2.625 / _D1
+        return _N1 * v * v + 0.984375
+    if kind == "hold":
+        return 1.0 if u >= 1 else 0.0
+    if kind == "anticipate":
+        return _B3 * u * u * u - _B1 * u * u
+    if kind == "overshoot":
+        v = u - 1
+        return 1 + _B3 * v * v * v + _B1 * v * v
+    if kind == "elastic":
+        return math.exp(-_LN2x10 * u) * math.sin((10 * u - 0.75) * _C4) + 1
+    return u * u * (3 - 2 * u)
+
+
+def _ease_expr(u, kind):
+    """`ease` as an FFmpeg expression of `u` (+ - * if lt exp sin only)."""
+    U = f"({u})"
+    if kind == "linear":
+        return u
+    if kind == "in":
+        return f"{U}*{U}*{U}"
+    if kind == "out":
+        return f"(1-(1-{U})*(1-{U})*(1-{U}))"
+    if kind == "snap":
+        w = f"(2-2*{U})"
+        return f"if(lt({U},0.5),16*{U}*{U}*{U}*{U}*{U},1-{w}*{w}*{w}*{w}*{w}/2)"
+    if kind == "bounce":
+        def seg(c, add):
+            v = f"({U}-{c!r})"
+            return f"({_N1}*{v}*{v}+{add})"
+        return (f"if(lt({U},{1 / _D1!r}),{_N1}*{U}*{U},if(lt({U},{2 / _D1!r}),{seg(1.5 / _D1, 0.75)},"
+                f"if(lt({U},{2.5 / _D1!r}),{seg(2.25 / _D1, 0.9375)},{seg(2.625 / _D1, 0.984375)})))")
+    if kind == "hold":
+        return "0"
+    if kind == "anticipate":
+        return f"({_B3}*{U}*{U}*{U}-{_B1}*{U}*{U})"
+    if kind == "overshoot":
+        v = f"({U}-1)"
+        return f"(1+{_B3}*{v}*{v}*{v}+{_B1}*{v}*{v})"
+    if kind == "elastic":
+        return f"(exp(-{_LN2x10!r}*{U})*sin((10*{U}-0.75)*{_C4!r})+1)"
+    return f"{U}*{U}*(3-2*{U})"
 
 
 def interpolate(keys, t, fields):
@@ -185,7 +268,7 @@ def expr(keys, field, T):
     for a, b in reversed(list(zip(keys, keys[1:]))):
         span = max(1e-6, b["t"] - a["t"])
         u = f"(({T})-{a['t']:.4f})/{span:.4f}"
-        e = u if a.get("ease") == "linear" else f"({u})*({u})*(3-2*({u}))"
+        e = _ease_expr(u, a.get("ease"))
         out = f"if(lt({T},{b['t']:.4f}),{a[field]:.5f}+({b[field] - a[field]:.5f})*{e},{out})"
     return f"if(lt({T},{keys[0]['t']:.4f}),{keys[0][field]:.5f},{out})"
 
@@ -210,7 +293,7 @@ def normalise_keyframes(value, length=600.0):
         x = _clamp_centre(_num(k.get("x"), 0.0, 1.0, 0.5), z)
         y = _clamp_centre(_num(k.get("y"), 0.0, 1.0, 0.5), z)
         out[round(t, 3)] = {"t": round(t, 3), "zoom": round(z, 4), "x": round(x, 4), "y": round(y, 4),
-                            "ease": "linear" if k.get("ease") == "linear" else "smooth"}
+                            "ease": ease_kind(k.get("ease"))}
     return [out[t] for t in sorted(out)][: KF["max"]]
 
 

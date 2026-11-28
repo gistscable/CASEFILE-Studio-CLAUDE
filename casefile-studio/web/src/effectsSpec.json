@@ -380,7 +380,8 @@
   "stickers": {
     "defaults": {
       "length": 4.0,
-      "opacity": 1.0
+      "opacity": 1.0,
+      "strength": 0.6
     },
     "limits": {
       "size": [
@@ -398,12 +399,30 @@
       "xy": [
         -0.25,
         1.25
-      ]
+      ],
+      "ratio": [
+        0.2,
+        6.0
+      ],
+      "strength": [
+        0.1,
+        1.0
+      ],
+      "text": 28,
+      "line": 60
     },
     "max": 60,
     "preview_width": 480,
     "fade": 0.2,
     "tabs": [
+      {
+        "id": "mark",
+        "label": "Point & mark"
+      },
+      {
+        "id": "text",
+        "label": "Text templates"
+      },
       {
         "id": "subscribe",
         "label": "Subscribe"
@@ -418,6 +437,261 @@
       }
     ],
     "catalog": [
+      {
+        "id": "spotlight",
+        "label": "Spotlight",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 1.0,
+        "cycle": 0,
+        "size": 0.22,
+        "x": 0.5,
+        "y": 0.45,
+        "region": "spot",
+        "ratio": true,
+        "hint": "Darkens everything except this spot"
+      },
+      {
+        "id": "blur",
+        "label": "Blur (face)",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 0.8,
+        "cycle": 0,
+        "size": 0.12,
+        "x": 0.5,
+        "y": 0.4,
+        "region": "blur",
+        "ratio": true,
+        "hint": "Blurs a face, a plate or a name"
+      },
+      {
+        "id": "block",
+        "label": "Black bar",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 4.0,
+        "cycle": 0,
+        "size": 0.3,
+        "x": 0.5,
+        "y": 0.5,
+        "ratio": true,
+        "hint": "Covers something completely"
+      },
+      {
+        "id": "box",
+        "label": "Box",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 1.4,
+        "cycle": 0,
+        "size": 0.2,
+        "x": 0.5,
+        "y": 0.45,
+        "ratio": true,
+        "hint": "A frame around something"
+      },
+      {
+        "id": "ring",
+        "label": "Pulse ring",
+        "tab": "mark",
+        "animated": true,
+        "aspect": 1.0,
+        "cycle": 1.2,
+        "size": 0.12,
+        "x": 0.5,
+        "y": 0.45,
+        "hint": "A pulsing ring on a spot"
+      },
+      {
+        "id": "pointer",
+        "label": "Pointer",
+        "tab": "mark",
+        "animated": true,
+        "aspect": 0.7,
+        "cycle": 1.0,
+        "size": 0.06,
+        "x": 0.5,
+        "y": 0.35,
+        "hint": "An arrow that points down at something"
+      },
+      {
+        "id": "callout",
+        "label": "Callout",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 3.2,
+        "cycle": 0,
+        "size": 0.24,
+        "x": 0.5,
+        "y": 0.3,
+        "ratio": true,
+        "text": "LOOK HERE",
+        "hint": "A box with your words and a tail"
+      },
+      {
+        "id": "label",
+        "label": "Label",
+        "tab": "mark",
+        "animated": false,
+        "aspect": 3.6,
+        "cycle": 0,
+        "size": 0.2,
+        "x": 0.5,
+        "y": 0.25,
+        "ratio": true,
+        "text": "EVIDENCE",
+        "hint": "A name tag with your words"
+      },
+      {
+        "id": "tt-message",
+        "label": "Message",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 3.0,
+        "cycle": 0.5,
+        "size": 0.42,
+        "x": 0.5,
+        "y": 0.16,
+        "lines": [
+          "MESSAGES",
+          "Laura",
+          "Have a nice one."
+        ],
+        "fields": [
+          "App",
+          "Name",
+          "Message"
+        ],
+        "hint": "A phone notification that drops in"
+      },
+      {
+        "id": "tt-subscribe",
+        "label": "Subscribe + bell",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 3.4,
+        "cycle": 1.0,
+        "size": 0.5,
+        "x": 0.5,
+        "y": 0.84,
+        "lines": [
+          "SUBSCRIBE",
+          "Casefile Studio"
+        ],
+        "fields": [
+          "Button",
+          "Channel"
+        ],
+        "hint": "The button pops, the bell rings once"
+      },
+      {
+        "id": "tt-lower",
+        "label": "Lower third",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 4.2,
+        "cycle": 0.6,
+        "size": 0.42,
+        "x": 0.28,
+        "y": 0.8,
+        "lines": [
+          "JANE DOE",
+          "Lead detective"
+        ],
+        "fields": [
+          "Name",
+          "Role"
+        ],
+        "hint": "A name and a role that wipe in"
+      },
+      {
+        "id": "tt-breaking",
+        "label": "Breaking",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 6.25,
+        "cycle": 0.55,
+        "size": 0.8,
+        "x": 0.5,
+        "y": 0.88,
+        "lines": [
+          "BREAKING",
+          "Police reopen the case"
+        ],
+        "fields": [
+          "Tag",
+          "Headline"
+        ],
+        "hint": "A news bar along the bottom"
+      },
+      {
+        "id": "tt-quote",
+        "label": "Quote",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 2.4,
+        "cycle": 0.45,
+        "size": 0.6,
+        "x": 0.5,
+        "y": 0.5,
+        "lines": [
+          "I never left the house that night.",
+          "Suspect, police interview, 2019"
+        ],
+        "fields": [
+          "Quote",
+          "Who said it"
+        ],
+        "hint": "Someone\u2019s words on a dark card"
+      },
+      {
+        "id": "tt-place",
+        "label": "Place & date",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 5.0,
+        "cycle": 1.6,
+        "size": 0.4,
+        "x": 0.27,
+        "y": 0.12,
+        "lines": [
+          "BLACKWATER, OHIO",
+          "MARCH 3, 2019"
+        ],
+        "fields": [
+          "Place",
+          "Date"
+        ],
+        "hint": "Typed out like a case file"
+      },
+      {
+        "id": "tt-chapter",
+        "label": "Chapter",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 2.6,
+        "cycle": 0.75,
+        "size": 0.5,
+        "x": 0.5,
+        "y": 0.5,
+        "lines": [
+          "CHAPTER ONE",
+          "The night of"
+        ],
+        "fields": [
+          "Kicker",
+          "Title"
+        ],
+        "hint": "A chapter card for a new part"
+      },
       {
         "id": "subscribe-click",
         "label": "Subscribe click",
@@ -449,7 +723,8 @@
         "cycle": 0,
         "size": 0.3,
         "x": 0.5,
-        "y": 0.82
+        "y": 0.82,
+        "text": "SUBSCRIBED"
       },
       {
         "id": "bell",
@@ -482,7 +757,8 @@
         "cycle": 0,
         "size": 0.2,
         "x": 0.5,
-        "y": 0.82
+        "y": 0.82,
+        "text": "SHARE"
       },
       {
         "id": "comment",
@@ -493,7 +769,8 @@
         "cycle": 0,
         "size": 0.22,
         "x": 0.5,
-        "y": 0.82
+        "y": 0.82,
+        "text": "COMMENT"
       },
       {
         "id": "arrow-ne",
@@ -537,7 +814,8 @@
         "cycle": 1.0,
         "size": 1.0,
         "x": 0.5,
-        "y": 0.5
+        "y": 0.5,
+        "text": "REC"
       },
       {
         "id": "waveform",
@@ -550,7 +828,10 @@
         "x": 0.5,
         "y": 0.8
       }
-    ]
+    ],
+    "keyframes_max": 120,
+    "region_soft": 0.8,
+    "blur_radius": 0.035
   },
   "motion": {
     "version": 2,

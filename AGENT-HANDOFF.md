@@ -1503,3 +1503,93 @@ User: "Step 4". Measured with puppeteer at 1280×690, 1440×789, 1470×845, 1512
   `position: fixed`.
 - **Splitters are hidden ≤1070 px**: they were invisible but still sat over the player on phones and tablets
   (a touch there started a resize).
+
+## v0.4.72 — Point & mark stickers that follow things; words, shape and size; Episode setup fills the window
+
+User asked for CapCut-style stickers that point at / box / blur / spotlight an item, face or spot and *stay on it*
+(tracking), keyframes on stickers, editable sticker text, resizing, a spotlight that darkens the rest of the frame,
+and a fix for the Episode setup page ("not full").
+
+- **New kinds** (Stickers → *Point & mark*, the first sub-tab; also the dialog's default tab), all in
+  `effectsSpec.json` → `stickers.catalog`: `spotlight` (region `spot`), `blur` (region `blur`), `block`, `box`,
+  `ring` (animated), `pointer` (animated), `callout` ("LOOK HERE"), `label` ("EVIDENCE"). Kinds with `ratio: true`
+  can change shape; kinds with `text` take your words (subscribed/share/comment/rec-frame too).
+- **Data** (`stickers.normalise` ⇄ `stickers.js normaliseStickers`, tested equal): optional `text` (one line, control
+  chars removed, ≤ `limits.text` 28 characters), `ratio` (`limits.ratio` 0.2–6) and `strength` (regions,
+  `limits.strength` 0.1–1, default 0.6) are stored **only when they differ from the default**, so older projects
+  normalise exactly as before. `keyframes_max` 120 (was the picture limit).
+- **Export** (`stickers.py`): `draw(kind, t, w, text, ratio)`; regions are made per output frame by
+  `_prepare_region` → `region_frame` (de-duplicated by pixel position/size/opacity, hard-linked):
+  spotlight = black RGBA layer, alpha `strength × opacity` outside a soft ellipse (ramp 0.8→1 of the radius,
+  `region_soft`); blur = grey mask, the scene `boxblur`red (radius `blur_radius(W, strength)` =
+  W·0.035·strength, 2…W/16) and `alphamerge`d back over itself. `GET /api/stickers/{kind}/{frame}.png?text=&ratio=`
+  serves customised frames (cached by hash).
+- **Preview** (`StickerLayer.jsx`): spotlight = full-frame `radial-gradient` (`spotlightCss`); blur =
+  `backdrop-filter: blur(0.82 × radius)` in a soft-edged ellipse. The selected sticker has handles: corner = size
+  (keeps shape), right/bottom = width/height (`ratio`) for ratio kinds; with keyframes a resize writes a keyframe at
+  the playhead (`resizeSticker` in `main.jsx`).
+- **Follow something** (`tracker.js`, tested in `tests/js/tracker.test.mjs`): `followSticker(id, point?)` in
+  `main.jsx` steps the playhead through the sticker's time at 12 pictures/s; `grabFrame` draws the scene's
+  `.fx-media .pic-media` img/video where the page draws them (crop, fill and camera included; no captions, titles or
+  stickers) into a 240-px grey canvas; `makeTracker` finds the patch (20–48 px from the sticker size) again by
+  normalised cross-correlation within ±22 px of where it was heading (a distance penalty `stay` stops it jumping to a
+  look-alike), learns slowly, and stops when the match drops below 0.42 (left the picture / shot changed).
+  `simplifyPath` (RDP, ≤120) turns the path into linear keyframes from the playhead on (earlier ones kept).
+  While following, `trackRef` makes the video re-seek exactly (slack 0.01). UI: right panel → "Click what to
+  follow" (then click in the player; Esc cancels) or "Follow from here"; progress + Stop (keeps the path so far).
+  Checked in Chrome on a camera push-in (zoom 1→1.5): end point within 0.01 of the true position, 13 keyframes.
+- **Sticker panel**: "Words on it" (free typing, saved cleaned, n/28), "Shape (wide ↔ tall)", "Darken the rest" /
+  "Blur amount", plus the follow section above the keyframes.
+- **Episode setup**: `episode.css` had `height: calc(100dvh - 196px)` (the old header) under a 50-px top bar,
+  leaving a ~146-px black band and clipping the page. Now the workspace is a flex column on that page
+  (`.workspace:has(> .episode-setup)`, > 800 px) so it fills the window even when the top bar wraps (≤1100 px).
+- **Top bar**: on pages with more tools the title was squeezed to "T" and the save state to "Auto saved:".
+  `.cc-top-left` is a size container: the title keeps ≥96 px; below 470 px the save words hide (tick stays, words in
+  the tooltip), below 300 px the "Fictional sample" badge hides.
+- **Tests**: `tests/test_stickers_v072.py` (spec, drawing, words, normalise, region frames, API, a real render with a
+  moving spotlight + blur + block, JS twin), `tests/js/tracker.test.mjs`. Help text and Ctrl+K search
+  ("Point & mark") updated.
+
+## v0.4.73 — Text templates (CapCut "Messages", "Subscribe" and more)
+
+**What:** Text → **Templates** (also Stickers → "Text templates"): seven animated text cards whose words you type, one box per line ("The 1st … 4th paragraph" in CapCut):
+`tt-message` (phone notification drops in), `tt-subscribe` (button pops, bell rings once, channel name under it), `tt-lower` (lower third: bar grows, panel wipes), `tt-breaking` (news bar), `tt-quote` (serif quote, wraps to 3 lines), `tt-place` (typewriter place & date), `tt-chapter` (chapter card).
+
+**Design:** they are **stickers** (`effectsSpec.json → stickers.catalog`, `tab: "text"`), so placement, size, opacity, keyframes, "Click what to follow", the timeline and export all come for free. New catalog keys:
+- `lines` (default words) + `fields` (box names), up to 4. A sticker stores `lines` only when they differ from the catalog; an emptied line stays `""` (the template draws without it); ≤ `limits.line` = 60 chars, whitespace collapsed. Python `stickers._clean_lines` ↔ JS `cleanLines` (twin test in `test_stickers_v072.py`).
+- `once: true` — the intro plays once and then holds its last frame: `frame_index(kind, f)` / `frameIndex(kind, t)` = `min(f, n-1)` (loops still `f % n`). The sticker's end fade is the outro.
+
+**Drawing:** `texttemplates.py` (Pillow, 1000-unit canvas ×3 supersampled, fonts from `web/assets/fonts`). `stickers.draw(kind, t, w, …, lines)` delegates `lines` kinds there. Preview: `/api/stickers/<kind>/<frame>.png?l=…&l=…` (`app.sticker_frame` takes `l: list[str] = Query`); the frame cache key includes the words.
+
+**Editor:** `StickerPanel` `StickerLines` (one input per field + "Back to the template's words"); `StickerLayer` preloads frames per (kind, words) and shows the **held** frame while a template is selected and paused (so typing shows the result, not an empty intro frame); `stickerLabel` adds your first changed line ("Lower third · SAM RIVERS").
+
+**Not done:** separate keyframes for `motion.py` graphics (stickers already keyframe); per-template colour pickers.
+
+**Tests:** `tests/test_stickers_v072.py` (+ v0.4.73 block: spec, each template's intro/hold, lines rules, API `?l=`, a real render, JS twin), `tests/js/tracker.test.mjs` (paragraphs, `frameIndex`, URL). `test_overlays_v049` draws `once` kinds at their held frame.
+
+## v0.4.74 — Keyframe speed, phone & app sounds
+
+**Keyframe speed** (stickers and the picture's own keyframes):
+- Each keyframe's `ease` (how it moves to the *next* keyframe) is now a dropdown: `linear` Steady, `smooth` Smooth, `in` Speed up (u³), `out` Slow down (1−(1−u)³), `hold` Jump (stays, jumps at the next key), and on stickers only `bounce` (back-out overshoot, c1 1.70158). Picture keys map `bounce` → `smooth` (a zoom must not overshoot below 1).
+- One place for the maths: `picture.ease` / `_ease_expr` / `EASES` / `STICKER_EASES` / `ease_kind`, mirrored by `web/src/picture.js` (`ease`, `EASES`, `STICKER_EASES`, `EASE_LABELS`, `EASE_HINTS`, `easeKind`). FFmpeg expressions use only `* + -` (no `pow`), so the tests' `eval_expr` still works.
+- `stickers.sample` / `stickerAt` clamp opacity to 0..1 and size ≥ `limits.size[0]` (a bounce overshoots).
+- **Move speed** (`KeySpeed` in `Effects.jsx`): Slower ×1.25 / Faster ×0.8 spreads/squeezes the keyframes from the first one (`retimeKeys(keys, factor, length)`; null when it would pass the end or put keys < 0.04 s apart). `EaseSelect` + `KeySpeed` are used by `Effects.jsx` (picture keyframes) and `StickerPanel.jsx`.
+
+**Phone & app sounds** (`sfxlib.py`, category `phone`; manual only, the plan never picks them): `phone-trio` Three-note alert (text message), `phone-chirp` Bird chirp, `phone-glow` Glow chime, `phone-chord` Soft chord, `phone-bounce` Bounce alert, `phone-ding` Bell ding, `phone-pin` Pin tick, `phone-pin-seq` Pin ticker, rolling. They are original syntheses in those styles; **nothing is copied from Apple's or CapCut's libraries** (their recordings are theirs). `sfxlib.TAGS` adds search words (tri-tone, tweet, aurora, note chord, rebound, ding, ticker, 181779) to `catalog()`; `SoundPanel` searches them. New ids need no `LIB_VERSION` bump (`ensure` makes missing files).
+- `SoundPanel`: the LIBRARY is shown with sound design off too; adding a sound while off sets `enabled: true, mode: "manual"` (only your sounds export, nothing automatic).
+
+**Tests:** `tests/test_keyspeed_sounds_v074.py` (curve shapes, Python↔FFmpeg-expression↔JS agreement on every curve, picture keys, bounce clamps, `retimeKeys`, FFmpeg really moving a layer on every curve, the phone sounds: level, no cut-off tail, tags, never auto-chosen).
+
+## v0.4.75 — Saved presets, keyframe speed made clear (+ more curves, manual time), snapping guides
+
+**Saved presets** (`presets.py`, `/api/presets` GET/POST/PATCH/DELETE, file `<data>/presets.json`, one list for the whole app, max 300, names ≤ 40):
+- `sticker`: a sticker or text template as set up (kind, size, place, opacity, ratio, text/lines, strength, length, keyframes with speeds); cleaned by `stickers.normalise`; image stickers refused (their asset belongs to one project). Save: StickerPanel › "PRESETS · USE IT AGAIN" › "Save this sticker as a preset". Use: Stickers › **Saved** (+ Add at the playhead; rename ✎ / double-click, delete ×); saved text templates also appear on top of Text › Templates. "Use a saved move…" puts a saved sticker's keyframes on the selected sticker from where it is (`moveOnto`: positions shifted, size scaled, squeezed to fit).
+- `move`: a picture move (scene zoom/position keyframes) stored from its first key; Effects › keyframes › "SAVED MOVES" (save / Apply, squeezed to fit the scene).
+- `caption`: a caption style (`captionstyle.normalise`); Captions › Styles › "YOUR STYLES".
+- Front end: `presets.js` (pure: load/save/rename/delete, `usePresets(kind)` shared cache, `moveOnto`) + `PresetUI.jsx` (`SavePresetForm`, `PresetRow`).
+
+**Keyframe speed** (`KeyframeUI.jsx`, used by `Effects.jsx` and `StickerPanel.jsx`): between two keyframes a **curve chip** (drawn from the real maths) opens a grid of curves with a moving-dot demo and a one-line explanation, and **"takes [− 1.00 s +]"** (typed or stepped; later keyframes ripple: `setSegment`). Below: **Whole move [s]** (`setSpan`) and **½× ¾× 1.5× 2×** (`retimeKeys`). Curves: picture `linear smooth in out snap bounce hold`, stickers also `anticipate overshoot elastic` (`picture.EASES / STICKER_EASES`, expression via `_ease_expr` with `if/lt/exp/sin`). NB "bounce" now means a ball bounce (≤ 1); the v0.4.74 overshoot is now "overshoot".
+
+**Snapping guides** (`snap.js` `snapMove` / `snapSize`, `StickerLayer.jsx`): while dragging/resizing a sticker it snaps (7 screen px) to the centre lines (pink), the other stickers' edges/centres (cyan), the frame edges, the 5% safe margins and the thirds (dashed yellow); a readout shows `x% · y%` (+ "centred"). **Alt/Option** = no snapping. Arrow keys nudge the selected sticker (1/1920 of the width; Shift ×10).
+
+**Tests:** `tests/test_presets_snap_v075.py` (curves Python↔JS, picture curves stay in range, manual speed, snapping, presets API cleaning/limits/rename/delete/broken file, `moveOnto`); `test_keyspeed_sounds_v074.py` updated for the renamed overshoot and the 10 curves (FFmpeg moves a layer on every curve).
