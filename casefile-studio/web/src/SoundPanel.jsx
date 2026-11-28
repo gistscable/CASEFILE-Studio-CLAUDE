@@ -26,7 +26,7 @@ const FRAME = 1 / SFX.fps;
 export default function SoundPanel({ project, plan, planError, time, playing, selectedId, onSelect, onChange, onGenerate, onSeek, onPlayFrom,
                                      preview, mute, solo, onMute, onSolo, onUploadSound, disabled,
                                      duckStatus = "none", narrationVolume = 1, onNarrationVolume = () => {}, onSelectMany = () => {},
-                                     onLiveNarration = () => {}, onLiveMaster = () => {}, pin = null, onPin = () => {} }) {
+                                     onLiveNarration = () => {}, onLiveMaster = () => {}, pin = null, onPin = () => {}, focus = false, listOnly = false }) {
   const s = normaliseSound(project.sound);
   const [catalog, setCatalog] = React.useState(null);
   const [browse, setBrowse] = React.useState(false);
@@ -159,6 +159,10 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
 
   return (
     <div className="inspector-content cs sfx">
+      {/* v0.4.70 focus: the right panel shows only the selected sound */}
+      {focus && !sel && <p className="micro-note block">This sound is gone. Pick another on the Sound FX lane.</p>}
+      {focus && sel && !s.enabled && <p className="micro-note block mg-warn">Sound design is off, so this sound is not exported. Switch it on in Audio › Sound effects.</p>}
+      {!focus && (<>
       <div className="section-label">
         <span>INTELLIGENT SOUND DESIGN</span>
       </div>
@@ -170,8 +174,10 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
         Restrained effects placed on the animation itself: graphics, diagrams, typing, transitions, chapter changes, verified developments and the subscribe animation.
         Never on soundbites, the victim or family, or grief and violence in the narration. Your narration and soundbites are never changed.
       </p>
-      {s.enabled && (
+      </>)}
+      {(s.enabled || (focus && sel)) && (
         <>
+          {!focus && (<>
           <label className="field mg-field">
             Preset
             <select aria-label="Preset" value={s.preset} disabled={disabled} onChange={(e) => onChange(withPreset(s, e.target.value))}>
@@ -264,7 +270,9 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             </>
           )}
 
-          {sel && (
+          </>)}
+          {sel && listOnly && <p className="micro-note block cc-right-hint">Its settings are in the right panel.</p>}
+          {sel && !listOnly && (
             <div className="st-edit">
               <div className="section-label sub">
                 <span>{(KIND_LABEL[sel.kind] || "Sound").toUpperCase()}</span>
@@ -363,6 +371,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
             </div>
           )}
 
+          {!focus && (<>
           <div className="section-label sub"><span>LIBRARY</span></div>
           <div className="st-actions">
             <button className="btn" onClick={() => setBrowse(!browse)}>{browse ? "Close the library" : "Browse the library"}</button>
@@ -403,6 +412,7 @@ export default function SoundPanel({ project, plan, planError, time, playing, se
               <p className="micro-note">Listening never changes the project: only “+ at” adds a sound. Every built-in sound is made on this computer by Casefile (no downloads, no licences to track). Imported sounds are yours: use only sounds you have the right to use.</p>
             </div>
           )}
+          </>)}
         </>
       )}
     </div>
