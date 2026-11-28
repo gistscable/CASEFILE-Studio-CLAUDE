@@ -15,6 +15,7 @@ import motion as motiongfx
 import sfxlib
 import presets as presetlib
 import niches
+import sportsedit
 import sound as sfxplan
 import music as musiclib
 from storage import (
@@ -37,7 +38,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.77", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.78", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -3629,6 +3630,179 @@ def recut_file(id: str, rid: str):
         raise HTTPException(404, "That re-cut is no longer on disk.")
     name = re.sub(r"[^A-Za-z0-9 _-]+", "", p.get("title") or "video").strip() or "video"
     return FileResponse(path, filename=f"{name} - recut.mp4", media_type="video/mp4")
+
+
+# ---------------------------------------------------------------------------
+# Sports edit (v0.4.78): the producer's own footage cut together with the editorial graphics
+# (sportsedit.py, cinegfx/sports). Football, boxing & MMA and wrestling projects only.
+# ---------------------------------------------------------------------------
+
+
+def sportsedit_project(id):
+    p = project_or_404(id)
+    if not sportsedit.eligible(p):
+        raise HTTPException(422, "The sports edit is for football, boxing & MMA and wrestling projects. Choose the niche in Setup.")
+    return p
+
+
+@app.get("/api/projects/{id}/sportsedit")
+def sportsedit_view(id: str):
+    p = project_or_404(id)
+    ok = sportsedit.eligible(p)
+    out = {"eligible": ok, "settings": sportsedit.settings(p),
+           "styles": [{"key": k, "label": v["label"], "about": v["about"]} for k, v in sportsedit.P.STYLES.items()],
+           "segmentation": sportsedit.segmentation(), "renders": sportsedit.renders(DATA, id) if ok else []}
+    if ok:
+        out |= sportsedit.make_plan(p, narration_sources(p, id), DATA, renderer.asset_path)
+    return out
+
+
+@app.patch("/api/projects/{id}/sportsedit")
+async def sportsedit_settings(id: str, request: Request):
+    body = await episode_json(request)
+    if set(body) - {"enabled", "style", "crop", "overrides"}:
+        raise HTTPException(422, "Unsupported sports edit setting.")
+    with LOCK:
+        p = sportsedit_project(id)
+        merged = {**sportsedit.settings(p), **body}
+        try:
+            p["sports_edit"] = sportsedit.normalise(merged, {a["id"] for a in sportsedit.media_assets(p)})
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        save_project(p)
+    return sportsedit_view(id)
+
+
+@app.post("/api/projects/{id}/sportsedit/analyse")
+def sportsedit_analyse(id: str):
+    p = sportsedit_project(id)
+    if not sportsedit.media_assets(p):
+        raise HTTPException(422, "Add your own clips or photos to the project first.")
+
+    def work(progress, cancelled):
+        def step(n, total, pct, name):
+            progress(min(99, int(100 * (n + pct / 100) / max(1, total))), f"Finding the shots in {name} ({n + 1}/{total})")
+        lib = sportsedit.library(p, DATA, renderer.asset_path, analyse_missing=True, progress=step, cancelled=cancelled)
+        shots = sum(len(x["shots"]) for x in lib if x["kind"] == "video")
+        return {"summary": f"Footage analysed: {shots} shots in {sum(x['kind'] == 'video' for x in lib)} clips, "
+                           f"{sum(x['kind'] == 'image' for x in lib)} photos."}
+
+    return spawn(id, "sportsedit", work)
+
+
+@app.post("/api/projects/{id}/sportsedit/render")
+def sportsedit_render(id: str):
+    from cinegfx.sports import edit as sports_edit
+    p = sportsedit_project(id)
+    cfg = sportsedit.settings(p)
+    if not cfg["enabled"]:
+        raise HTTPException(422, "Switch the sports edit on first.")
+    sources = narration_sources(p, id)
+    info = sportsedit.inputs(p, sources, renderer.asset_path)
+    if info["problems"]:
+        raise HTTPException(422, " ".join(info["problems"]))
+    if not sportsedit.media_assets(p):
+        raise HTTPException(422, "Add your own clips or photos to the project first: the edit only uses the project's own media.")
+
+    def work(progress, cancelled):
+        progress = with_machine_note(progress)
+        d = sportsedit.folder(DATA, id)
+        d.mkdir(parents=True, exist_ok=True)
+        rid = uid()
+        out = d / f"{rid}.mp4"
+        started = time.time()
+        stats = {}
+        try:
+            with RENDER_LOCK:
+                def step(n, total, pct, name):
+                    progress(1 + int(13 * (n + pct / 100) / max(1, total)), f"Finding the shots in {name} ({n + 1}/{total})")
+                lib = sportsedit.library(p, DATA, renderer.asset_path, analyse_missing=True, progress=step, cancelled=cancelled)
+                if cancelled():
+                    return {"summary": "Cancelled."}
+                progress(14, "Planning the edit from the narration")
+
+                def matte_step(n, total):
+                    progress(15 + int(10 * n / max(1, total)), f"Separating the players for the type behind them ({n + 1}/{total})")
+                try:
+                    edit, plan = sportsedit.build_edit(p, sources, DATA, renderer.asset_path, lib, log=lambda m: None,
+                                                       matte_progress=matte_step)
+                except ValueError as e:
+                    raise RuntimeError(str(e))
+                overlay = None
+                wm = watermark.active(p)
+                if wm:
+                    logo_asset = next(x for x in p["assets"] if x["id"] == wm["asset_id"])
+                    overlay = str(d / f"{rid}-logo.png")
+                    watermark.layer(p, renderer.asset_path(logo_asset), sportsedit.W, sportsedit.H, overlay)
+
+                def on_chunk(done, todo, cached):
+                    stats.update(rendered=todo, reused=cached)
+                    if done >= todo:
+                        progress(92, "Mixing the narration, music and sound, and encoding")
+                    else:
+                        progress(26 + int(66 * done / max(1, todo)),
+                                 f"Rendering the picture: {done}/{todo} new parts" + (f", {cached} unchanged parts reused" if cached else ""))
+                sports_edit.export(edit, str(out), log=lambda m: None, overlay=overlay, on_chunk=on_chunk, cancelled=cancelled)
+        except sports_edit.Cancelled:
+            out.unlink(missing_ok=True)
+            return {"summary": "Cancelled. Finished parts are kept, so the next render continues from them."}
+        finally:
+            (d / f"{rid}-logo.png").unlink(missing_ok=True)
+            for tmp in (sportsedit.cache_dir(DATA, id) / "tmp").glob(f"{rid}.*"):   # export's picture + mix
+                tmp.unlink(missing_ok=True)
+        dur = edit.duration
+        record = {"id": rid, "at": now(), "duration": round(dur, 2), "size": out.stat().st_size, "style": plan["style_label"],
+                  "cuts": len(plan["cuts"]), "graphics": len(plan["on"]), "seconds": round(time.time() - started),
+                  "rendered": stats.get("rendered", 0), "reused": stats.get("reused", 0),
+                  "behind": bool(edit._mattes), "file": f"/api/projects/{id}/sportsedit/file/{rid}"}
+        sportsedit.add_render(DATA, id, record)
+        secs = round(dur)
+        reuse = f" {record['reused']} unchanged parts were reused." if record["reused"] else ""
+        return {**record, "summary": f"Sports edit ready: {secs // 60}:{secs % 60:02d}, {record['cuts']} shots, "
+                                     f"{record['graphics']} graphics ({plan['style_label']}).{reuse}"}
+
+    return spawn(id, "sportsedit", work)
+
+
+@app.get("/api/projects/{id}/sportsedit/file/{rid}")
+def sportsedit_file(id: str, rid: str):
+    p = project_or_404(id)
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", rid):
+        raise HTTPException(404, "Unknown sports edit.")
+    path = sportsedit.folder(DATA, id) / f"{rid}.mp4"
+    if not path.is_file():
+        raise HTTPException(404, "That sports edit is no longer on disk.")
+    name = re.sub(r"[^A-Za-z0-9 _-]+", "", p.get("title") or "video").strip() or "video"
+    return FileResponse(path, filename=f"{name} - sports edit.mp4", media_type="video/mp4")
+
+
+@app.get("/api/projects/{id}/sportsedit/frame/{asset_id}")
+def sportsedit_frame(id: str, asset_id: str, t: float = Query(0.0, ge=0, le=36000)):
+    """A small still of a shot, for the review list (cached)."""
+    p = project_or_404(id)
+    a = next((x for x in sportsedit.media_assets(p) if x["id"] == asset_id), None)
+    if not a:
+        raise HTTPException(404, "Not a clip or photo in this project.")
+    try:
+        src = renderer.asset_path(a)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    d = sportsedit.folder(DATA, id) / "frames"
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{re.sub(r'[^A-Za-z0-9_-]', '', asset_id)}-{0 if a['kind'] == 'image' else int(round(t * 10))}.jpg"
+    if not f.is_file():
+        if a["kind"] == "image":
+            with Image.open(src) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                im.thumbnail((320, 180))
+                im.save(f, quality=80)
+        else:
+            from cinegfx.timing import ffbin
+            r = subprocess.run([ffbin(), "-v", "error", "-y", "-ss", f"{t:.2f}", "-i", str(src), "-frames:v", "1",
+                                "-vf", "scale=320:-2", "-q:v", "5", str(f)], capture_output=True)
+            if r.returncode or not f.is_file():
+                raise HTTPException(404, "No picture at that time.")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
 
 
 # ---------------------------------------------------------------------------

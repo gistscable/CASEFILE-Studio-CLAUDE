@@ -1624,3 +1624,13 @@ and a fix for the Episode setup page ("not full").
 - Demos: `casefile-studio/qa/sports-demos/make_demos.py` (story: Messi 4–1 Arsenal, 6 Apr 2010; sources in `script.json`; narration `narration/*.flac` + `words.json`). Footage lives in `qa/sports-demos/work/` (gitignored, copyrighted broadcast material, internal approval only). Outputs are `0-combined-messi-arsenal.mp4`, `1-…7-*.mp4` and `EDL.json`. The MP4s are gitignored; share them outside git.
 - Tests: `tests/test_sports_v077.py` (synthetic, no footage or model needed).
 - Not done yet, pending approval: UI and project integration (a "Sports edit" mode), storytelling-style picker, more compositions per family.
+
+## v0.4.78 — Sports edit in the app (branch for approval)
+- Sports projects (niche football / boxing / wrestling) get a **Sports edit** tab (`web/src/SportsEdit.jsx` + `sportsedit.css`; the tab only appears for those niches). Backend `casefile-studio/sportsedit.py`; engine additions `cinegfx/sports/shots.py` (footage analysis) and `cinegfx/sports/planner.py` (edit plan + reasons). See the "In the app" section of `cinegfx/sports/README.md`.
+- Project field `sports_edit = {enabled, style, crop, overrides: {graphics, moves, shots}}` (absent = off). Only written by `PATCH /api/projects/{id}/sportsedit` (422 for non-sports projects, unknown styles, malformed keys, assets not in the project).
+- Routes: `GET/PATCH /api/projects/{id}/sportsedit`, `POST …/sportsedit/analyse` and `…/render` (job kind `sportsedit`, returns `{job_id}`), `GET …/sportsedit/file/{rid}`, `GET …/sportsedit/frame/{asset_id}?t=` (cached review stills).
+- Needs: narration asset, script, word timing (Voice › Timing or an imported timings file), and the user's own footage/photos. Missing inputs are listed in plain words; the render button stays off.
+- Engine changes: `edit.render_video(on_chunk=, cancelled=)` + `Cancelled`; `edit.export(overlay=, on_chunk=, cancelled=, music_db=)`; `prepare_mattes(compute=False)` uses only cached mattes; natural sound skips footage without an audio track; stale `*.tmp.mp4` chunk files (>10 min) are removed. `ENGINE_VERSION` unchanged (no drawing changes).
+- The chunk render uses a spawn process pool: any script that drives it (tests, tools) needs an `if __name__ == "__main__":` guard. uvicorn and pytest are fine.
+- Tests: `tests/test_sports_edit_v078.py` (synthetic lavfi footage + sine narration: analysis, planner, overrides, settings, true-crime untouched, a 320x180 render through the job system and chunk reuse after a review change).
+- Checked on the Messi 4–1 Arsenal demo material through the API: 1080p25, 75.5 s, 22 shots, 7 graphics, −13.8 LUFS, no decode errors.

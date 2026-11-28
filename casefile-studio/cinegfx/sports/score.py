@@ -16,6 +16,8 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+import zlib
+
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -36,7 +38,7 @@ def _glitch(rng):
     # stuttered bit-crushed noise bursts
     for k in range(5):
         a = int(rng.integers(0, n - _n(0.03)))
-        L = _n(float(rng.uniform(0.012, 0.035)))
+        L = min(_n(float(rng.uniform(0.012, 0.035))), n - a)
         burst = rng.standard_normal(L).astype(np.float32)
         step = int(rng.integers(6, 18))
         burst = np.repeat(burst[::step], step)[:L]
@@ -72,7 +74,7 @@ def sound(sid: str):
     """(float32 [2, n], sync seconds) for an sfxlib id or a sports id."""
     if sid in SPORTS_SFX:
         fn, peak_db = SPORTS_SFX[sid]
-        x = fn(np.random.default_rng(abs(hash(sid)) % (2 ** 31)))
+        x = fn(np.random.default_rng(zlib.crc32(sid.encode())))   # the same sound in every process (not hash())
         x *= 10 ** (peak_db / 20) / (np.max(np.abs(x)) + 1e-9)
         return x.astype(np.float32), 0.0
     return sfxlib.synth(sid)

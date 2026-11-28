@@ -1,4 +1,4 @@
-# cinegfx.sports: cinematic sports editorial engine (v0.4.77, preview)
+# cinegfx.sports: cinematic sports editorial engine (v0.4.77; in the app since v0.4.78)
 
 A sports documentary engine inside the multi-niche cinegfx engine. It cuts real footage and composites
 narration-driven motion graphics in three layers (footage, type **behind** the subject, type **in front**). It is
@@ -72,3 +72,33 @@ The model is gitignored; see `qa/sports-demos/README.md` for how the demo's copy
 
 Broadcast footage and commentary are usually restricted. Being on YouTube does not grant reuse rights. The demo
 footage is used for internal approval only and is not in git. Use licensed or owned footage in production.
+
+
+## In the app: Sports edit (v0.4.78)
+
+Football, boxing & MMA and wrestling projects get a **Sports edit** page (`web/src/SportsEdit.jsx`, backend
+`casefile-studio/sportsedit.py`, routes `/api/projects/{id}/sportsedit…`). True-crime and other projects are untouched.
+
+1. **Inputs, all from the project:** the narration audio (`narration_id`), the script (`narration_sources`, same text as
+   the timing step) and the word timing (`episode.timings.words`, re-aligned number-aware with `align_words`; the script's
+   paragraphs become narration segments). Footage and photos are the project's own video/image assets (not the narration,
+   music or logo). Nothing is fetched or invented.
+2. **Footage analysis** (`shots.py`): one small decode per file (160x90, 12.5 fps) finds the cuts and describes each shot
+   from its pixels (pitch share, brightness, movement, texture, and person share when the matte model is installed):
+   wide / action / close / crowd / dark. Cached per file in `DATA/media/{id}/sportsedit/cache/shots-*.json`.
+3. **Planner** (`planner.py`): storytelling style (Emotional cinematic, Investigative, Historical retrospective,
+   High-energy, Analytical, Automatic) sets shot length, grade, slow motion, footage sound level and the music arc. Cuts
+   land on words (sentence starts, graphic entrances, every spoken number of a list); each piece asks for the shot its
+   graphic needs (close-up for type behind the player, action for goals, low-key for a flashback, wide for a date/place).
+   Photos only where their file name matches the words spoken over them (or the graphic's own words under a name or
+   stats graphic). Graphics too close to a stronger one are offered switched off. Every choice carries a reason.
+4. **Review:** graphics on/off, cut times moved, shots swapped (any detected shot or photo, any in-point). Saved as
+   `project.sports_edit.overrides`, keyed by the cut's planned time; a change that no longer matches a cut is listed as
+   stale, never applied elsewhere. Text is never editable here: it always comes from the narration.
+5. **Render:** a `sportsedit` job (`RENDER_LOCK`, machine note, cancellable between chunks) through `edit.export` with
+   the project's logo overlay. Chunks are cached in `DATA/media/{id}/sportsedit/cache/chunks`, so a review change
+   re-renders only the chunks it touches. Output `DATA/media/{id}/sportsedit/{rid}.mp4`; the last 6 are kept.
+6. **Segmentation status:** the page says whether text-behind-the-player is available and how to enable it
+   (`pip install onnxruntime` + `rvm_mobilenetv3_fp32.onnx` in `casefile-studio/models/`). Without it the type is in front.
+
+Optional *Crop in slightly* reframes footage 14% so a broadcaster's corner logo leaves the frame (off by default).
