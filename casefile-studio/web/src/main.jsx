@@ -11,7 +11,8 @@ import Home, { HomeIcon } from "./Home.jsx";
 import CtaOverlay from "./CtaOverlay.jsx";
 import PictureLayer from "./PictureLayer.jsx";
 import StickerLayer from "./StickerLayer.jsx";
-import StickerDialog from "./StickerDialog.jsx";
+import StickerDialog, { StickerGallery } from "./StickerDialog.jsx";
+import { sortMedia } from "./mediaSort.js";
 import StickerPanel from "./StickerPanel.jsx";
 import MotionPanel from "./MotionPanel.jsx";
 import MotionLayer from "./MotionLayer.jsx";
@@ -29,7 +30,7 @@ import { AUDIO_ROLES, audioLists, audioRoleOf, roleBlock } from "./audioRoles.js
 import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel } from "./stickers.js";
 import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
-import { LOOKS, TRANSITIONS, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
+import { LOOKS, TRANSITIONS, normaliseNameCards, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
 import { captionAt, captionCss, normaliseStyle, sceneCaptions, chunks as captionChunks, textUnit } from "./captionStyle.js";
 import {
   Sticker,
@@ -103,6 +104,7 @@ import {
   Menu,
   Images,
   PanelLeft,
+  ArrowUpDown,
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
@@ -163,7 +165,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.68";
+const APP_VERSION = "0.4.69";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -461,7 +463,12 @@ function App() {
     [mediaId, setMediaId] = useState(null),
     [frameSize, setFrameSize] = useState({ width: 640, height: 360 }),
     [fullMode, setFullMode] = useState(""),
-    [searchOpen, setSearchOpen] = useState(false); // v0.4.68
+    [searchOpen, setSearchOpen] = useState(false), // v0.4.68
+    [hoverLook, setHoverLook] = useState(null), // v0.4.69 the look you point at in Filters
+    [mediaSort, setMediaSort] = useState("timeline"),
+    [unusedOnly, setUnusedOnly] = useState(false);
+  // v0.4.69 a look you were trying never sticks to the player when you leave Filters
+  useEffect(() => setHoverLook(null), [leftTab, project?.id]);
   const historyRef = useRef(() => {}),
     historyBusy = useRef(false),
     gesture = useRef(false);
@@ -1301,9 +1308,22 @@ function App() {
     queueSave({ stickers: [...list, st] });
     setStickerId(st.id);
     setStickerDialog(false);
-    openLeft("stickers");
+    openLeft("stickers", "placed"); // v0.4.69 straight to its size, timing and keyframes
     setPlaying(false);
     notify("Sticker added at the playhead. Drag it in the preview to move it.");
+  }
+  async function uploadSticker(file) {
+    try {
+      const form = new FormData();
+      form.append("files", file);
+      const before = new Set((project.assets || []).map((a) => a.id));
+      let p = await api(`/api/projects/${project.id}/upload`, "POST", form);
+      const added = p.assets.find((a) => !before.has(a.id) && a.kind === "image");
+      if (added) p = await api(`/api/projects/${project.id}/assets/${added.id}`, "PATCH", { sticker: true });
+      setProject(p);
+    } catch (e) {
+      report(e);
+    }
   }
   function moveSticker(id, x, y, local) {
     const list = normaliseStickers(projectRef.current.stickers, projectRef.current.assets);
@@ -2031,9 +2051,18 @@ function App() {
               scene={selected}
               sceneIndex={Math.max(0, scenes.indexOf(selected))}
               thumb={assets.find((a) => a.id === selected?.asset_id)?.thumbnail}
+              prevThumb={(() => {
+                const i = scenes.indexOf(selected);
+                return i > 0 ? assets.find((a) => a.id === scenes[i - 1].asset_id)?.thumbnail : null;
+              })()}
               disabled={locked}
               onProject={queueSave}
               onScene={updateScene}
+              onHoverLook={setHoverLook}
+              onAllScenes={(patch, label) => {
+                queueSave({ scenes: scenes.map((x) => ({ ...x, ...patch })) });
+                notify(`${label || "This transition"} is on every scene now. Undo puts the old ones back.`);
+              }}
               ctaEvents={ctaEvents}
               ctaSpots={ctaSpots}
               ctaNatural={ctaSpots[0]?.natural || normaliseCta(project.cta).seconds}
@@ -2160,9 +2189,10 @@ function App() {
             />
     );
   }
-  function captionsPanel() {
+  function captionsPanel(section) {
     return (
             <CaptionStyles
+              section={section}
               value={project.caption_style}
               enabled={project.captions}
               disabled={locked}
@@ -2480,13 +2510,14 @@ function App() {
     ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
     ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
     ["text", "Text", Type, [["titles", "Scene titles"], ["names", "Name cards"]]],
-    ["stickers", "Stickers", Sticker, null],
+    ["stickers", "Stickers", Sticker, [["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
     ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
     ["transitions", "Transitions", ArrowLeftRight, null],
-    ["captions", "Captions", Captions, null],
+    ["captions", "Captions", Captions, [["styles", "Styles"], ["text", "Text"], ["box", "Box & position"]]],
     ["filters", "Filters", Palette, null],
     ["graphics", "Graphics", Shapes, null],
   ];
+  const MEDIA_SORTS = [["timeline", "Order in the edit"], ["newest", "Newest first"], ["oldest", "Oldest first"], ["name", "Name A–Z"], ["longest", "Longest first"]];
   function mediaCard(a, used) {
     return (
       <button
@@ -2580,6 +2611,45 @@ function App() {
       </div>
     );
   }
+  // v0.4.69 Effects and Text start with a card for each overlay: a small preview, whether it is
+  // on, and a switch. Clicking a card opens its settings below.
+  function featureCards(current) {
+    const fx = normaliseEffects(project.effects);
+    const wm = normaliseWatermark(project.watermark);
+    const cta = normaliseCta(project.cta);
+    const nc = normaliseNameCards(project.name_cards);
+    const thumb = assets.find((a) => a.id === (selected || scenes[0])?.asset_id)?.thumbnail;
+    const logo = assets.find((a) => a.id === wm.asset_id);
+    const fxOn = [fx.grain > 0, fx.vignette > 0, fx.letterbox].filter(Boolean).length;
+    const cards = [
+      ["effects", "video", "Video effects", fxOn ? `${fxOn} on` : "Off", fxOn > 0, null, "fx"],
+      ["effects", "logo", "Logo", wm.enabled ? (logo ? "On" : "On · choose a logo") : "Off", wm.enabled, (v) => queueSave({ watermark: { ...wm, enabled: v } }), "logo"],
+      ["effects", "subscribe", "Subscribe", cta.enabled ? "On" : "Off", cta.enabled, (v) => queueSave({ cta: { ...cta, enabled: v } }), "cta"],
+      ["text", "names", "Name cards", nc.auto ? "Automatic" : scenes.some((x) => x.lower_third) ? "Typed on scenes" : "Off", nc.auto || scenes.some((x) => x.lower_third), null, "name"],
+    ];
+    return (
+      <div className="cc-feature-cards" role="group" aria-label="Overlays on your video">
+        {cards.map(([tab, sub, label, state, on, toggle, kind]) => {
+          const open = current === `${tab}/${sub}`;
+          return (
+            <div key={kind} className={`cc-feature ${open ? "open" : ""} ${on ? "on" : ""}`}>
+              <button className="cc-feature-main" aria-label={`${label} settings`} aria-current={open || undefined} onClick={() => openLeft(tab, sub)}>
+                <span className={`cc-feature-prev fp-${kind}`} style={thumb ? { backgroundImage: `url("${thumb}")` } : undefined}>
+                  {kind === "logo" && <i style={logo?.url ? { backgroundImage: `url("${logo.url}")` } : undefined} />}
+                  {kind === "cta" && <i>Subscribe</i>}
+                  {kind === "name" && <i><b>Name</b>Who they are</i>}
+                  {kind === "fx" && <i />}
+                </span>
+                <span className="cc-feature-name">{label}</span>
+                <small className="cc-feature-state">{state}</small>
+              </button>
+              {toggle && <Toggle checked={!!on} label={`${label} on the video`} onChange={(v) => !locked && toggle(v)} />}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   function renderLeftPanel() {
     const def = LEFT_TABS.find((t) => t[0] === leftTab) || LEFT_TABS[0];
     const [key, , , subs] = def;
@@ -2589,7 +2659,8 @@ function App() {
     const lists = audioLists(project);
     let content;
     if (key === "media") {
-      const list = sub === "scenes" ? [] : assets.filter((a) => (sub === "all" || a.kind === sub) && (!q || a.name.toLowerCase().includes(q)));
+      const list = sub === "scenes" ? [] : sortMedia(assets.filter((a) => (sub === "all" || a.kind === sub) && (!q || a.name.toLowerCase().includes(q)) && (!unusedOnly || !used.has(a.id))), mediaSort, scenes);
+      const kindCount = (k) => assets.filter((a) => k === "all" || a.kind === k).length;
       content = (
         <>
           <div className="cc-content-head">
@@ -2651,14 +2722,38 @@ function App() {
                 </Button>
               </Empty>
             )
-          ) : list.length ? (
-            <div className="cc-grid">{list.map((a) => mediaCard(a, used.has(a.id)))}</div>
           ) : (
+            <>
+              <div className="cc-media-tools">
+                <div className="cc-chips" role="group" aria-label="Show">
+                  {[["all", "All"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio"]].map(([k, label]) => (
+                    <button key={k} className={`cc-chip ${sub === k ? "on" : ""}`} aria-pressed={sub === k} onClick={() => openLeft("media", k)}>
+                      {label} <small>{kindCount(k)}</small>
+                    </button>
+                  ))}
+                  <button className={`cc-chip ${unusedOnly ? "on" : ""}`} aria-pressed={unusedOnly} title="Only files that are not in your edit yet" onClick={() => setUnusedOnly((v) => !v)}>
+                    Not used yet
+                  </button>
+                </div>
+                <label className="cc-sort">
+                  <ArrowUpDown size={12} />
+                  <select aria-label="Sort media" value={mediaSort} onChange={(e) => setMediaSort(e.target.value)}>
+                    {MEDIA_SORTS.map(([k, label]) => (
+                      <option key={k} value={k}>{label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {list.length ? (
+                <div className="cc-grid">{list.map((a) => mediaCard(a, used.has(a.id)))}</div>
+              ) : (
             <div className="cc-empty">
               <Upload size={22} />
-              <b>{q ? "Nothing matches your search" : "Nothing here yet"}</b>
-              <span>Import photos, clips and audio. Media: 512 MB/file · 30 files/batch.</span>
+              <b>{q || unusedOnly ? "Nothing matches" : "Nothing here yet"}</b>
+              <span>{unusedOnly && !q ? "Everything here is already in your edit." : "Import photos, clips and audio. Media: 512 MB/file · 30 files/batch."}</span>
             </div>
+              )}
+            </>
           )}
           <p className="cc-foot">
             <Info size={12} />
@@ -2708,7 +2803,10 @@ function App() {
     } else if (key === "text") {
       content =
         sub === "names" ? (
-          effectsPanel(["namecards", "lowerthird"])
+          <>
+            {featureCards("text/names")}
+            {effectsPanel(["namecards", "lowerthird"])}
+          </>
         ) : (
           <div className="inspector-content">
             <div className="section-label">
@@ -2734,10 +2832,38 @@ function App() {
             </div>
           </div>
         );
-    } else if (key === "stickers") content = stickersPanel();
-    else if (key === "effects") content = effectsPanel(sub === "logo" ? ["watermark"] : sub === "subscribe" ? ["cta"] : ["fx"]);
+    } else if (key === "stickers") {
+      // v0.4.69 the sticker gallery sits in the tab (as in CapCut); "On your video" lists and edits them
+      const placed = normaliseStickers(project.stickers, project.assets).length;
+      content =
+        sub === "placed" ? (
+          stickersPanel()
+        ) : (
+          <div className="inspector-content">
+            <div className="section-label">
+              <span>CLICK TO ADD AT {tc(time)}</span>
+              {placed > 0 && (
+                <button className="text-link" onClick={() => openLeft("stickers", "placed")}>
+                  {placed} on your video <ArrowUpRight size={11} />
+                </button>
+              )}
+            </div>
+            <StickerGallery tab={sub} assets={assets} grid="sticker-grid cc-sticker-grid" onAdd={(kind, assetId) => addSticker(kind, assetId)} onUpload={uploadSticker} />
+            <p className="cc-foot">
+              <Info size={12} /> Drag a sticker in the preview to move it. Size, timing and keyframes are under “On your video”.
+            </p>
+          </div>
+        );
+    }
+    else if (key === "effects")
+      content = (
+        <>
+          {featureCards(`effects/${sub}`)}
+          {effectsPanel(sub === "logo" ? ["watermark"] : sub === "subscribe" ? ["cta"] : ["fx"])}
+        </>
+      );
     else if (key === "transitions") content = effectsPanel(["transitions"]);
-    else if (key === "captions") content = captionsPanel();
+    else if (key === "captions") content = captionsPanel(sub);
     else if (key === "filters") content = effectsPanel(["looks"]);
     else content = motionPanel();
     return (
@@ -2763,14 +2889,17 @@ function App() {
         <div className={`cc-left-body ${subs ? "" : "no-sub"}`}>
           {subs && (
             <nav className="cc-subnav" aria-label={`${def[1]} sections`}>
-              {subs.map(([k, label]) => (
-                <button key={k} className={sub === k ? "active" : ""} aria-current={sub === k ? "true" : undefined} onClick={() => setLeftSub((cur) => ({ ...cur, [key]: k }))}>
-                  {label}
-                  {key === "media" && (
-                    <small>{k === "scenes" ? scenes.length : k === "all" ? assets.length : assets.filter((a) => a.kind === k).length}</small>
-                  )}
-                </button>
-              ))}
+              {subs.map(([k, label]) => {
+                // v0.4.69 Media: Scenes and the Library; the chips above the grid pick videos, photos or audio
+                if (key === "media" && k !== "scenes" && k !== "all") return null;
+                const on = sub === k || (key === "media" && k === "all" && sub !== "scenes");
+                return (
+                  <button key={k} className={on ? "active" : ""} aria-current={on ? "true" : undefined} onClick={() => setLeftSub((cur) => ({ ...cur, [key]: k }))}>
+                    {key === "media" && k === "all" ? "Library" : label}
+                    {key === "media" && <small>{k === "scenes" ? scenes.length : assets.length}</small>}
+                  </button>
+                );
+              })}
             </nav>
           )}
           <div className="cc-content inspector cc-inner">{content}</div>
@@ -3586,13 +3715,14 @@ function App() {
                   </div>
                 )}
                 <div
-                  className={`video-frame look-${project.look} ${aspectOf(project) === "9:16" ? "tall" : ""}`}
+                  className={`video-frame look-${hoverLook || project.look} ${aspectOf(project) === "9:16" ? "tall" : ""} ${hoverLook && hoverLook !== project.look ? "look-trying" : ""}`}
+                  data-trying={hoverLook && hoverLook !== project.look ? `Trying: ${lookOf(hoverLook).label}` : undefined}
                   style={{ width: frameSize.width, height: frameSize.height }}
                 >
                   {(() => {
                     const local = time - (offsets[activeIndex] || 0);
                     const dur = activeScene?.duration || 1;
-                    const look = lookOf(project.look);
+                    const look = lookOf(hoverLook || project.look); // v0.4.69 a look you point at shows here first
                     const trId = transitionId(activeScene?.transition);
                     const trD = activeScene ? transitionLength(activeScene, dur) : 0;
                     let q = trD > 0 && local < trD && (activeIndex > 0 || trId === "fade") ? local / trD : 1;
@@ -5518,19 +5648,7 @@ function App() {
           assets={assets}
           onClose={() => setStickerDialog(false)}
           onAdd={(kind, assetId) => addSticker(kind, assetId)}
-          onUpload={async (file) => {
-            try {
-              const form = new FormData();
-              form.append("files", file);
-              const before = new Set((project.assets || []).map((a) => a.id));
-              let p = await api(`/api/projects/${project.id}/upload`, "POST", form);
-              const added = p.assets.find((a) => !before.has(a.id) && a.kind === "image");
-              if (added) p = await api(`/api/projects/${project.id}/assets/${added.id}`, "PATCH", { sticker: true });
-              setProject(p);
-            } catch (e) {
-              report(e);
-            }
-          }}
+          onUpload={uploadSticker}
         />
       )}
       {cropId && assets.find((a) => a.id === cropId) && (

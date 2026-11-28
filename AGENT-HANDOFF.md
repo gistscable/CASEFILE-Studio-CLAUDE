@@ -1409,3 +1409,38 @@ from sfx). Fullscreen is unavailable in this embedded preview. fix"
 - **Full screen:** `fullscreen()` asks for real fullscreen; where the page may not (an iframe without permission, as
   the Arena preview) the monitor gets `.full-window` (fixed, the whole window). Both show `.full-bar` (play, time,
   scrub, exit); Esc or the button leaves. The size watcher treats `.full-window` like fullscreen.
+
+## v0.4.69 — CapCut step 2: a grid in every left tab
+
+User: "Step 2" / "proceed" (the four-step CapCut rebuild; step 1 = v0.4.67). Nothing removed; every old control stays
+below its grid.
+- **Filters:** `Effects.jsx` looks are `.cc-tile`s with the look's CSS on your scene picture (inner `.fx-look-img`,
+  so the gold tick keeps its colour). Pointing at (or focusing) a look tries it on the player: `onHoverLook` →
+  `hoverLook` in `main.jsx`, the `.video-frame` gets `look-<id>` + `.look-trying` with a "Trying: …" label. It is
+  cleared on mouse leave, click, tab change (`useEffect([leftTab])`) and when `Effects` unmounts.
+- **Transitions:** `TransitionTile` draws the previous scene's picture (`prevThumb`) under this one's with the same
+  `transitionStyle` / `transitionUnder` as the player, still at 50 %, playing on hover/focus (requestAnimationFrame,
+  off with prefers-reduced-motion). "Use “…” on every scene" (`.fx-all`, `onAllScenes`) saves `scenes` in one PATCH
+  (one undo step). aria labels unchanged: "Transition <label>", "Look <label>".
+- **Video effects:** tiles "Film grain tile", "Vignette tile", "Cinema bars tile" (aria-pressed) above the old
+  sliders; on = grain 35 % / vignette 45 % / bars.
+- **Effects and Text › Name cards:** `featureCards()` in `main.jsx`: a card per overlay (Video effects, Logo,
+  Subscribe, Name cards) with a mini preview, its state and, for Logo / Subscribe, a `Toggle` ("Logo on the video",
+  "Subscribe on the video") that flips `watermark.enabled` / `cta.enabled`. Clicking a card opens its settings.
+  Name cards have no quick switch (turning automatic ones on fetches the names; the checkbox below does that).
+- **Stickers:** sub-tabs Subscribe / Arrows & shapes / Yours show `StickerGallery` (exported from
+  `StickerDialog.jsx`, shared with the dialog) inline; "On your video" is the old `StickerPanel` (list, size, timing,
+  keyframes). Adding a sticker jumps to "On your video" with it selected. Upload is `uploadSticker()`.
+- **Captions:** sub-tabs Styles (on/off + the preset gallery) / Text / Box & position: `CaptionStyles` takes
+  `section`; without it everything shows as before.
+- **Media:** the side list is Scenes + Library (the old `video` / `image` / `audio` sub keys still work, e.g. from
+  search); chips All / Videos / Photos / Audio (counts) + "Not used yet", and "Sort media": order in the edit, newest,
+  oldest, name, longest — `mediaSort.js` (assets have no timestamp: import order), tested in
+  `tests/js/mediaSort.test.mjs`.
+- **CSS:** end of `capcut.css` (`.cc-tiles`, `.cc-tile*`, `.tile-check`, `.tr-stage`, `.fx-demo-*`,
+  `.cc-sticker-grid`, `.cc-feature*`, `.cc-chip`, `.cc-sort`); phone (≤ 580 px): 3-column tiles, the four overlay
+  cards in one row.
+- **Checked:** eslint (no errors), `node --test` 71/71, pytest, puppeteer at 1512×900, 1280×760 and 390×844 (every
+  tab, hover previews, toggles / transition on all scenes / sticker / sort saved to the project, no page errors).
+- **Next:** step 3 — the right panel follows what is selected (clip, sticker, caption, audio) and the Director;
+  step 4 — polish for Mac screen sizes (the phone left panel is short).
