@@ -2,13 +2,17 @@ import React from "react";
 import { normaliseStickers, stickerAt, stickerAspect, stickerFrameUrl, cycleFrames, CATALOG, ST, regionOf, strengthOf, blurPx } from "./stickers.js";
 
 // v0.4.49 Animated stickers load every frame once, so playback does not flicker.
+// v0.4.73 with their words (a text template's intro is drawn with your paragraphs).
 const LOADED = new Set();
-function preload(kind) {
-  if (LOADED.has(kind) || !CATALOG[kind]) return;
-  LOADED.add(kind);
-  for (let i = 0; i < cycleFrames(kind); i++) {
+function preload(s) {
+  if (!CATALOG[s.kind]) return;
+  const key = stickerFrameUrl(s.kind, 0, s);
+  if (LOADED.has(key)) return;
+  LOADED.add(key);
+  if (LOADED.size > 400) LOADED.delete(LOADED.values().next().value);
+  for (let i = 0; i < cycleFrames(s.kind); i++) {
     const im = new Image();
-    im.src = `/api/stickers/${kind}/${i}.png`;
+    im.src = stickerFrameUrl(s.kind, i / 24 + 1e-4, s);
   }
 }
 
@@ -26,12 +30,12 @@ export function spotlightCss(cx, cy, rx, ry, alpha) {
 // spotlight the right and bottom edges change its width or height. Regions draw as the export
 // does: the spotlight darkens everything else, the blur blurs what is under it. `picking`: the
 // next click on the picture is the thing to follow (onPick(x, y), fractions of the frame).
-export default function StickerLayer({ project, time, width: W, height: H, selectedId, onSelect, onMove, onResize, picking = false, onPick, disabled }) {
+export default function StickerLayer({ project, time, width: W, height: H, selectedId, onSelect, onMove, onResize, picking = false, onPick, disabled, playing = false }) {
   const assets = project.assets || [];
   const list = normaliseStickers(project.stickers, assets);
   const [drag, setDrag] = React.useState(null);
   React.useEffect(() => {
-    list.forEach((s) => preload(s.kind));
+    list.forEach((s) => preload(s));
   }, [project.stickers]);
   const shown = list.filter((s) => time >= s.start && time < s.start + s.length);
   if (!shown.length && !picking) return null;
@@ -100,7 +104,9 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
         const cx = pos.x * W;
         const cy = pos.y * H;
         const sel = selectedId === s.id;
-        const src = region ? null : s.kind === "image" ? assets.find((a) => a.id === s.asset_id)?.url : stickerFrameUrl(s.kind, local, d ? { ...s, ratio: undefined } : s);
+        // v0.4.73 a text template you are editing (selected, paused) shows its words in full, not its intro
+        const held = sel && !playing && CATALOG[s.kind]?.once;
+        const src = region ? null : s.kind === "image" ? assets.find((a) => a.id === s.asset_id)?.url : stickerFrameUrl(s.kind, held ? 1e6 : local, d ? { ...s, ratio: undefined } : s);
         return (
           <React.Fragment key={s.id}>
             {region === "spot" && (

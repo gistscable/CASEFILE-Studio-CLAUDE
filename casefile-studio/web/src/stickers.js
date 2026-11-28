@@ -59,7 +59,24 @@ function stickerExtras(st, s, cat) {
     const g = num(s.strength, L.strength, null);
     if (g !== null && Math.abs(g - ST.defaults.strength) > 1e-4) st.strength = r(g, 3);
   }
+  if (cat.lines) {
+    const ln = cleanLines(s.lines, cat.lines);
+    if (ln.some((x, i) => x !== cat.lines[i])) st.lines = ln;
+  }
 }
+
+// v0.4.73 one paragraph of a text template (stickers.clean_line)
+export function cleanLine(v) {
+  if (typeof v !== "string") return "";
+  const t = v.replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim();
+  return Array.from(t).slice(0, ST.limits.line).join("");
+}
+// as many as the template has: a missing one is the template's own, an emptied one stays empty
+export function cleanLines(v, defaults) {
+  const got = Array.isArray(v) ? v : [];
+  return defaults.map((d, i) => (i < got.length && typeof got[i] === "string" ? cleanLine(got[i]) : d));
+}
+export const linesOf = (st) => st.lines || CATALOG[st.kind]?.lines || [];
 
 export const textOf = (st) => st.text || CATALOG[st.kind]?.text || "";
 export const strengthOf = (st) => st.strength || ST.defaults.strength;
@@ -112,19 +129,31 @@ export function cycleFrames(kind) {
   return c && c.animated ? Math.max(1, Math.round(c.cycle * FPS)) : 1;
 }
 
-// `st` (optional): a placed sticker, for its words and shape (v0.4.72)
-export function stickerFrameUrl(kind, local, st = null) {
+// Which drawn frame shows `local` seconds in: a loop, or (v0.4.73 `once`, a text template's intro)
+// played once and held on its last frame (stickers.frame_index).
+export function frameIndex(kind, local) {
   const n = cycleFrames(kind);
-  const i = n > 1 ? ((Math.floor(Math.max(0, local) * FPS) % n) + n) % n : 0;
+  if (n <= 1) return 0;
+  const f = Math.floor(Math.max(0, local) * FPS + 1e-6);
+  return CATALOG[kind]?.once ? Math.min(f, n - 1) : f % n;
+}
+
+// `st` (optional): a placed sticker, for its words and shape (v0.4.72) and paragraphs (v0.4.73)
+export function stickerFrameUrl(kind, local, st = null) {
+  const i = frameIndex(kind, local);
   const q = [];
   if (st?.text) q.push(`text=${encodeURIComponent(st.text)}`);
   if (st?.ratio) q.push(`ratio=${st.ratio}`);
+  if (st?.lines) for (const l of st.lines) q.push(`l=${encodeURIComponent(l)}`);
   return `/api/stickers/${kind}/${i}.png${q.length ? `?${q.join("&")}` : ""}`;
 }
 
 export function stickerLabel(st, assets = []) {
   if (st.kind === "image") return assets.find((a) => a.id === st.asset_id)?.name || "Your sticker";
-  return CATALOG[st.kind]?.label || st.kind;
+  const cat = CATALOG[st.kind];
+  // v0.4.73 a text template you typed in: its words say which one it is
+  const own = st.lines?.find((x, i) => x && x !== cat?.lines?.[i]);
+  return own ? `${cat?.label || st.kind} · ${own}` : cat?.label || st.kind;
 }
 
 export function newSticker(kind, start, assetId, existing = []) {

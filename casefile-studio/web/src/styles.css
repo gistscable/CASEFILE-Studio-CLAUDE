@@ -6332,6 +6332,18 @@ body.resizing-row * {
   opacity: 0.6;
   font-variant-numeric: tabular-nums;
 }
+/* v0.4.73 a text template's lines: the boxes line up */
+.st-lines .st-text {
+  grid-template-columns: 64px 1fr 38px;
+}
+.st-lines .st-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.st-lines .text-link {
+  margin: 0 0 8px 72px;
+}
 .st-track {
   display: flex;
   flex-wrap: wrap;

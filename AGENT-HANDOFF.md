@@ -1549,3 +1549,20 @@ and a fix for the Episode setup page ("not full").
 - **Tests**: `tests/test_stickers_v072.py` (spec, drawing, words, normalise, region frames, API, a real render with a
   moving spotlight + blur + block, JS twin), `tests/js/tracker.test.mjs`. Help text and Ctrl+K search
   ("Point & mark") updated.
+
+## v0.4.73 — Text templates (CapCut "Messages", "Subscribe" and more)
+
+**What:** Text → **Templates** (also Stickers → "Text templates"): seven animated text cards whose words you type, one box per line ("The 1st … 4th paragraph" in CapCut):
+`tt-message` (phone notification drops in), `tt-subscribe` (button pops, bell rings once, channel name under it), `tt-lower` (lower third: bar grows, panel wipes), `tt-breaking` (news bar), `tt-quote` (serif quote, wraps to 3 lines), `tt-place` (typewriter place & date), `tt-chapter` (chapter card).
+
+**Design:** they are **stickers** (`effectsSpec.json → stickers.catalog`, `tab: "text"`), so placement, size, opacity, keyframes, "Click what to follow", the timeline and export all come for free. New catalog keys:
+- `lines` (default words) + `fields` (box names), up to 4. A sticker stores `lines` only when they differ from the catalog; an emptied line stays `""` (the template draws without it); ≤ `limits.line` = 60 chars, whitespace collapsed. Python `stickers._clean_lines` ↔ JS `cleanLines` (twin test in `test_stickers_v072.py`).
+- `once: true` — the intro plays once and then holds its last frame: `frame_index(kind, f)` / `frameIndex(kind, t)` = `min(f, n-1)` (loops still `f % n`). The sticker's end fade is the outro.
+
+**Drawing:** `texttemplates.py` (Pillow, 1000-unit canvas ×3 supersampled, fonts from `web/assets/fonts`). `stickers.draw(kind, t, w, …, lines)` delegates `lines` kinds there. Preview: `/api/stickers/<kind>/<frame>.png?l=…&l=…` (`app.sticker_frame` takes `l: list[str] = Query`); the frame cache key includes the words.
+
+**Editor:** `StickerPanel` `StickerLines` (one input per field + "Back to the template's words"); `StickerLayer` preloads frames per (kind, words) and shows the **held** frame while a template is selected and paused (so typing shows the result, not an empty intro frame); `stickerLabel` adds your first changed line ("Lower third · SAM RIVERS").
+
+**Not done:** separate keyframes for `motion.py` graphics (stickers already keyframe); per-template colour pickers.
+
+**Tests:** `tests/test_stickers_v072.py` (+ v0.4.73 block: spec, each template's intro/hold, lines rules, API `?l=`, a real render, JS twin), `tests/js/tracker.test.mjs` (paragraphs, `frameIndex`, URL). `test_overlays_v049` draws `once` kinds at their held frame.

@@ -229,7 +229,7 @@ def test_render_picture_keyframes_on_a_photo_and_a_clip(tmp_path, media):
 
 def test_every_builtin_sticker_draws_and_animates():
     for kind, c in stickers.CATALOG.items():
-        a = np.asarray(stickers.draw(kind, 0.3, 200))
+        a = np.asarray(stickers.draw(kind, 99 if c.get("once") else 0.3, 200))  # v0.4.73 an intro: once it is in
         assert a.shape[1] == 200 and a[..., 3].max() == 255, kind
         assert abs(a.shape[1] / a.shape[0] - c["aspect"]) < 0.05, kind
         if c["animated"]:

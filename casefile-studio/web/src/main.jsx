@@ -167,7 +167,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.72";
+const APP_VERSION = "0.4.73";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -2716,7 +2716,7 @@ function App() {
   const LEFT_TABS = [
     ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
     ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
-    ["text", "Text", Type, [["titles", "Scene titles"], ["names", "Name cards"]]],
+    ["text", "Text", Type, [["templates", "Templates"], ["titles", "Scene titles"], ["names", "Name cards"]]],
     ["stickers", "Stickers", Sticker, [["mark", "Point & mark"], ["subscribe", "Subscribe"], ["shapes", "Arrows & shapes"], ["yours", "Yours"], ["placed", "On your video"]]],
     ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
     ["transitions", "Transitions", ArrowLeftRight, null],
@@ -3009,7 +3009,15 @@ function App() {
         );
     } else if (key === "text") {
       content =
-        sub === "names" ? (
+        sub === "templates" ? (
+          // v0.4.73 CapCut's Text → Templates: text stickers with an intro, words you type
+          <div className="inspector-content">
+            <div className="section-label">
+              <span>CLICK TO ADD AT {tc(time)}</span>
+            </div>
+            <StickerGallery tab="text" assets={assets} grid="sticker-grid cc-sticker-grid" onAdd={(kind) => addSticker(kind)} onUpload={uploadSticker} />
+          </div>
+        ) : sub === "names" ? (
           <>
             {featureCards("text/names")}
             {effectsPanel(["namecards", "lowerthird"])}
@@ -4165,6 +4173,7 @@ function App() {
                   <StickerLayer
                     project={project}
                     time={time}
+                    playing={playing}
                     width={frameSize.width}
                     height={frameSize.height}
                     selectedId={stickerId}
@@ -6526,7 +6535,11 @@ function App() {
                   writing keyframes you can fix by hand (Esc cancels; “Stop”
                   keeps the path so far). Drag the corner handle to resize it,
                   the side handles to make it wider or taller. A callout, label
-                  or button with words has a “Words on it” box. Spotlight
+                  or button with words has a “Words on it” box. Text → Templates
+                  has a message notification, subscribe + bell, a lower third, a
+                  breaking-news bar, a quote, a place &amp; date stamp and a chapter
+                  card: each line has its own box, and they move, resize, keyframe
+                  and follow like any sticker. Spotlight
                   darkness and blur amount have their own setting. The export
                   draws exactly what the player shows.
                 </p>

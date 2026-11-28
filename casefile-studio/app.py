@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 import httpx
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -35,7 +35,7 @@ from storage import (
 )
 
 seed()
-app = FastAPI(title="Casefile Studio", version="0.4.72", docs_url="/api/docs")
+app = FastAPI(title="Casefile Studio", version="0.4.73", docs_url="/api/docs")
 
 
 @app.middleware("http")
@@ -1108,11 +1108,12 @@ def auto_crop(id: str, asset_id: str):
 
 
 @app.get("/api/stickers/{kind}/{frame}.png")
-def sticker_frame(kind: str, frame: int, text: str | None = None, ratio: float | None = None):
+def sticker_frame(kind: str, frame: int, text: str | None = None, ratio: float | None = None, l: list[str] | None = Query(None)):
     """v0.4.49 A built-in sticker drawn by the export's own code, for the preview.
-    v0.4.72 `text` (your words) and `ratio` (width / height) for the stickers that have them."""
+    v0.4.72 `text` (your words) and `ratio` (width / height) for the stickers that have them.
+    v0.4.73 `l` (repeated): a text template's paragraphs, in order."""
     try:
-        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers", text, ratio)
+        path = stickers.preview_frame(kind, frame, DATA / "cache" / "stickers", text, ratio, l)
     except KeyError:
         raise HTTPException(404, "Unknown sticker.")
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})

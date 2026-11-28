@@ -408,7 +408,8 @@
         0.1,
         1.0
       ],
-      "text": 28
+      "text": 28,
+      "line": 60
     },
     "max": 60,
     "preview_width": 480,
@@ -417,6 +418,10 @@
       {
         "id": "mark",
         "label": "Point & mark"
+      },
+      {
+        "id": "text",
+        "label": "Text templates"
       },
       {
         "id": "subscribe",
@@ -537,6 +542,155 @@
         "ratio": true,
         "text": "EVIDENCE",
         "hint": "A name tag with your words"
+      },
+      {
+        "id": "tt-message",
+        "label": "Message",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 3.0,
+        "cycle": 0.5,
+        "size": 0.42,
+        "x": 0.5,
+        "y": 0.16,
+        "lines": [
+          "MESSAGES",
+          "Laura",
+          "Have a nice one."
+        ],
+        "fields": [
+          "App",
+          "Name",
+          "Message"
+        ],
+        "hint": "A phone notification that drops in"
+      },
+      {
+        "id": "tt-subscribe",
+        "label": "Subscribe + bell",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 3.4,
+        "cycle": 1.0,
+        "size": 0.5,
+        "x": 0.5,
+        "y": 0.84,
+        "lines": [
+          "SUBSCRIBE",
+          "Casefile Studio"
+        ],
+        "fields": [
+          "Button",
+          "Channel"
+        ],
+        "hint": "The button pops, the bell rings once"
+      },
+      {
+        "id": "tt-lower",
+        "label": "Lower third",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 4.2,
+        "cycle": 0.6,
+        "size": 0.42,
+        "x": 0.28,
+        "y": 0.8,
+        "lines": [
+          "JANE DOE",
+          "Lead detective"
+        ],
+        "fields": [
+          "Name",
+          "Role"
+        ],
+        "hint": "A name and a role that wipe in"
+      },
+      {
+        "id": "tt-breaking",
+        "label": "Breaking",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 6.25,
+        "cycle": 0.55,
+        "size": 0.8,
+        "x": 0.5,
+        "y": 0.88,
+        "lines": [
+          "BREAKING",
+          "Police reopen the case"
+        ],
+        "fields": [
+          "Tag",
+          "Headline"
+        ],
+        "hint": "A news bar along the bottom"
+      },
+      {
+        "id": "tt-quote",
+        "label": "Quote",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 2.4,
+        "cycle": 0.45,
+        "size": 0.6,
+        "x": 0.5,
+        "y": 0.5,
+        "lines": [
+          "I never left the house that night.",
+          "Suspect, police interview, 2019"
+        ],
+        "fields": [
+          "Quote",
+          "Who said it"
+        ],
+        "hint": "Someone\u2019s words on a dark card"
+      },
+      {
+        "id": "tt-place",
+        "label": "Place & date",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 5.0,
+        "cycle": 1.6,
+        "size": 0.4,
+        "x": 0.27,
+        "y": 0.12,
+        "lines": [
+          "BLACKWATER, OHIO",
+          "MARCH 3, 2019"
+        ],
+        "fields": [
+          "Place",
+          "Date"
+        ],
+        "hint": "Typed out like a case file"
+      },
+      {
+        "id": "tt-chapter",
+        "label": "Chapter",
+        "tab": "text",
+        "animated": true,
+        "once": true,
+        "aspect": 2.6,
+        "cycle": 0.75,
+        "size": 0.5,
+        "x": 0.5,
+        "y": 0.5,
+        "lines": [
+          "CHAPTER ONE",
+          "The night of"
+        ],
+        "fields": [
+          "Kicker",
+          "Title"
+        ],
+        "hint": "A chapter card for a new part"
       },
       {
         "id": "subscribe-click",

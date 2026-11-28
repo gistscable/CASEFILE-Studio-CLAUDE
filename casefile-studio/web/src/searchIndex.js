@@ -12,6 +12,7 @@ const TOOLS = [
   ["Music", "Audio", { left: ["audio", "music"] }, "song soundtrack background score bgm track"],
   ["Sound effects", "Audio", { left: ["audio", "sfx"] }, "sfx whoosh hit impact riser sound design foley"],
   ["Narration (voice-over)", "Audio", { left: ["audio", "voice"] }, "voice voice-over voiceover vo narrator record speech"],
+  ["Text templates", "Text", { left: ["text", "templates"] }, "template message notification subscribe bell lower third breaking news quote place date chapter title card"],
   ["Scene titles", "Text", { left: ["text", "titles"] }, "title heading chapter text"],
   ["Name cards", "Text", { left: ["text", "names"] }, "lower third lowerthird name tag caption person who"],
   ["Stickers", "Stickers", { left: ["stickers"] }, "emoji arrow shape subscribe like bell overlay"],

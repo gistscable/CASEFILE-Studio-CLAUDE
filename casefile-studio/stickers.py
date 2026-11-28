@@ -24,6 +24,13 @@ v0.4.72 "Point & mark":
   layer for the spotlight, a full-frame mask for the blur.
 * Keyframes: up to `keyframes_max` (120) so a sticker that follows something
   (tracked in the editor) keeps a smooth path.
+
+v0.4.73 Text templates (texttemplates.py, catalog tab "text"):
+* `lines` (catalog `lines`, named by `fields`): up to four paragraphs you type,
+  each one line of at most limits.line characters. Stored only when they differ
+  from the template's own.
+* `once: true`: the animation is an intro that plays once and then holds on its
+  last frame (frame_index), instead of looping.
 """
 from __future__ import annotations
 
@@ -41,6 +48,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 import effects
 import picture
+import texttemplates
 
 SPEC = effects.SPEC["stickers"]
 CATALOG = {c["id"]: c for c in SPEC["catalog"]}
@@ -119,6 +127,25 @@ def clean_text(v):
     return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", v)).strip()[: SPEC["limits"]["text"]]
 
 
+def clean_line(v):
+    """v0.4.73 One paragraph of a text template: one line, at most limits.line characters."""
+    if not isinstance(v, str):
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", v)).strip()[: SPEC["limits"]["line"]]
+
+
+def _clean_lines(value, defaults):
+    """Your paragraphs, as many as the template has (missing ones: the template's own; an
+    emptied one stays empty, so a template can lose a line)."""
+    got = value if isinstance(value, list) else []
+    return [clean_line(got[i]) if i < len(got) and isinstance(got[i], str) else d for i, d in enumerate(defaults)]
+
+
+def lines_of(st):
+    c = CATALOG.get(st.get("kind")) or {}
+    return list(st.get("lines") or c.get("lines") or [])
+
+
 def _extras(st, s, cat):
     """v0.4.72 text / ratio / strength, kept only when they differ from the default
     (so older projects normalise exactly as before)."""
@@ -135,6 +162,10 @@ def _extras(st, s, cat):
         g = _num(s.get("strength"), *lim["strength"], None)
         if g is not None and abs(g - SPEC["defaults"]["strength"]) > 1e-4:
             st["strength"] = round(g, 3)
+    if cat.get("lines"):
+        ln = _clean_lines(s.get("lines"), cat["lines"])
+        if ln != cat["lines"]:
+            st["lines"] = ln
 
 
 def text_of(st):
@@ -190,6 +221,14 @@ def aspect(st, assets):
 def cycle_frames(kind):
     c = CATALOG.get(kind)
     return max(1, round(c["cycle"] * FPS)) if c and c.get("animated") else 1
+
+
+def frame_index(kind, f):
+    """Which drawn frame shows `f` frames after the sticker starts: a loop, or (v0.4.73 `once`,
+    a text template's intro) played once and held on its last frame."""
+    n = cycle_frames(kind)
+    c = CATALOG.get(kind) or {}
+    return min(f, n - 1) if c.get("once") else f % n
 
 
 # ---------------------------------------------------------------- drawing
@@ -294,10 +333,16 @@ def _cursor(pen, x, y, size, pressed):
     pen.d.polygon(q, fill=WHITE, outline=(0, 0, 0, 255), width=max(1, round(1.2 * s * pen.k)))
 
 
-def draw(kind, t, width_px, text=None, ratio=None):
+def draw(kind, t, width_px, text=None, ratio=None, lines=None):
     """The sticker `t` seconds into its animation, `width_px` wide (RGBA).
-    `text`: your words (stickers with a catalog `text`); `ratio`: width/height."""
+    `text`: your words (stickers with a catalog `text`); `ratio`: width/height;
+    `lines`: a text template's paragraphs (v0.4.73)."""
     c = CATALOG[kind]
+    if c.get("lines"):
+        n = cycle_frames(kind)
+        if t >= (n - 1) / FPS - 1e-6:  # the last frame of the intro: everything in place
+            t = c["cycle"] + 1.0
+        return texttemplates.draw(kind, t, width_px, _clean_lines(lines, c["lines"]) if lines is not None else c["lines"], c["aspect"])
     if c.get("animated") and c["cycle"] > 0:
         t = t % c["cycle"]
     words = clean_text(text) or c.get("text") or ""
@@ -426,9 +471,10 @@ def draw(kind, t, width_px, text=None, ratio=None):
     return pen.done(width_px)
 
 
-def preview_frame(kind, i, folder, text=None, ratio=None):
+def preview_frame(kind, i, folder, text=None, ratio=None, lines=None):
     """Frame `i` of a built-in sticker for the preview (cached PNG). v0.4.72 with
-    your words (`text`) and shape (`ratio`) when the sticker has them."""
+    your words (`text`) and shape (`ratio`) when the sticker has them; v0.4.73 a
+    text template's paragraphs (`lines`)."""
     if kind not in CATALOG:
         raise KeyError(kind)
     c = CATALOG[kind]
@@ -441,13 +487,16 @@ def preview_frame(kind, i, folder, text=None, ratio=None):
     if r is not None and abs(r - c["aspect"]) < 1e-4:
         r = None
     r = round(r, 3) if r is not None else None
+    ln = _clean_lines(lines, c["lines"]) if c.get("lines") and lines is not None else None
+    if ln == c.get("lines"):
+        ln = None
     folder = Path(folder) / kind
-    tag = "" if not words and r is None else "-" + hashlib.sha1(f"{words}|{r}".encode()).hexdigest()[:12]
+    tag = "" if not words and r is None and ln is None else "-" + hashlib.sha1(f"{words}|{r}|{ln}".encode()).hexdigest()[:12]
     out = folder / f"{i:04d}{tag}.png"
     if not out.exists():
         folder.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp.png")
-        draw(kind, i / FPS, SPEC["preview_width"], words or None, r).save(tmp)
+        draw(kind, i / FPS, SPEC["preview_width"], words or None, r, ln).save(tmp)
         os.replace(tmp, out)
     return out
 
@@ -540,13 +589,13 @@ def prepare(project, assets, width, height, folder, total, image_path):
             local = f / FPS
             v = sample(st, local)
             pw = max(2, round(width * v["size"]))
-            key = (f % cyc, pw, round(v["opacity"], 2))
+            key = (frame_index(st["kind"], f) if cyc > 1 else 0, pw, round(v["opacity"], 2))
             src = made.get(key)
             if src is None:
                 if base_img is not None:
                     img = base_img.resize((pw, max(1, round(pw / ratio))), Image.LANCZOS)
                 else:
-                    img = draw(st["kind"], (f % cyc) / FPS, pw, st.get("text"), st.get("ratio"))
+                    img = draw(st["kind"], key[0] / FPS, pw, st.get("text"), st.get("ratio"), st.get("lines"))
                 img = _with_opacity(img, key[2])
                 box = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
                 box.alpha_composite(img.crop((0, 0, min(bw, img.width), min(bh, img.height))),

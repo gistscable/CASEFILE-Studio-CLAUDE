@@ -87,3 +87,21 @@ test("stickers: words, shape, strength", () => {
   const many = normaliseStickers([{ kind: "pointer", length: 30, keyframes: Array.from({ length: 300 }, (_, i) => ({ t: i / 10, x: 0.5 })) }]);
   assert.equal(many[0].keyframes.length, 120);
 });
+
+test("text templates: paragraphs, intro once, label", async () => {
+  const { frameIndex, cleanLines, linesOf, stickerLabel, CATALOG } = await import("../../web/src/stickers.js");
+  const [a, b] = normaliseStickers([
+    { kind: "tt-lower", lines: ["JANE DOE", "Lead detective"] },
+    { kind: "tt-lower", lines: [" Sam\nRivers ", ""] },
+  ]);
+  assert.ok(!("lines" in a));
+  assert.deepEqual(b.lines, ["Sam Rivers", ""]);
+  assert.deepEqual(linesOf(a), CATALOG["tt-lower"].lines);
+  assert.equal(stickerLabel(b), "Lower third · Sam Rivers");
+  assert.deepEqual(cleanLines(["x".repeat(80)], ["A", "B"]), ["x".repeat(60), "B"]);
+  const n = Math.round(CATALOG["tt-lower"].cycle * 24);
+  assert.equal(frameIndex("tt-lower", 0), 0);
+  assert.equal(frameIndex("tt-lower", 30), n - 1); // holds
+  assert.equal(frameIndex("bell", 0.5), 12); // loops still loop
+  assert.equal(stickerFrameUrl("tt-lower", 30, b), `/api/stickers/tt-lower/${n - 1}.png?l=Sam%20Rivers&l=`);
+});

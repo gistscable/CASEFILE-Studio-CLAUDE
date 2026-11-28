@@ -1,6 +1,6 @@
 import React from "react";
 import { Plus, Trash2, Copy, Crosshair, Square } from "lucide-react";
-import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, stickerAspect, textOf, strengthOf, cleanText, CATALOG, ST } from "./stickers.js";
+import { normaliseStickers, normaliseStickerKeys, stickerAt, stickerLabel, stickerFrameUrl, stickerAspect, textOf, strengthOf, cleanText, cleanLine, linesOf, CATALOG, ST } from "./stickers.js";
 import { upsertKey } from "./picture.js";
 import { Step, clock, parseClock } from "./Effects.jsx";
 
@@ -34,6 +34,42 @@ function StickerText({ sticker, disabled, onChange }) {
 }
 
 // v0.4.49 Stickers tab of the inspector: every sticker, and − / + for the selected one.
+// v0.4.73 A text template's paragraphs (CapCut's "The 1st … 4th paragraph"), one box each.
+function StickerLines({ sticker, disabled, onChange }) {
+  const cat = CATALOG[sticker.kind];
+  const saved = linesOf(sticker);
+  const [draft, setDraft] = React.useState(saved);
+  React.useEffect(() => {
+    if (draft.length !== saved.length || draft.some((d, i) => cleanLine(d) !== saved[i])) setDraft(saved);
+  }, [sticker.id, saved.join("\u0001")]);
+  return (
+    <div className="st-lines">
+      {cat.fields.map((name, i) => (
+        <label key={i} className="st-text">
+          <span>{name}</span>
+          <input
+            aria-label={`${name} (line ${i + 1} of the text)`}
+            value={draft[i] ?? ""}
+            maxLength={ST.limits.line + 8}
+            disabled={disabled}
+            placeholder={cat.lines[i]}
+            onChange={(e) => {
+              const next = draft.map((d, j) => (j === i ? e.target.value : d));
+              setDraft(next);
+              onChange(next.map(cleanLine));
+            }}
+            onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+          />
+          <small>{Array.from(cleanLine(draft[i] ?? "")).length}/{ST.limits.line}</small>
+        </label>
+      ))}
+      {saved.some((x, i) => x !== cat.lines[i]) && (
+        <button className="text-link" disabled={disabled} onClick={() => onChange(cat.lines)}>Back to the template’s words</button>
+      )}
+    </div>
+  );
+}
+
 // v0.4.72 tracking: { id, progress, note } while the preview follows something; onFollow(id, pick)
 // follows from where the sticker is (pick false) or after you click the thing (pick true).
 export default function StickerPanel({ project, time, selectedId, onSelect, onChange, onOpenDialog, onSeek, disabled, focus = false, listOnly = false, tracking = null, picking = false, onFollow, onStopFollow }) {
@@ -90,6 +126,7 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
               onChange={(x) => update(sel.id, { length: x, keyframes: sel.keyframes.filter((k) => k.t <= x) })} />
             <button className="text-link" disabled={disabled} onClick={() => update(sel.id, { start: Math.round(time * 1000) / 1000 })}>Start it at the playhead ({clock(time)})</button>
             {CATALOG[sel.kind]?.text && <StickerText sticker={sel} disabled={disabled} onChange={(text) => update(sel.id, { text })} />}
+            {CATALOG[sel.kind]?.lines && <StickerLines sticker={sel} disabled={disabled} onChange={(lines) => update(sel.id, { lines })} />}
             <Step label="Size" value={v.size} display={pct(v.size)} step={0.01} min={ST.limits.size[0]} max={ST.limits.size[1]} disabled={disabled} onChange={(x) => setLook(sel, { size: x })} />
             {CATALOG[sel.kind]?.ratio && (() => {
               const ratio = stickerAspect(sel, assets);
