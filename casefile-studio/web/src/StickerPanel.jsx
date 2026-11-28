@@ -30,7 +30,7 @@ export default function StickerPanel({ project, time, selectedId, onSelect, onCh
           <Plus size={12} /> Add at the playhead
         </button>
       </div>
-      {!list.length && <p className="micro-note block">No stickers yet. Click “Add at the playhead” (or Stickers above the preview), then drag the sticker in the preview to move it.</p>}
+      {!list.length && <p className="micro-note block">No stickers yet. Click “Add at the playhead”, then drag the sticker in the preview to move it.</p>}
       <div className="st-list">
         {sorted.map((s) => (
           <button key={s.id} className={`st-item ${s.id === selectedId ? "on" : ""} ${time >= s.start && time < s.start + s.length ? "now" : ""}`}

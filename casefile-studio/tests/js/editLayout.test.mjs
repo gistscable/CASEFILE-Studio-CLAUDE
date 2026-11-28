@@ -5,9 +5,9 @@ import { normaliseLayout, timelineHeight, rulerTicks, captionBlocks, zoomScroll,
 test("layout survives bad or partial saved values", () => {
   assert.deepEqual(normaliseLayout(null), LAYOUT_DEFAULTS);
   assert.deepEqual(normaliseLayout("{not json"), LAYOUT_DEFAULTS);
-  const v = normaliseLayout(JSON.stringify({ left: 9999, right: 10, timeline: "300", showLeft: false, compact: "yes" }));
-  assert.equal(v.left, 460);
-  assert.equal(v.right, 240);
+  const v = normaliseLayout(JSON.stringify({ left: 9999, right: 10, timeline: "300", showLeft: false, compact: "yes", cc: 1 }));
+  assert.equal(v.left, 620);
+  assert.equal(v.right, 280);
   assert.equal(v.timeline, 300);
   assert.equal(v.showLeft, false);
   assert.equal(v.compact, true);
@@ -51,11 +51,24 @@ test("zooming keeps the moment under the pointer in place", () => {
 });
 
 test("v0.4.59 the timeline opens with room for all five lanes (the Sound FX lane was hidden)", () => {
-  assert.equal(LAYOUT_DEFAULTS.timeline, 296);
   // a layout saved before v0.4.59 with the old default height opens at the new one
-  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 300 })).timeline, 296);
-  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 300 })).left, 300);
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 300 })).timeline, LAYOUT_DEFAULTS.timeline);
+  assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, left: 330, cc: 1 })).left, 330);
   // a height you chose is kept, also the old default once saved again by v0.4.59
   assert.equal(normaliseLayout(JSON.stringify({ timeline: 240 })).timeline, 240);
   assert.equal(normaliseLayout(JSON.stringify({ timeline: 262, lanes: 5 })).timeline, 262);
+});
+
+test("v0.4.67 CapCut-style panels: a wide left panel, the Director closed until opened", () => {
+  assert.equal(LAYOUT_DEFAULTS.left, 440);
+  assert.equal(LAYOUT_DEFAULTS.right, 340);
+  assert.equal(LAYOUT_DEFAULTS.timeline, 326);
+  assert.equal(LAYOUT_DEFAULTS.director, false);
+  // a layout saved before v0.4.67 (narrow scene list, open direction bar) opens at the new panel sizes;
+  // the timeline height and the hidden/shown panels you chose are kept
+  const old = normaliseLayout(JSON.stringify({ left: 240, right: 300, timeline: 400, director: true, showRight: false, lanes: 5 }));
+  assert.deepEqual([old.left, old.right, old.director, old.timeline, old.showRight, old.cc], [440, 340, false, 400, false, 1]);
+  // once saved by v0.4.67, your own sizes and an open Director are kept
+  const mine = normaliseLayout(JSON.stringify({ ...old, left: 520, director: true }));
+  assert.deepEqual([mine.left, mine.director], [520, true]);
 });

@@ -60,7 +60,7 @@ export default function StickerLayer({ project, time, width: W, height: H, selec
           <div
             key={s.id}
             className={`sticker ${selectedId === s.id ? "selected" : ""}`}
-            title="Drag to move · adjust it in the inspector"
+            title="Drag to move · adjust it in the Stickers tab"
             onPointerDown={start}
             style={{ left: pos.x * W - w / 2, top: pos.y * H - h / 2, width: w, height: h }}
           >

@@ -23,10 +23,13 @@ import MusicPanel from "./MusicPanel.jsx";
 import LiveRange from "./LiveRange.jsx";
 import CropDialog from "./CropDialog.jsx";
 import { cropOf, fitOf as pictureFit, normaliseKeyframes, cameraAt, cameraTransform } from "./picture.js";
-import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt } from "./stickers.js";
+import SearchPalette from "./SearchPalette.jsx";
+import { buildIndex } from "./searchIndex.js";
+import { AUDIO_ROLES, audioLists, audioRoleOf, roleBlock } from "./audioRoles.js";
+import { normaliseStickers, newSticker, normaliseStickerKeys, stickerAt, stickerLabel } from "./stickers.js";
 import { ctaEvents as findCtaEvents, ctaSpots as findCtaSpots, ctaSpotAlpha, normaliseCta } from "./cta.js";
 import { normaliseWatermark, watermarkBox } from "./watermark.js";
-import { effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
+import { LOOKS, TRANSITIONS, effectiveLowerThirds, aspectOf, fitOf, FORMATS, FITS, lookOf, motionTransform, normaliseEffects, transitionId, transitionLength, transitionStyle, transitionUnder, lowerThirdAt, lowerThirdCss, letterboxBar } from "./effects.js";
 import { captionAt, captionCss, normaliseStyle, sceneCaptions, chunks as captionChunks, textUnit } from "./captionStyle.js";
 import {
   Sticker,
@@ -49,6 +52,7 @@ import {
   Volume2,
   VolumeX,
   Maximize2,
+  Minimize2,
   Undo2,
   Redo2,
   Layers,
@@ -56,6 +60,7 @@ import {
   Settings2,
   Music2,
   AudioLines,
+  Zap,
   AudioWaveform,
   Film,
   Image as ImageIcon,
@@ -88,6 +93,16 @@ import {
   Circle,
   RefreshCw,
   Type,
+  Captions,
+  Palette,
+  Shapes,
+  ArrowLeftRight,
+  WandSparkles,
+  Eye,
+  EyeOff,
+  Menu,
+  Images,
+  PanelLeft,
 } from "lucide-react";
 import "./styles.css";
 import EpisodeSetup from "./EpisodeSetup.jsx";
@@ -106,6 +121,7 @@ import {
   uploadLimits,
 } from "./Uploads.jsx";
 import { ProductionModal, PreflightModal } from "./ProductionTools.jsx";
+import "./capcut.css"; // v0.4.67 the CapCut-style interface, after every other stylesheet
 
 function downloadProjectSnapshot(project, onBlocked) {
   const { undo, history, ...snapshot } = project;
@@ -147,7 +163,7 @@ const bytes = (n) =>
 const sum = (scenes) =>
   (scenes || []).reduce((n, s) => n + Number(s.duration || 0), 0);
 const referencePattern = /\[\s*(S\d+(?:(?:\s*[,;]\s*|\s+)S?\d+)*)\s*\]/gi;
-const APP_VERSION = "0.4.66";
+const APP_VERSION = "0.4.68";
 const TRANS_LABEL = Object.fromEntries(
   [["none", "None"], ["dissolve", "Dissolve"], ["dip-black", "Dip to black"], ["dip-white", "Flash white"], ["slide-left", "Slide"], ["slide-up", "Slide up"], ["wipe-left", "Wipe"], ["zoom", "Zoom in"], ["circle", "Circle open"], ["pixelize", "Pixelate"], ["fade", "Fade in and out"]],
 );
@@ -251,6 +267,16 @@ function Button({ icon: Icon, children, kind = "", className = "", ...props }) {
 }
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
 // v0.4.51 "Undo: Move sticker (⌘Z)"
+// v0.4.67 "Auto saved: 20:15:03" (with the date when it was not today), as CapCut's top bar
+// v0.4.67 the Edit page's panels sit 6 px apart inside a 6 px margin (capcut.css); the splitters
+// sit in the gaps
+const GRID_PAD = 6;
+function savedClock(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  return d.toDateString() === new Date().toDateString() ? `: ${time}` : `: ${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${time}`;
+}
 function historyLabel(project, which) {
   const list = project?.history?.[which] || [];
   const keys = which === "undo" ? (IS_MAC ? "⌘Z" : "Ctrl+Z") : IS_MAC ? "⇧⌘Z" : "Ctrl+Shift+Z";
@@ -371,8 +397,15 @@ function App() {
     [projectList, setProjectList] = useState([]),
     [config, setConfig] = useState({ connected: false });
   const [tab, setTab] = useState("edit"),
-    [leftTab, setLeftTab] = useState("scenes"),
-    [inspectorTab, setInspectorTab] = useState("scene");
+    // v0.4.67 CapCut layout: the left panel's icon tabs (Media, Audio, Text …) with a
+    // sub-section each, and the right panel shows what is selected (Video, Audio)
+    [leftTab, setLeftTab] = useState("media"),
+    [leftSub, setLeftSub] = useState({ media: "scenes", audio: "music", text: "titles", effects: "video" }),
+    [mediaQuery, setMediaQuery] = useState(""),
+    [inspectorTab, setInspectorTab] = useState("video"),
+    [videoSub, setVideoSub] = useState("basic"),
+    [audioSub, setAudioSub] = useState("voice"),
+    [menuOpen, setMenuOpen] = useState(false);
   const [modal, setModal] = useState(null),
     [selectedId, setSelectedId] = useState(null),
     [time, setTime] = useState(0),
@@ -387,6 +420,13 @@ function App() {
       preference.set("casefile-edit-layout", JSON.stringify(next));
       return next;
     });
+  // v0.4.67 open a left-panel tab (and its sub-section), showing the panel if it was hidden
+  const openLeft = (key, sub) => {
+    setLeftTab(key);
+    if (sub) setLeftSub((cur) => ({ ...cur, [key]: sub }));
+    if (!layout.showLeft) setLayout({ showLeft: true });
+  };
+  const motionEditing = leftTab === "graphics" && layout.showLeft; // the graphic you edit shows in the preview
   const gridRef = useRef(null);
   const [home, setHome] = useState(true); // v0.4.33: the app opens on the start page
   const [zoom, setZoom] = useState(1),
@@ -419,7 +459,9 @@ function App() {
     [cropId, setCropId] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null),
     [mediaId, setMediaId] = useState(null),
-    [frameSize, setFrameSize] = useState({ width: 640, height: 360 });
+    [frameSize, setFrameSize] = useState({ width: 640, height: 360 }),
+    [fullMode, setFullMode] = useState(""),
+    [searchOpen, setSearchOpen] = useState(false); // v0.4.68
   const historyRef = useRef(() => {}),
     historyBusy = useRef(false),
     gesture = useRef(false);
@@ -434,6 +476,8 @@ function App() {
     videoRef = useRef(null),
     screenRef = useRef(null),
     fileRef = useRef(null),
+    audioFileRef = useRef(null),
+    audioRoleRef = useRef(null),
     timelineRef = useRef(null),
     playingRef = useRef(false),
     timeRef = useRef(0),
@@ -464,6 +508,10 @@ function App() {
   // v0.4.56 Sound design: the plan from the server (re-read after an edit that can move a sound),
   // played in the preview with WebAudio on the preview clock.
   const soundOn = !!project?.sound?.enabled;
+  // v0.4.67 the overlay track (graphics, stickers, the subscribe animation) shows when it has something
+  const overlayGraphics = project ? normaliseMotion(project.motion).items : [];
+  const overlayStickers = project ? normaliseStickers(project.stickers, project.assets) : [];
+  const overlayOn = !!(overlayGraphics.length || overlayStickers.length || ctaEvents.length);
   const sfxPreview = useRef(null);
   if (!sfxPreview.current) sfxPreview.current = new SfxPreview();
   // v0.4.58 Levels while a slider moves (heard at once, saved when you let go): {narration, music, master}
@@ -579,10 +627,10 @@ function App() {
     live.current.master = v;
     sfxPreview.current.setMaster(v / (soundPlan?.settings?.master || 1));
   };
-  // the chosen inspector tab is always in view (eight tabs do not fit a narrow inspector)
+  // the chosen left-panel tab is always in view (nine icon tabs do not fit a narrow panel)
   useEffect(() => {
-    document.querySelector(".inspector-tabs button.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [inspectorTab]);
+    document.querySelector(".cc-tabs button.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [leftTab]);
   const clockRef = useRef({ scenes: [], offsets: [] });
   clockRef.current = { scenes, offsets };
   const activeIndex = Math.max(
@@ -793,12 +841,50 @@ function App() {
       clearInterval(timer);
     };
   }, [project?.id]);
+  // v0.4.68 Search opens with Ctrl+K / ⌘K on every page
+  useEffect(() => {
+    const k = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  // v0.4.68 the player in fullscreen ("native") or filling the window ("window", when fullscreen is blocked)
+  useEffect(() => {
+    const sync = () => {
+      const el = document.fullscreenElement || document.webkitFullscreenElement;
+      setFullMode((m) => (el && el === screenRef.current ? "native" : m === "native" ? "" : m));
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+    };
+  }, []);
+  useEffect(() => {
+    if (fullMode !== "window") return;
+    const esc = (e) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setFullMode("");
+      }
+    };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [fullMode]);
+  useEffect(() => {
+    if (tab !== "edit" && fullMode === "window") setFullMode("");
+  }, [tab]);
   useEffect(() => {
     if (!screenRef.current || tab !== "edit") return;
     const r = project?.aspect === "9:16" ? 9 / 16 : 16 / 9; // width / height
     const observer = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      const full = document.fullscreenElement === entries[0].target || document.webkitFullscreenElement === entries[0].target;
+      const full = document.fullscreenElement === entries[0].target || document.webkitFullscreenElement === entries[0].target || entries[0].target.classList.contains("full-window");
       let w = full ? Math.min(width, height * r) : Math.min(width - 40, (height - 12) * r);
       setFrameSize({
         width: Math.max(r < 1 ? 90 : 180, w),
@@ -836,7 +922,7 @@ function App() {
   useEffect(() => {
     if (messagesRef.current)
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-  }, [project?.messages, inspectorTab]);
+  }, [project?.messages, layout.director]);
   useEffect(() => {
     const f = (e) => {
       // v0.4.51: ⌘Z / Ctrl+Z undo, ⇧⌘Z / Ctrl+Shift+Z / Ctrl+Y redo — except while typing,
@@ -1124,8 +1210,9 @@ function App() {
       setBusy(false);
     }
   }
-  async function uploadFiles(files) {
+  async function uploadFiles(files, audioRole = null) {
     if (!files?.length) return;
+    const before = new Set((project.assets || []).map((a) => a.id));
     setUploading(true);
     try {
       validateUpload(files);
@@ -1138,6 +1225,7 @@ function App() {
       await flushSave();
       const form = new FormData();
       [...files].forEach((f) => form.append("files", f));
+      if (audioRole) form.append("audio_role", audioRole);
       const p = await api(
         `/api/projects/${project.id}/upload`,
         "POST",
@@ -1156,7 +1244,18 @@ function App() {
       );
       acceptProject(p);
       if ([...files].some((f) => /\.(txt|md)$/i.test(f.name))) setTab("script");
-      notify(`${files.length} file${files.length > 1 ? "s" : ""} imported.`);
+      const added = p.assets.filter((a) => !before.has(a.id));
+      const field = audioRole === "narration" ? "narration_id" : audioRole === "music" ? "music_id" : null;
+      if (field && !p[field] && added[0]) {
+        // v0.4.68 the first voice-over / music you import goes straight on its track
+        queueSave({ [field]: added[0].id });
+        notify(`${added[0].name} is your ${audioRole} now.`);
+      } else if (audioRole) {
+        notify(`${files.length} file${files.length > 1 ? "s" : ""} added to ${audioRole === "sfx" ? "your sound effects" : audioRole === "music" ? "your music" : "your narration"}.`);
+      } else {
+        const loose = added.filter((a) => a.kind === "audio").length;
+        notify(`${files.length} file${files.length > 1 ? "s" : ""} imported.${loose ? " Sort the audio in the Audio tab: narration, music or sound effects." : ""}`);
+      }
     } catch (e) {
       setUploadProgress((old) => (old ? { ...old, phase: "error" } : null));
       report(e);
@@ -1166,6 +1265,23 @@ function App() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (audioFileRef.current) audioFileRef.current.value = "";
+    }
+  }
+  function importAudio(role) {
+    // v0.4.68 import straight into one kind of audio
+    audioRoleRef.current = role;
+    audioFileRef.current?.click();
+  }
+  async function setAudioRole(a, role) {
+    const why = roleBlock(a, role, project);
+    if (why) return notify(why, "info");
+    try {
+      await flushSave();
+      acceptProject(await api(`/api/projects/${project.id}/assets/${a.id}`, "PATCH", { audio_role: role }));
+      notify(role ? `${a.name} moved to ${role === "sfx" ? "sound effects" : role}.` : `${a.name} is not sorted now.`);
+    } catch (e) {
+      report(e);
     }
   }
   function selectScene(scene, index) {
@@ -1176,6 +1292,7 @@ function App() {
   function selectVisualScene(scene, index) {
     selectScene(scene, index);
     setSelectedTrack({ kind: "visual", sceneId: scene.id });
+    setInspectorTab("video"); // v0.4.67 the right panel follows what you click, as in CapCut
   }
   // v0.4.49 stickers
   function addSticker(kind, assetId) {
@@ -1184,8 +1301,7 @@ function App() {
     queueSave({ stickers: [...list, st] });
     setStickerId(st.id);
     setStickerDialog(false);
-    setInspectorTab("stickers");
-    setLayout({ showRight: true });
+    openLeft("stickers");
     setPlaying(false);
     notify("Sticker added at the playhead. Drag it in the preview to move it.");
   }
@@ -1505,7 +1621,7 @@ function App() {
         instruction,
       });
       setCommand("");
-      setInspectorTab("director");
+      setLayout({ director: true });
       if (r.project) {
         acceptProject(r.project);
         notify("Edit applied. Undo is available.");
@@ -1799,10 +1915,80 @@ function App() {
     // v0.4.47 Fullscreen the monitor, not the frame: the monitor's size watcher then sizes the frame
     // for the whole screen (kept 16:9 or 9:16), so the watermark, CTA, captions and titles, which are
     // all placed from that size, grow with the picture instead of staying where the small frame was.
+    // v0.4.68 Where the page may not go fullscreen (an embedded preview, an iframe without
+    // permission), the player fills the whole window instead.
+    if (fullMode) return exitFull();
     const el = screenRef.current || document.querySelector(".monitor-screen");
-    const go = el && (el.requestFullscreen || el.webkitRequestFullscreen);
-    if (!go) return notify("Fullscreen is unavailable in this embedded preview.", "info");
-    Promise.resolve(go.call(el)).catch(() => notify("Fullscreen is unavailable in this embedded preview.", "info"));
+    const go = el && document.fullscreenEnabled !== false && (el.requestFullscreen || el.webkitRequestFullscreen);
+    if (!go) return setFullMode("window");
+    Promise.resolve(go.call(el)).catch(() => setFullMode("window"));
+  }
+  // v0.4.68 open what you found in Search
+  function goEdit() {
+    setHome(false);
+    if (tab !== "edit") setTab("edit");
+  }
+  function askDirector(q) {
+    setSearchOpen(false);
+    goEdit();
+    setCommand(q);
+    setLayout({ director: true });
+    setTimeout(() => document.getElementById("direction")?.focus(), 60);
+  }
+  function runSearch(r) {
+    const go = r.go || {};
+    setSearchOpen(false);
+    setMenuOpen(false);
+    if (go.left) {
+      goEdit();
+      openLeft(go.left[0], go.left[1]);
+    } else if (go.insp) {
+      goEdit();
+      setInspectorTab(go.insp[0]);
+      (go.insp[0] === "audio" ? setAudioSub : setVideoSub)(go.insp[1]);
+      if (!layout.showRight) setLayout({ showRight: true });
+    } else if (go.page) {
+      setHome(false);
+      setPlaying(false);
+      setTab(go.page);
+    } else if (go.scene != null) {
+      goEdit();
+      const sc = scenes[go.scene];
+      if (sc) selectVisualScene(sc, go.scene);
+    } else if (go.asset) {
+      setHome(false);
+      setMediaId(go.asset);
+      setModal("media");
+    } else if (go.action) {
+      const a = go.action;
+      if (a.startsWith("import:")) {
+        goEdit();
+        const role = a.slice(7);
+        openLeft("audio", role === "narration" ? "voice" : role);
+        importAudio(role);
+      } else if (a === "export") project.episode?.guide ? makeFirstDraft({ render: true }) : openTool("export", "review");
+      else if (a === "produce") openTool("production");
+      else if (a === "undo" || a === "redo") stepHistory(a);
+      else if (a === "split") { goEdit(); splitAtPlayhead(); }
+      else if (a === "addScene") { goEdit(); addScene(); }
+      else if (a === "importMedia") fileRef.current?.click();
+      else if (a === "director") askDirector("");
+      else if (a === "fullscreen") { goEdit(); setTimeout(fullscreen, 60); }
+      else if (a === "ratio") { setHome(false); setModal("format"); }
+      else if (a === "mediaLibrary") { setMediaId(null); setModal("media"); }
+      else if (a === "projects") { refreshProjects(); setModal("projects"); }
+      else if (a === "newProject") setModal("new");
+      else if (a === "backup") downloadProjectSnapshot(project, setDownloadGate);
+      else if (a === "home") { setPlaying(false); setHome(true); }
+      else if (a === "help") setModal("help");
+      else if (a === "settings") setModal("settings");
+    }
+  }
+  function exitFull() {
+    if (fullMode === "window") return setFullMode("");
+    const out = document.exitFullscreen || document.webkitExitFullscreen;
+    if (out) Promise.resolve(out.call(document)).catch(() => {});
+    setFullMode("");
   }
 
   if (!project)
@@ -1836,267 +2022,189 @@ function App() {
       </div>
     );
 
-  function renderInspector() {
+  // v0.4.67 CapCut layout. The panels the left icon tabs open (each as before, now one per tab).
+  function effectsPanel(only) {
     return (
-      <>
-        <div className="inspector-tabs">
-          {[
-            ["scene", "Scene", Settings2],
-            ["captions", "Captions", FileText],
-            ["effects", "Effects", Film],
-            ["stickers", "Stickers", Sticker],
-            ["motion", "Motion", Type],
-            ["sound", "Sound", AudioWaveform],
-            ["audio", "Audio", AudioLines],
-            ["director", "Director", Sparkles],
-          ].map(([key, label, Icon]) => (
-            <button
-              key={key}
-              className={inspectorTab === key ? "active" : ""}
-              onClick={() => setInspectorTab(key)}
-            >
-              <Icon size={13} />
-              {label}
-            </button>
-          ))}
-        </div>
-        {inspectorTab === "scene" ? (
-          <div className="inspector-content">
-            {selected ? (
-              <>
-                <div className="section-label">
-                  <span>
-                    SCENE{" "}
-                    {String(scenes.indexOf(selected) + 1).padStart(2, "0")}
-                  </span>
-                  <div>
-                    <IconButton
-                      icon={ArrowUp}
-                      label="Move scene earlier"
-                      onClick={() => moveScene(selected.id, -1)}
-                      disabled={scenes[0]?.id === selected.id}
-                    />
-                    <IconButton
-                      icon={ArrowDown}
-                      label="Move scene later"
-                      onClick={() => moveScene(selected.id, 1)}
-                      disabled={scenes.at(-1)?.id === selected.id}
-                    />
-                  </div>
-                </div>
-                <label className="field">
-                  Scene title
-                  <input
-                    value={selected.title}
-                    onChange={(e) => updateScene({ title: e.target.value })}
-                  />
-                </label>
-                <div className="field-row">
-                  <label className="field">
-                    Duration
-                    <div className="input-unit">
-                      <input
-                        aria-label="Scene duration"
-                        type="number"
-                        min="0.5"
-                        max="600"
-                        step="0.5"
-                        value={selected.duration}
-                        onChange={(e) =>
-                          updateScene({
-                            duration: Math.max(
-                              0.5,
-                              Math.min(600, Number(e.target.value) || 0.5),
-                            ),
-                          })
-                        }
-                      />
-                      <span>sec</span>
-                    </div>
-                  </label>
-                  <div className="field">
-                    Transition in
-                    <button className="fx-jump" onClick={() => setInspectorTab("effects")}>
-                      {TRANS_LABEL[transitionId(selected.transition)]} <ArrowUpRight size={11} />
-                    </button>
-                  </div>
-                </div>
-                <div className="field rp-current">
-                  Picture
-                  <div className="rp-now">
-                    <span className="rp-now-thumb" style={{ backgroundImage: (() => { const a = assets.find((x) => x.id === selected.asset_id); return a ? `url("${a.thumbnail || a.url}")` : undefined; })() }} />
-                    <div>
-                      <b>{assets.find((x) => x.id === selected.asset_id)?.name || "No picture"}</b>
-                      {selected.replaced && <small className="rp-tag">Replaced by you</small>}
-                      <div className="rp-now-actions">
-                        <button className="btn" aria-label="Replace the picture" disabled={locked} onClick={() => setModal("replace")}>
-                          Replace…
-                        </button>
-                        {selected.replaced && project.episode?.guide && (
-                          <button className="text-link" disabled={locked} onClick={() =>
-                            api(`/api/projects/${project.id}/episode/restore-scene`, "POST", { scene_id: selected.id })
-                              .then((p) => { setProject(p); notify("The guide’s picture is back."); })
-                              .catch(report)
-                          }>
-                            Restore the guide’s picture
-                          </button>
-                        )}
+            <Effects
+              only={only}
+              project={project}
+              scene={selected}
+              sceneIndex={Math.max(0, scenes.indexOf(selected))}
+              thumb={assets.find((a) => a.id === selected?.asset_id)?.thumbnail}
+              disabled={locked}
+              onProject={queueSave}
+              onScene={updateScene}
+              ctaEvents={ctaEvents}
+              ctaSpots={ctaSpots}
+              ctaNatural={ctaSpots[0]?.natural || normaliseCta(project.cta).seconds}
+              playhead={time}
+              sceneStart={selected ? offsets[scenes.indexOf(selected)] || 0 : 0}
+              onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+              onCrop={(id) => setCropId(id)}
+              api={api}
+              autoCard={selected ? nameCards[scenes.indexOf(selected)] : null}
+              onPlayCta={(at) => {
+                setTime(at);
+                setPlaying(true);
+              }}
+              onUploadBanner={async (file, asAnimation = false) => {
+                try {
+                  const form = new FormData();
+                  form.append("files", file);
+                  const before = new Set((project.assets || []).map((a) => a.id));
+                  const p = await api(`/api/projects/${project.id}/upload`, "POST", form);
+                  const added = p.assets.filter((a) => !before.has(a.id) && a.kind === (asAnimation === true ? "video" : "image")).at(-1);
+                  setProject(p);
+                  if (added && asAnimation === "logo") queueSave({ watermark: { ...normaliseWatermark(p.watermark), enabled: true, asset_id: added.id } });
+                  else if (added && asAnimation) queueSave({ cta: { ...normaliseCta(p.cta), enabled: true, source: "file", file_id: added.id } });
+                  else if (added) queueSave({ cta: { ...normaliseCta(p.cta), enabled: true, asset_id: added.id } });
+                } catch (e) {
+                  report(e);
+                }
+              }}
+            />
+    );
+  }
+  function stickersPanel() {
+    return (
+            <StickerPanel
+              project={project}
+              time={time}
+              selectedId={stickerId}
+              onSelect={setStickerId}
+              onChange={(list) => queueSave({ stickers: list })}
+              onOpenDialog={() => setStickerDialog(true)}
+              onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+              disabled={locked}
+            />
+    );
+  }
+  function motionPanel() {
+    return (
+            <MotionPanel
+              project={project}
+              time={time}
+              playing={playing}
+              selectedId={motionId}
+              onSelect={setMotionId}
+              onChange={(m) => queueSave({ motion: m })}
+              onSuggest={async (body = {}) => {
+                await flushSave();
+                const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", body);
+                acceptProject(r.project);
+                const what = body.engine === "cinematic" ? "cinematic graphic" : "motion graphic";
+                notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
+              }}
+              onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
+              onPresent={async (body = {}) => {
+                await flushSave();
+                const r = await api(`/api/projects/${project.id}/motion/present`, "POST", body);
+                if (r.project) {
+                  acceptProject(r.project);
+                  notify(r.applied ? `Presentation applied to ${r.applied} graphic${r.applied > 1 ? "s" : ""}. Undo puts them back.` : "Nothing to change.", "info");
+                }
+                return r;
+              }}
+              onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+              onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
+              previewStatus={motionStatus}
+              disabled={locked}
+            />
+    );
+  }
+  function soundPanel() {
+    return (
+            <SoundPanel
+              project={project}
+              plan={soundPlan}
+              planError={soundPlanError}
+              time={time}
+              playing={playing}
+              selectedId={soundId}
+              onSelect={setSoundId}
+              pin={sfxPin}
+              onPin={setSfxPin}
+              onChange={(v) => queueSave({ sound: v })}
+              onGenerate={async () => {
+                await flushSave();
+                const r = await api(`/api/projects/${project.id}/sound/generate`, "POST", {});
+                acceptProject(r.project);
+                notify(`${r.added} sound${r.added === 1 ? "" : "s"} planned; ${r.silenced} moment${r.silenced === 1 ? "" : "s"} left silent on purpose.`, "info");
+              }}
+              onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
+              onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
+              preview={sfxPreview.current}
+              duckStatus={sfxDuck}
+              narrationVolume={project.narration_volume ?? 1}
+              onNarrationVolume={commitNarration}
+              onLiveNarration={liveNarration}
+              onLiveMaster={liveMaster}
+              onSelectMany={setSoundIds}
+              selectedIds={soundIds}
+              mute={sfxMute}
+              solo={sfxSolo}
+              onMute={(v) => { setSfxMute(v); if (v) setSfxSolo(false); }}
+              onSolo={(v) => { setSfxSolo(v); if (v) setSfxMute(false); }}
+              onUploadSound={async (file) => {
+                await flushSave();
+                const form = new FormData();
+                form.append("files", file);
+                form.append("episode_role", "sfx");
+                const before = new Set((project.assets || []).map((a) => a.id));
+                const p = await api(`/api/projects/${project.id}/upload`, "POST", form);
+                acceptProject(p);
+                const added = p.assets.find((a) => !before.has(a.id));
+                if (added) notify(`${added.name} is in your sounds: choose it for a sound, or add it at the playhead from the library.`, "info");
+              }}
+              disabled={locked}
+            />
+    );
+  }
+  function captionsPanel() {
+    return (
+            <CaptionStyles
+              value={project.caption_style}
+              enabled={project.captions}
+              disabled={locked}
+              onChange={(v) => queueSave({ caption_style: v })}
+              onToggle={(v) => queueSave({ captions: v })}
+            />
+    );
+  }
+  function directorHistory() {
+    return (
+            <div className="director-panel">
+              <div className="director-status">
+                <span className="tiny-dot" />
+                {config.connected
+                  ? "AI service connected"
+                  : "Local commands available"}
+                <button onClick={() => setModal("settings")}>
+                  <Settings2 size={13} />
+                </button>
+              </div>
+              <div className="messages" ref={messagesRef}>
+                {project.messages.map((m, i) => (
+                  <div className={`message ${m.role}`} key={i}>
+                    {m.role === "assistant" && (
+                      <div className="message-author">
+                        <Sparkles size={12} /> CASEFILE DIRECTOR
                       </div>
-                    </div>
+                    )}
+                    <p>{m.text}</p>
                   </div>
-                </div>
-                <button
-                  className="text-link"
-                  onClick={() => {
-                    setMediaId(selected.asset_id);
-                    setModal("media");
-                  }}
-                >
-                  <Layers size={12} /> Browse media library{" "}
-                  <ArrowUpRight size={12} />
-                </button>
-                <div className="inspector-divider" />
-                <p className="micro-note block">
-                  Transitions, photo movement, colour looks and name cards are in{" "}
-                  <button className="fx-jump" onClick={() => setInspectorTab("effects")}>Effects</button>.
-                </p>
-                {assets.find((a) => a.id === selected.asset_id)?.kind ===
-                  "video" && (
-                  <label className="field">
-                    Source in-point (seconds)
-                    <input
-                      type="number"
-                      min="0"
-                      value={selected.trim_start || 0}
-                      onChange={(e) =>
-                        updateScene({
-                          trim_start: Math.max(0, Number(e.target.value) || 0),
-                        })
-                      }
-                    />
-                  </label>
-                )}
-                <div className="switch-line">
-                  <span>Show scene title</span>
-                  <Toggle
-                    checked={selected.show_title}
-                    onChange={(v) => updateScene({ show_title: v })}
-                    label="Show scene title"
-                  />
-                </div>
-                <div className="switch-line">
-                  <span>Subtitles</span>
-                  <Toggle
-                    checked={project.captions}
-                    onChange={(v) => queueSave({ captions: v })}
-                    label="Subtitles"
-                  />
-                </div>
-                <div className="inspector-divider" />
-                <label className="field">
-                  Source references
-                  <input
-                    aria-label="Scene source references"
-                    key={
-                      selected.id +
-                      "refs" +
-                      (selected.source_ids || []).join(",")
-                    }
-                    defaultValue={(selected.source_ids || []).join(", ")}
-                    placeholder="S1, S2"
-                    onBlur={(e) => {
-                      const refs = e.target.value
-                        .toUpperCase()
-                        .split(/[,;\s]+/)
-                        .filter(Boolean);
-                      if (refs.some((ref) => !/^S\d+$/.test(ref))) {
-                        notify(
-                          "Use source IDs such as S1, S2. Add sources in Research first.",
-                          "error",
-                        );
-                        return;
-                      }
-                      if (
-                        JSON.stringify(refs) !==
-                        JSON.stringify(selected.source_ids || [])
-                      )
-                        updateScene({ source_ids: [...new Set(refs)] });
-                    }}
-                  />
-                </label>
-                <p className="inspector-source-hint">
-                  {project.sources.length
-                    ? "Library: " + project.sources.map((x) => x.id).join(", ")
-                    : "Add original records or notes in Research, then link their IDs here."}
-                </p>
-                <label className="field">
-                  Chapter label
-                  <input
-                    aria-label="Scene chapter label"
-                    value={selected.chapter || ""}
-                    onChange={(e) => updateScene({ chapter: e.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  Narration{" "}
-                  <span className="field-note">
-                    {wc(selected.narration)} words
-                  </span>
-                  <textarea
-                    rows="5"
-                    value={selected.narration}
-                    placeholder="Add the narration for this scene…"
-                    onChange={(e) => updateScene({ narration: e.target.value })}
-                  />
-                </label>
-                <div className="micro-note">
-                  <Clock3 size={12} />
-                  {selected.timing === "imported-captions"
-                    ? "Supplied caption timestamps · cue/audio review required"
-                    : selected.timing === "transcribed"
-                      ? "Source-aligned segment timing"
-                      : selected.timing === "scene-aligned"
-                        ? "Voice aligned by scene; captions estimated"
-                        : "Estimated timing · review with narration"}
-                </div>
-                <div className="inspector-divider" />
-                <label className="field">
-                  Documentary look
-                  <select
-                    value={project.look}
-                    onChange={(e) => queueSave({ look: e.target.value })}
-                  >
-                    <option value="noir">Noir — cool & restrained</option>
-                    <option value="archive">Archive — desaturated</option>
-                    <option value="natural">Natural — original color</option>
-                  </select>
-                </label>
-                <button
-                  className="danger-link"
-                  onClick={() => {
-                    if (
-                      window.confirm("Remove this scene from the timeline?")
-                    ) {
-                      queueSave({
-                        scenes: scenes.filter((s) => s.id !== selected.id),
-                      });
-                      setTime(0);
-                      setSelectedId(null);
-                    }
-                  }}
-                >
-                  <Trash2 size={12} /> Remove scene
-                </button>
-                <div className="inspector-divider" />
-                <div className="section-label">
-                  <span>TRACKS</span>
-                  <span className="track-pill">
-                    {selectedTrack
-                      ? trackLabel(selectedTrack.kind) + " · scene " + (scenes.indexOf(selected) + 1)
-                      : "Click a clip on any timeline lane to select its track"}
-                  </span>
-                </div>
-                {["visual", "narration", "music"].map((kind) => {
+                ))}
+              </div>
+              <div className="director-footnote">
+                <LockKeyhole size={12} /> Creative rewrites need an API
+                connection. No automatic factual verification.
+              </div>
+            </div>
+    );
+  }
+  // One scene's track (picture, narration or music): split, remove and its own settings.
+  function trackRows(kinds) {
+    return kinds.map((kind) => {
                   const f = trackFields(kind, selected);
                   const isSel = selectedTrack?.kind === kind && selectedTrack?.sceneId === selected.id;
                   const Icon = trackIcon(kind);
@@ -2221,156 +2329,18 @@ function App() {
                                   Music only in chosen scenes (start with this one)
                                 </button>
                               )}
-                              <button className="text-link" onClick={() => setInspectorTab("audio")}>Music settings: track part, loop, crossfade, fades, ducking…</button>
+                              <button className="text-link" onClick={() => { setInspectorTab("audio"); setAudioSub("music"); }}>Music settings: track part, loop, crossfade, fades, ducking…</button>
                             </>
                           );
                         })()}
                       </div>
                     </div>
                   );
-                })}
-              </>
-            ) : (
-              <Empty title="No scene selected">
-                Build a timeline or add a scene to begin.
-              </Empty>
-            )}
-          </div>
-        ) : inspectorTab === "effects" ? (
-          <Effects
-            project={project}
-            scene={selected}
-            sceneIndex={Math.max(0, scenes.indexOf(selected))}
-            thumb={assets.find((a) => a.id === selected?.asset_id)?.thumbnail}
-            disabled={locked}
-            onProject={queueSave}
-            onScene={updateScene}
-            ctaEvents={ctaEvents}
-            ctaSpots={ctaSpots}
-            ctaNatural={ctaSpots[0]?.natural || normaliseCta(project.cta).seconds}
-            playhead={time}
-            sceneStart={selected ? offsets[scenes.indexOf(selected)] || 0 : 0}
-            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
-            onCrop={(id) => setCropId(id)}
-            api={api}
-            autoCard={selected ? nameCards[scenes.indexOf(selected)] : null}
-            onPlayCta={(at) => {
-              setTime(at);
-              setPlaying(true);
-            }}
-            onUploadBanner={async (file, asAnimation = false) => {
-              try {
-                const form = new FormData();
-                form.append("files", file);
-                const before = new Set((project.assets || []).map((a) => a.id));
-                const p = await api(`/api/projects/${project.id}/upload`, "POST", form);
-                const added = p.assets.filter((a) => !before.has(a.id) && a.kind === (asAnimation === true ? "video" : "image")).at(-1);
-                setProject(p);
-                if (added && asAnimation === "logo") queueSave({ watermark: { ...normaliseWatermark(p.watermark), enabled: true, asset_id: added.id } });
-                else if (added && asAnimation) queueSave({ cta: { ...normaliseCta(p.cta), enabled: true, source: "file", file_id: added.id } });
-                else if (added) queueSave({ cta: { ...normaliseCta(p.cta), enabled: true, asset_id: added.id } });
-              } catch (e) {
-                report(e);
-              }
-            }}
-          />
-        ) : inspectorTab === "stickers" ? (
-          <StickerPanel
-            project={project}
-            time={time}
-            selectedId={stickerId}
-            onSelect={setStickerId}
-            onChange={(list) => queueSave({ stickers: list })}
-            onOpenDialog={() => setStickerDialog(true)}
-            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
-            disabled={locked}
-          />
-        ) : inspectorTab === "motion" ? (
-          <MotionPanel
-            project={project}
-            time={time}
-            playing={playing}
-            selectedId={motionId}
-            onSelect={setMotionId}
-            onChange={(m) => queueSave({ motion: m })}
-            onSuggest={async (body = {}) => {
-              await flushSave();
-              const r = await api(`/api/projects/${project.id}/motion/suggest`, "POST", body);
-              acceptProject(r.project);
-              const what = body.engine === "cinematic" ? "cinematic graphic" : "motion graphic";
-              notify(r.added ? `${r.added} ${what}${r.added > 1 ? "s" : ""} suggested. Review each one, then approve it.` : `Nothing in the narration calls for a ${what}.`, "info");
-            }}
-            onDraft={async (body) => (await api(`/api/projects/${project.id}/motion/draft`, "POST", body)).item}
-            onPresent={async (body = {}) => {
-              await flushSave();
-              const r = await api(`/api/projects/${project.id}/motion/present`, "POST", body);
-              if (r.project) {
-                acceptProject(r.project);
-                notify(r.applied ? `Presentation applied to ${r.applied} graphic${r.applied > 1 ? "s" : ""}. Undo puts them back.` : "Nothing to change.", "info");
-              }
-              return r;
-            }}
-            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
-            onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
-            previewStatus={motionStatus}
-            disabled={locked}
-          />
-        ) : inspectorTab === "sound" ? (
-          <SoundPanel
-            project={project}
-            plan={soundPlan}
-            planError={soundPlanError}
-            time={time}
-            playing={playing}
-            selectedId={soundId}
-            onSelect={setSoundId}
-            pin={sfxPin}
-            onPin={setSfxPin}
-            onChange={(v) => queueSave({ sound: v })}
-            onGenerate={async () => {
-              await flushSave();
-              const r = await api(`/api/projects/${project.id}/sound/generate`, "POST", {});
-              acceptProject(r.project);
-              notify(`${r.added} sound${r.added === 1 ? "" : "s"} planned; ${r.silenced} moment${r.silenced === 1 ? "" : "s"} left silent on purpose.`, "info");
-            }}
-            onSeek={(t) => { setPlaying(false); setTime(Math.max(0, Math.min(duration, t))); }}
-            onPlayFrom={(t) => { setTime(Math.max(0, Math.min(duration, t))); setPlaying(true); }}
-            preview={sfxPreview.current}
-            duckStatus={sfxDuck}
-            narrationVolume={project.narration_volume ?? 1}
-            onNarrationVolume={commitNarration}
-            onLiveNarration={liveNarration}
-            onLiveMaster={liveMaster}
-            onSelectMany={setSoundIds}
-            selectedIds={soundIds}
-            mute={sfxMute}
-            solo={sfxSolo}
-            onMute={(v) => { setSfxMute(v); if (v) setSfxSolo(false); }}
-            onSolo={(v) => { setSfxSolo(v); if (v) setSfxMute(false); }}
-            onUploadSound={async (file) => {
-              await flushSave();
-              const form = new FormData();
-              form.append("files", file);
-              form.append("episode_role", "sfx");
-              const before = new Set((project.assets || []).map((a) => a.id));
-              const p = await api(`/api/projects/${project.id}/upload`, "POST", form);
-              acceptProject(p);
-              const added = p.assets.find((a) => !before.has(a.id));
-              if (added) notify(`${added.name} is in your sounds: choose it for a sound, or add it at the playhead from the library.`, "info");
-            }}
-            disabled={locked}
-          />
-        ) : inspectorTab === "captions" ? (
-          <CaptionStyles
-            value={project.caption_style}
-            enabled={project.captions}
-            disabled={locked}
-            onChange={(v) => queueSave({ caption_style: v })}
-            onToggle={(v) => queueSave({ captions: v })}
-          />
-        ) : inspectorTab === "audio" ? (
-          <div className="inspector-content">
-            <div className="section-label">VOICE & SOUND</div>
+    });
+  }
+  function voicePanel() {
+    return (
+      <>
             <label className="field">
               Narration track
               <select
@@ -2435,7 +2405,22 @@ function App() {
                 Transcribe & align
               </Button>
             )}
-            <div className="inspector-divider" />
+            <LiveRange
+              label="Narration level"
+              value={project.narration_volume ?? 1}
+              min={0}
+              max={2}
+              step={0.05}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onLive={liveNarration}
+              onCommit={commitNarration}
+            />
+      </>
+    );
+  }
+  function musicPanel() {
+    return (
+      <>
             <label className="field">
               Background music
               <select
@@ -2454,16 +2439,6 @@ function App() {
                   ))}
               </select>
             </label>
-            <LiveRange
-              label="Narration level"
-              value={project.narration_volume ?? 1}
-              min={0}
-              max={2}
-              step={0.05}
-              format={(v) => `${Math.round(v * 100)}%`}
-              onLive={liveNarration}
-              onCommit={commitNarration}
-            />
             {music ? (
               <MusicPanel
                 project={project}
@@ -2496,34 +2471,603 @@ function App() {
               The preview plays the music where the export puts it, with the same loops, fades,
               volume and ducking. Supply music you have permission to use.
             </p>
-          </div>
-        ) : (
-          <div className="director-panel">
-            <div className="director-status">
-              <span className="tiny-dot" />
-              {config.connected
-                ? "AI service connected"
-                : "Local commands available"}
-              <button onClick={() => setModal("settings")}>
-                <Settings2 size={13} />
-              </button>
-            </div>
-            <div className="messages" ref={messagesRef}>
-              {project.messages.map((m, i) => (
-                <div className={`message ${m.role}`} key={i}>
-                  {m.role === "assistant" && (
-                    <div className="message-author">
-                      <Sparkles size={12} /> CASEFILE DIRECTOR
-                    </div>
-                  )}
-                  <p>{m.text}</p>
-                </div>
+      </>
+    );
+  }
+  // v0.4.67 CapCut layout: the left panel. One icon tab per kind of thing you add to the
+  // video, a sub-menu where a tab has parts, and the tab's library or settings beside it.
+  const LEFT_TABS = [
+    ["media", "Media", Images, [["scenes", "Scenes"], ["all", "All media"], ["video", "Videos"], ["image", "Photos"], ["audio", "Audio files"]]],
+    ["audio", "Audio", Music2, [["music", "Music"], ["sfx", "Sound effects"], ["voice", "Narration"]]],
+    ["text", "Text", Type, [["titles", "Scene titles"], ["names", "Name cards"]]],
+    ["stickers", "Stickers", Sticker, null],
+    ["effects", "Effects", WandSparkles, [["video", "Video effects"], ["logo", "Logo"], ["subscribe", "Subscribe"]]],
+    ["transitions", "Transitions", ArrowLeftRight, null],
+    ["captions", "Captions", Captions, null],
+    ["filters", "Filters", Palette, null],
+    ["graphics", "Graphics", Shapes, null],
+  ];
+  function mediaCard(a, used) {
+    return (
+      <button
+        key={a.id}
+        className="cc-card"
+        title={`${a.name} · open in the media library`}
+        onClick={() => {
+          setMediaId(a.id);
+          setModal("media");
+        }}
+      >
+        <span className="cc-card-thumb" style={a.thumbnail ? { backgroundImage: `url("${a.thumbnail}")` } : undefined}>
+          {!a.thumbnail && (a.kind === "audio" ? <AudioLines size={22} /> : <ImageIcon size={20} />)}
+          {used && <b className="cc-badge">Added</b>}
+          {audioRoleOf(a, project) && <b className={`cc-role ${audioRoleOf(a, project)}`}>{{ narration: "Narration", music: "Music", sfx: "SFX" }[audioRoleOf(a, project)]}</b>}
+          <i className="cc-dur">{a.duration ? tc(a.duration) : a.width ? `${a.width}×${a.height}` : a.kind}</i>
+        </span>
+        <span className="cc-card-name">{a.name}</span>
+      </button>
+    );
+  }
+  function audioRow(a, field, label) {
+    const on = project[field] === a.id;
+    return (
+      <div key={a.id} className={`cc-audio-row ${on ? "on" : ""}`}>
+        <span className="cc-audio-icon">{field === "music_id" ? <Music2 size={15} /> : <Mic size={15} />}</span>
+        <span className="cc-audio-name" title={a.name}>
+          {a.name}
+          <span className="cc-audio-meta">
+            <small>{a.duration ? tc(a.duration) : a.kind}</small>
+            {kindPicker(a)}
+          </span>
+        </span>
+        <button
+          className={`btn ${on ? "cc-in-use" : ""}`}
+          disabled={locked}
+          aria-label={on ? `Stop using ${a.name} as ${label}` : `Use ${a.name} as ${label}`}
+          onClick={() => queueSave({ [field]: on ? null : a.id })}
+        >
+          {on ? <><Check size={12} /> In use</> : <><Plus size={12} /> Use</>}
+        </button>
+      </div>
+    );
+  }
+  // v0.4.68 what an audio file is: narration, music or a sound effect
+  function kindPicker(a) {
+    const now = audioRoleOf(a, project) || "";
+    return (
+      <select
+        className="cc-kind"
+        aria-label={`What ${a.name} is`}
+        title="Narration, music and sound effects are kept apart. Move this file to another kind."
+        value={now}
+        disabled={locked}
+        onChange={(e) => setAudioRole(a, e.target.value || null)}
+      >
+        {!now && <option value="">Not sorted</option>}
+        {AUDIO_ROLES.map(([k, label]) => (
+          <option key={k} value={k} disabled={!!roleBlock(a, k, project)}>{label}</option>
+        ))}
+      </select>
+    );
+  }
+  // Audio imported elsewhere (the Media tab, an older project) waits here to be sorted.
+  function unsortedAudio(only) {
+    const loose = audioLists(project).unsorted;
+    if (!loose.length) return null;
+    return (
+      <div className="cc-unsorted">
+        <div className="section-label">
+          <span>NOT SORTED YET · {loose.length}</span>
+        </div>
+        <p className="micro-note block">Audio you imported from the Media tab. Say what each file is, so narration, music and sound effects stay apart.</p>
+        {loose.map((a) => (
+          <div key={a.id} className="cc-audio-row">
+            <span className="cc-audio-icon"><AudioLines size={15} /></span>
+            <span className="cc-audio-name">
+              {a.name}
+              <small>{a.duration ? tc(a.duration) : a.kind}</small>
+            </span>
+            <span className="cc-sort-btns">
+              {AUDIO_ROLES.filter(([k]) => !only || k === only).map(([k, label]) => (
+                <button key={k} className="btn" disabled={locked || !!roleBlock(a, k, project)} title={roleBlock(a, k, project) || `This is ${k === "sfx" ? "a sound effect" : k}`}
+                  aria-label={`Sort ${a.name} as ${label.toLowerCase()}`} onClick={() => setAudioRole(a, k)}>
+                  {k === "narration" ? <Mic size={12} /> : k === "music" ? <Music2 size={12} /> : <Zap size={12} />} {label}
+                </button>
               ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  function renderLeftPanel() {
+    const def = LEFT_TABS.find((t) => t[0] === leftTab) || LEFT_TABS[0];
+    const [key, , , subs] = def;
+    const sub = subs ? (subs.some((x) => x[0] === leftSub[key]) ? leftSub[key] : subs[0][0]) : null;
+    const q = mediaQuery.trim().toLowerCase();
+    const used = new Set([...scenes.map((s) => s.asset_id), project.narration_id, project.music_id].filter(Boolean));
+    const lists = audioLists(project);
+    let content;
+    if (key === "media") {
+      const list = sub === "scenes" ? [] : assets.filter((a) => (sub === "all" || a.kind === sub) && (!q || a.name.toLowerCase().includes(q)));
+      content = (
+        <>
+          <div className="cc-content-head">
+            <button className="cc-import" onClick={() => fileRef.current.click()} disabled={locked}>
+              <Upload size={13} /> {uploading ? "Uploading…" : "Import"}
+            </button>
+            {sub === "scenes" && (
+              <button className="btn" onClick={addScene} disabled={locked} aria-label="Add scene">
+                <Plus size={13} /> Scene
+              </button>
+            )}
+            <label className="cc-search">
+              <Search size={13} />
+              <input aria-label={sub === "scenes" ? "Search scenes" : "Search media"} placeholder={sub === "scenes" ? "Search scenes" : "Search media"} value={mediaQuery} onChange={(e) => setMediaQuery(e.target.value)} />
+            </label>
+          </div>
+          {sub === "scenes" ? (
+            scenes.length ? (
+              <div className="cc-grid scenes">
+                {scenes.map((s, i) => {
+                  if (q && !`${s.title} ${s.chapter || ""} ${s.narration || ""}`.toLowerCase().includes(q)) return null;
+                  const a = assets.find((x) => x.id === s.asset_id);
+                  return (
+                    <div
+                      key={s.id}
+                      role="button"
+                      tabIndex={0}
+                      draggable={!q}
+                      title={`${s.title} · drag to reorder`}
+                      className={`cc-card scene-card ${selected?.id === s.id ? "selected" : ""}`}
+                      onClick={() => selectVisualScene(s, i)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") selectVisualScene(s, i);
+                      }}
+                      onDragStart={() => (dragId.current = s.id)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        dropScene(s.id);
+                      }}
+                    >
+                      <span className={`cc-card-thumb look-${project.look}`} style={a?.thumbnail ? { backgroundImage: `url("${a.thumbnail}")` } : undefined}>
+                        {!a && <ImageIcon size={18} />}
+                        <b className="cc-num">{String(i + 1).padStart(2, "0")}</b>
+                        <i className="cc-dur">{Math.round(s.duration)}s</i>
+                        {!s.asset_id && <em className="cc-need">Visual needed</em>}
+                      </span>
+                      <span className="cc-card-name">{s.title}</span>
+                      <span className="cc-card-sub">{tc(offsets[i])} · {s.chapter || "Scene"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <Empty icon={Clapperboard} title="Your timeline starts here">
+                Paste a script, import narration, or add your first scene.
+                <Button icon={Plus} onClick={addScene}>
+                  Add scene
+                </Button>
+              </Empty>
+            )
+          ) : list.length ? (
+            <div className="cc-grid">{list.map((a) => mediaCard(a, used.has(a.id)))}</div>
+          ) : (
+            <div className="cc-empty">
+              <Upload size={22} />
+              <b>{q ? "Nothing matches your search" : "Nothing here yet"}</b>
+              <span>Import photos, clips and audio. Media: 512 MB/file · 30 files/batch.</span>
             </div>
-            <div className="director-footnote">
-              <LockKeyhole size={12} /> Creative rewrites need an API
-              connection. No automatic factual verification.
+          )}
+          <p className="cc-foot">
+            <Info size={12} />
+            {sub === "scenes" ? (project.is_demo ? "Sample imagery is AI-generated." : "Drag scenes to reorder your edit.") : "Click a file to preview it, rename it or place it in a scene."}
+          </p>
+        </>
+      );
+    } else if (key === "audio") {
+      const role = sub === "music" ? "music" : "narration";
+      const mine = lists[role];
+      content =
+        sub === "sfx" ? (
+          <>
+            {soundPanel()}
+            <div className="inspector-content">{unsortedAudio("sfx")}</div>
+          </>
+        ) : (
+          <div className="inspector-content">
+            <div className="section-label">
+              <span>{sub === "music" ? "BACKGROUND MUSIC" : "NARRATION (VOICE-OVER)"}</span>
+              <small>{mine.length} file{mine.length === 1 ? "" : "s"}</small>
             </div>
+            <div className="cc-content-head">
+              <button className="cc-import" onClick={() => importAudio(role)} disabled={locked}>
+                <Upload size={13} /> {uploading ? "Uploading…" : sub === "music" ? "Import music" : "Import a voice-over"}
+              </button>
+              {sub === "voice" && (
+                <button className="btn" disabled={locked} onClick={() => requireAI("narrate")}>
+                  <Sparkles size={13} /> AI voice
+                </button>
+              )}
+            </div>
+            {mine.length ? (
+              mine.map((a) => audioRow(a, role + "_id", role))
+            ) : (
+              <p className="micro-note block">
+                {sub === "music" ? "No music yet. Import an MP3, WAV or M4A you have permission to use." : "No voice-over yet. Import your recorded narration (MP3, WAV, M4A) or make an AI voice."}
+              </p>
+            )}
+            {unsortedAudio()}
+            <button className="text-link" onClick={() => { setInspectorTab("audio"); setAudioSub(sub === "music" ? "music" : "voice"); setLayout({ showRight: true }); }}>
+              {sub === "music" ? "Music settings: part of the track, loop, fades, ducking" : "Voice settings: level, transcribe and align"} <ArrowUpRight size={12} />
+            </button>
+            {sub === "music" && <p className="micro-note block">Supply music you have permission to use.</p>}
+          </div>
+        );
+    } else if (key === "text") {
+      content =
+        sub === "names" ? (
+          effectsPanel(["namecards", "lowerthird"])
+        ) : (
+          <div className="inspector-content">
+            <div className="section-label">
+              <span>SCENE TITLES</span>
+            </div>
+            <p className="micro-note block">A scene title shows its chapter and title over the picture. Switch it on for the scenes that open a new part of the story.</p>
+            <div className="cc-title-list">
+              {scenes.map((s, i) =>
+                q && !s.title.toLowerCase().includes(q) ? null : (
+                  <div key={s.id} className={`cc-title-row ${selected?.id === s.id ? "selected" : ""}`}>
+                    <button className="cc-title-pick" onClick={() => selectVisualScene(s, i)} title="Select this scene">
+                      <b>{String(i + 1).padStart(2, "0")}</b>
+                      <span>{s.title}</span>
+                    </button>
+                    <Toggle
+                      checked={!!s.show_title}
+                      label={`Show the title of scene ${i + 1}`}
+                      onChange={(v) => !locked && queueSave({ scenes: scenes.map((x) => (x.id === s.id ? { ...x, show_title: v } : x)) })}
+                    />
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        );
+    } else if (key === "stickers") content = stickersPanel();
+    else if (key === "effects") content = effectsPanel(sub === "logo" ? ["watermark"] : sub === "subscribe" ? ["cta"] : ["fx"]);
+    else if (key === "transitions") content = effectsPanel(["transitions"]);
+    else if (key === "captions") content = captionsPanel();
+    else if (key === "filters") content = effectsPanel(["looks"]);
+    else content = motionPanel();
+    return (
+      <>
+        <div className="cc-tabs-wrap">
+          <div className="cc-tabs" role="tablist" aria-label="Add to your video">
+            {LEFT_TABS.map(([k, label, Icon]) => (
+              <button key={k} role="tab" aria-selected={leftTab === k} className={leftTab === k ? "active" : ""} onClick={() => setLeftTab(k)}>
+                <Icon size={17} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            className="cc-tabs-more"
+            aria-label="More tabs"
+            title="More tabs"
+            onClick={(e) => e.currentTarget.previousSibling.scrollBy({ left: 160, behavior: "smooth" })}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+        <div className={`cc-left-body ${subs ? "" : "no-sub"}`}>
+          {subs && (
+            <nav className="cc-subnav" aria-label={`${def[1]} sections`}>
+              {subs.map(([k, label]) => (
+                <button key={k} className={sub === k ? "active" : ""} aria-current={sub === k ? "true" : undefined} onClick={() => setLeftSub((cur) => ({ ...cur, [key]: k }))}>
+                  {label}
+                  {key === "media" && (
+                    <small>{k === "scenes" ? scenes.length : k === "all" ? assets.length : assets.filter((a) => a.kind === k).length}</small>
+                  )}
+                </button>
+              ))}
+            </nav>
+          )}
+          <div className="cc-content inspector cc-inner">{content}</div>
+        </div>
+      </>
+    );
+  }
+  // The right panel shows what is selected, as CapCut does: Video for the scene's clip,
+  // Audio for the narration and the music.
+  function renderInspector() {
+    const subs = inspectorTab === "audio"
+      ? [["voice", "Voice"], ["music", "Music"]]
+      : [["basic", "Basic"], ["picture", "Picture"], ["story", "Story"], ["tracks", "Tracks"]];
+    const sub = inspectorTab === "audio" ? audioSub : videoSub;
+    const setSub = inspectorTab === "audio" ? setAudioSub : setVideoSub;
+    const clip = selectedTrack && selected && selectedTrack.sceneId === selected.id && selectedTrack.kind !== "visual" ? selectedTrack.kind : null;
+    return (
+      <>
+        <div className="inspector-tabs cc-insp-tabs" role="tablist" aria-label="Selected clip">
+          {[
+            ["video", "Video"],
+            ["audio", "Audio"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={inspectorTab === key}
+              className={inspectorTab === key ? "active" : ""}
+              onClick={() => setInspectorTab(key)}
+            >
+              {label}
+            </button>
+          ))}
+          <span className="cc-insp-what">
+            {selected ? `Scene ${String(scenes.indexOf(selected) + 1).padStart(2, "0")}` : "Nothing selected"}
+          </span>
+        </div>
+        <div className="cc-subtabs" role="tablist">
+          {subs.map(([key, label]) => (
+            <button key={key} role="tab" aria-selected={sub === key} className={sub === key ? "active" : ""} onClick={() => setSub(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {inspectorTab === "audio" ? (
+          <div className="inspector-content">
+            {clip && (
+              <>
+                <div className="section-label">
+                  <span>SELECTED CLIP · {trackLabel(clip).toUpperCase()} · SCENE {String(scenes.indexOf(selected) + 1).padStart(2, "0")}</span>
+                </div>
+                {trackRows([clip])}
+                <div className="inspector-divider" />
+              </>
+            )}
+            {audioSub === "music" ? musicPanel() : voicePanel()}
+          </div>
+        ) : videoSub === "picture" ? (
+          effectsPanel(["picture"])
+        ) : (
+          <div className="inspector-content">
+            {selected ? (
+              videoSub === "story" ? (
+                <>
+                <label className="field">
+                  Source references
+                  <input
+                    aria-label="Scene source references"
+                    key={
+                      selected.id +
+                      "refs" +
+                      (selected.source_ids || []).join(",")
+                    }
+                    defaultValue={(selected.source_ids || []).join(", ")}
+                    placeholder="S1, S2"
+                    onBlur={(e) => {
+                      const refs = e.target.value
+                        .toUpperCase()
+                        .split(/[,;\s]+/)
+                        .filter(Boolean);
+                      if (refs.some((ref) => !/^S\d+$/.test(ref))) {
+                        notify(
+                          "Use source IDs such as S1, S2. Add sources in Research first.",
+                          "error",
+                        );
+                        return;
+                      }
+                      if (
+                        JSON.stringify(refs) !==
+                        JSON.stringify(selected.source_ids || [])
+                      )
+                        updateScene({ source_ids: [...new Set(refs)] });
+                    }}
+                  />
+                </label>
+                <p className="inspector-source-hint">
+                  {project.sources.length
+                    ? "Library: " + project.sources.map((x) => x.id).join(", ")
+                    : "Add original records or notes in Research, then link their IDs here."}
+                </p>
+                <label className="field">
+                  Chapter label
+                  <input
+                    aria-label="Scene chapter label"
+                    value={selected.chapter || ""}
+                    onChange={(e) => updateScene({ chapter: e.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  Narration{" "}
+                  <span className="field-note">
+                    {wc(selected.narration)} words
+                  </span>
+                  <textarea
+                    rows="5"
+                    value={selected.narration}
+                    placeholder="Add the narration for this scene…"
+                    onChange={(e) => updateScene({ narration: e.target.value })}
+                  />
+                </label>
+                <div className="micro-note">
+                  <Clock3 size={12} />
+                  {selected.timing === "imported-captions"
+                    ? "Supplied caption timestamps · cue/audio review required"
+                    : selected.timing === "transcribed"
+                      ? "Source-aligned segment timing"
+                      : selected.timing === "scene-aligned"
+                        ? "Voice aligned by scene; captions estimated"
+                        : "Estimated timing · review with narration"}
+                </div>
+                </>
+              ) : videoSub === "tracks" ? (
+                <>
+                <div className="section-label">
+                  <span>TRACKS</span>
+                  <span className="track-pill">
+                    {selectedTrack
+                      ? trackLabel(selectedTrack.kind) + " · scene " + (scenes.indexOf(selected) + 1)
+                      : "Click a clip on any timeline lane to select its track"}
+                  </span>
+                </div>
+                  {trackRows(["visual", "narration", "music"])}
+                </>
+              ) : (
+                <>
+                <div className="section-label">
+                  <span>
+                    SCENE{" "}
+                    {String(scenes.indexOf(selected) + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <IconButton
+                      icon={ArrowUp}
+                      label="Move scene earlier"
+                      onClick={() => moveScene(selected.id, -1)}
+                      disabled={scenes[0]?.id === selected.id}
+                    />
+                    <IconButton
+                      icon={ArrowDown}
+                      label="Move scene later"
+                      onClick={() => moveScene(selected.id, 1)}
+                      disabled={scenes.at(-1)?.id === selected.id}
+                    />
+                  </div>
+                </div>
+                <label className="field">
+                  Scene title
+                  <input
+                    value={selected.title}
+                    onChange={(e) => updateScene({ title: e.target.value })}
+                  />
+                </label>
+                <div className="field-row">
+                  <label className="field">
+                    Duration
+                    <div className="input-unit">
+                      <input
+                        aria-label="Scene duration"
+                        type="number"
+                        min="0.5"
+                        max="600"
+                        step="0.5"
+                        value={selected.duration}
+                        onChange={(e) =>
+                          updateScene({
+                            duration: Math.max(
+                              0.5,
+                              Math.min(600, Number(e.target.value) || 0.5),
+                            ),
+                          })
+                        }
+                      />
+                      <span>sec</span>
+                    </div>
+                  </label>
+                  <div className="field">
+                    Transition in
+                    <button className="fx-jump" onClick={() => openLeft("transitions")}>
+                      {TRANS_LABEL[transitionId(selected.transition)]} <ArrowUpRight size={11} />
+                    </button>
+                  </div>
+                </div>
+                <div className="field rp-current">
+                  Picture
+                  <div className="rp-now">
+                    <span className="rp-now-thumb" style={{ backgroundImage: (() => { const a = assets.find((x) => x.id === selected.asset_id); return a ? `url("${a.thumbnail || a.url}")` : undefined; })() }} />
+                    <div>
+                      <b>{assets.find((x) => x.id === selected.asset_id)?.name || "No picture"}</b>
+                      {selected.replaced && <small className="rp-tag">Replaced by you</small>}
+                      <div className="rp-now-actions">
+                        <button className="btn" aria-label="Replace the picture" disabled={locked} onClick={() => setModal("replace")}>
+                          Replace…
+                        </button>
+                        {selected.replaced && project.episode?.guide && (
+                          <button className="text-link" disabled={locked} onClick={() =>
+                            api(`/api/projects/${project.id}/episode/restore-scene`, "POST", { scene_id: selected.id })
+                              .then((p) => { setProject(p); notify("The guide’s picture is back."); })
+                              .catch(report)
+                          }>
+                            Restore the guide’s picture
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  className="text-link"
+                  onClick={() => {
+                    setMediaId(selected.asset_id);
+                    setModal("media");
+                  }}
+                >
+                  <Layers size={12} /> Browse media library{" "}
+                  <ArrowUpRight size={12} />
+                </button>
+                <div className="inspector-divider" />
+                <p className="micro-note block">
+                  Crop, fill and movement are in{" "}
+                  <button className="fx-jump" onClick={() => setVideoSub("picture")}>Picture</button>; transitions, filters and name cards in the tabs on the left.
+                </p>
+                {assets.find((a) => a.id === selected.asset_id)?.kind ===
+                  "video" && (
+                  <label className="field">
+                    Source in-point (seconds)
+                    <input
+                      type="number"
+                      min="0"
+                      value={selected.trim_start || 0}
+                      onChange={(e) =>
+                        updateScene({
+                          trim_start: Math.max(0, Number(e.target.value) || 0),
+                        })
+                      }
+                    />
+                  </label>
+                )}
+                <div className="switch-line">
+                  <span>Show scene title</span>
+                  <Toggle
+                    checked={selected.show_title}
+                    onChange={(v) => updateScene({ show_title: v })}
+                    label="Show scene title"
+                  />
+                </div>
+                <div className="switch-line">
+                  <span>Subtitles</span>
+                  <Toggle
+                    checked={project.captions}
+                    onChange={(v) => queueSave({ captions: v })}
+                    label="Subtitles"
+                  />
+                </div>
+                <div className="inspector-divider" />
+                <button
+                  className="danger-link"
+                  onClick={() => {
+                    if (
+                      window.confirm("Remove this scene from the timeline?")
+                    ) {
+                      queueSave({
+                        scenes: scenes.filter((s) => s.id !== selected.id),
+                      });
+                      setTime(0);
+                      setSelectedId(null);
+                    }
+                  }}
+                >
+                  <Trash2 size={12} /> Remove scene
+                </button>
+                </>
+              )
+            ) : (
+              <Empty title="No scene selected">
+                Click a clip on the timeline, or a scene in Media, to edit it here.
+              </Empty>
+            )}
           </div>
         )}
       </>
@@ -2531,7 +3075,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${home ? "" : "cc-shell"}`}>
       <aside className="rail">
         <button
           className="brand-mark"
@@ -2634,40 +3178,53 @@ function App() {
           }}
         />
       )}
-      <div className={`workspace ${tab === "edit" && layout.compact ? "edit-compact" : ""}`} hidden={home}>
-        <header className="topbar">
-          <div className="brand-word">
-            CASEFILE <span>STUDIO</span>
-            <i />
-          </div>
-          <div className="workspace-crumb">
-            <span>Workspace</span>
-            <ChevronRight size={12} />
-            <span>Documentaries</span>
-          </div>
-          <div className="topbar-right">
-            <span className="engine-status">
-              <span className="tiny-dot" />
-              Render engine ready
-            </span>
-            <button
-              className={`connection ${config.connected ? "connected" : ""}`}
-              onClick={() => setModal("settings")}
-            >
-              <Sparkles size={13} />
-              {config.connected ? "AI connected" : "Connect AI"}
-              <ChevronDown size={12} />
-            </button>
-          </div>
-        </header>
-        <div className="project-header">
-          <div className="project-heading">
-            <div className="project-kicker">
-              <span className="eyebrow">DOCUMENTARY WORKSPACE</span>
-              {project.is_demo && <Badge tone="demo">Fictional sample</Badge>}
+      <div className={`workspace cc ${tab === "edit" ? "cc-edit" : ""} ${playing ? "is-playing" : ""}`} hidden={home}>
+        {/* v0.4.67 one slim bar, as in CapCut: menu, project and save state · the pages · export */}
+        <header className="topbar cc-topbar">
+          <div className="cc-top-left">
+            <div className="cc-menu">
+              <button className="cc-menu-btn" aria-label="Menu" title="Menu: home, projects, media, help, settings" aria-expanded={menuOpen} onClick={() => setMenuOpen((v) => !v)}>
+                <img src="/assets/favicon.svg" alt="" />
+                <Menu size={14} />
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="cc-menu-scrim" onClick={() => setMenuOpen(false)} />
+                  <div className="cc-menu-list" role="menu" onClick={() => setMenuOpen(false)}>
+                    <button role="menuitem" onClick={() => { setPlaying(false); setHome(true); }}>
+                      <HomeIcon size={14} /> Home
+                    </button>
+                    <button role="menuitem" onClick={() => { refreshProjects(); setModal("projects"); }}>
+                      <FolderOpen size={14} /> Your projects
+                    </button>
+                    <button role="menuitem" onClick={() => setModal("new")}>
+                      <Plus size={14} /> New project
+                    </button>
+                    <button role="menuitem" onClick={() => { setMediaId(null); setModal("media"); }}>
+                      <Layers size={14} /> Media library
+                    </button>
+                    <button role="menuitem" aria-label="Save project backup" title="Save project settings now; no server connection needed. Media is not included." onClick={() => downloadProjectSnapshot(project, setDownloadGate)}>
+                      <FileJson size={14} /> Save backup
+                    </button>
+                    {!project.episode?.guide && (
+                      <button role="menuitem" onClick={() => openTool("production")}>
+                        <Sparkles size={14} /> Guided automatic production
+                      </button>
+                    )}
+                    <i />
+                    <button role="menuitem" onClick={() => setModal("help")}>
+                      <CircleHelp size={14} /> How this workspace works
+                    </button>
+                    <button role="menuitem" onClick={() => setModal("settings")}>
+                      <Settings2 size={14} /> Settings and AI connection
+                    </button>
+                    <small>Casefile Studio · working prototype · v{APP_VERSION}</small>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="title-row">
-              <h1>{project.title}</h1>
+            <div className="cc-title">
+              <h1 title={project.title}>{project.title}</h1>
               <button
                 className="project-switch"
                 aria-label="Switch project"
@@ -2676,76 +3233,130 @@ function App() {
                   setModal("projects");
                 }}
               >
-                <ChevronDown size={16} />
+                <ChevronDown size={15} />
               </button>
+              {project.is_demo && tab !== "edit" && <Badge tone="demo">Fictional sample</Badge>}
             </div>
-            <div className="project-meta">
-              <span
-                className={`save-state ${saving === "error" ? "error" : ""}`}
-              >
-                {saving === "saving" || saving === "pending" ? (
-                  <LoaderCircle size={11} className="spin" />
-                ) : saving === "error" ? (
-                  <AlertTriangle size={11} />
-                ) : (
-                  <CheckCircle2 size={11} />
-                )}{" "}
-                {saving === "saved"
-                  ? "All changes saved"
-                  : saving === "error"
-                    ? "Save failed — retry editing"
-                    : "Saving changes…"}
-              </span>
-              <span className="meta-dot">·</span>
-              <span>{project.target_minutes} min target</span>
-              <span className="meta-dot">·</span>
-              <span>
-                {tc(duration)}{" "}
-                {project.episode?.guide
-                  ? voice
-                    ? "planned"
-                    : project.episode?.timings
-                      ? "timed plan · audio missing"
-                      : "estimated plan"
-                  : "assembled"}
-              </span>
-            </div>
-          </div>
-          <div className="project-actions">
-            <button
-              className="btn backup-project-btn"
-              aria-label="Save project backup"
-              title="Save project settings now; no server connection needed. Media is not included."
-              onClick={() => downloadProjectSnapshot(project, setDownloadGate)}
+            <span
+              className={`save-state ${saving === "error" ? "error" : ""}`}
+              title={`${project.target_minutes} min target · ${tc(duration)} ${project.episode?.guide ? (voice ? "planned" : project.episode?.timings ? "timed plan · audio missing" : "estimated plan") : "assembled"}`}
             >
-              <FileJson size={14} />
-              <span>Save backup</span>
-            </button>
-            <IconButton
-              icon={Undo2}
-              label={historyLabel(project, "undo")}
-              onClick={() => stepHistory("undo")}
-              disabled={locked || !project.history?.undo?.length}
-            />
-            <IconButton
-              icon={Redo2}
-              label={historyLabel(project, "redo")}
-              onClick={() => stepHistory("redo")}
-              disabled={locked || !project.history?.redo?.length}
-            />
-            <Button icon={Plus} onClick={() => setModal("new")}>
-              New project
-            </Button>
-            <Button
-              icon={Clapperboard}
-              kind="setup-header-button"
+              {saving === "saving" || saving === "pending" ? (
+                <LoaderCircle size={12} className="spin" />
+              ) : saving === "error" ? (
+                <AlertTriangle size={12} />
+              ) : (
+                <CheckCircle2 size={12} />
+              )}
+              {saving === "saved"
+                ? `Auto saved${savedClock(project.updated_at)}`
+                : saving === "error"
+                  ? "Save failed — retry editing"
+                  : "Saving…"}
+            </span>
+          </div>
+        <nav className="stage-nav cc-pages" aria-label="Pages">
+          {[
+            ["setup", "Episode setup", FolderOpen, null],
+            ["desk", "Case desk", BookOpen, null],
+            ["research", "Research", Search, project.sources.length],
+            ["script", "Script", FileText, null],
+            ["edit", "Edit", Clapperboard, scenes.length],
+            ["review", "Review & export", ShieldCheck, null],
+            ["recut", "Re-cut", Scissors, null],
+          ].map(([key, label, Icon, count], i) => (
+            <button
+              key={key}
+              className={`${tab === key ? "active" : ""} ${key === "setup" ? "setup-nav" : ""}`}
+              title={label}
+              aria-current={tab === key ? "page" : undefined}
               onClick={() => {
-                setTab("setup");
+                if (
+                  key === "edit" &&
+                  project.episode?.guide &&
+                  (!project.scenes.some((s) => s.asset_id) ||
+                    project.episode.plan?.mode === "inspection")
+                ) {
+                  makeFirstDraft();
+                  return;
+                }
+                setTab(key);
                 setPlaying(false);
               }}
             >
-              Episode setup
-            </Button>
+              <Icon size={14} />
+              <span>{label}</span>
+              {count > 0 && <span className="stage-count">{count}</span>}
+            </button>
+          ))}
+        </nav>
+          <div className="cc-top-right">
+            <button className="cc-search-btn" aria-label="Search" title="Search tools, settings, scenes and files (Ctrl+K / ⌘K)" onClick={() => setSearchOpen(true)}>
+              <Search size={14} />
+              <span>Search</span>
+              <kbd>{IS_MAC ? "⌘K" : "Ctrl K"}</kbd>
+            </button>
+            {tab !== "edit" && (
+              <>
+                <IconButton
+                  icon={Undo2}
+                  label={historyLabel(project, "undo")}
+                  onClick={() => stepHistory("undo")}
+                  disabled={locked || !project.history?.undo?.length}
+                />
+                <IconButton
+                  icon={Redo2}
+                  label={historyLabel(project, "redo")}
+                  onClick={() => stepHistory("redo")}
+                  disabled={locked || !project.history?.redo?.length}
+                />
+              <div className="aspect-switch">
+                <button className="aspect-label" aria-label="Video format" aria-expanded={modal === "format"} onClick={() => setModal(modal === "format" ? null : "format")}>
+                  <Monitor size={12} /> {FORMATS[aspectOf(project)].label} <ChevronDown size={11} />
+                </button>
+                {modal === "format" && (
+                  <div className="aspect-menu" role="menu">
+                    {Object.entries(FORMATS).map(([k, f]) => (
+                      <button
+                        key={k}
+                        role="menuitemradio"
+                        aria-checked={aspectOf(project) === k}
+                        className={aspectOf(project) === k ? "on" : ""}
+                        disabled={locked}
+                        onClick={() => queueSave({ aspect: k })}
+                      >
+                        <i className={`aspect-shape ${k === "9:16" ? "tall" : "wide"}`} />
+                        <span>
+                          <b>{k}</b> {f.label.split("·")[1]}
+                        </span>
+                      </button>
+                    ))}
+                    {aspectOf(project) === "9:16" && (
+                      <div className="aspect-fit">
+                        <small>Wide footage in a tall frame</small>
+                        {FITS.map((f) => (
+                          <label key={f.id}>
+                            <input type="radio" name="vertical-fit" aria-label={f.label} checked={fitOf(project) === f.id} disabled={locked} onChange={() => queueSave({ vertical_fit: f.id })} />
+                            {f.label}
+                          </label>
+                        ))}
+                        <small>Captions stay above the app buttons at the bottom of the screen.</small>
+                      </div>
+                    )}
+                    <button className="aspect-done" onClick={() => setModal(null)}>Done</button>
+                  </div>
+                )}
+              </div>
+              </>
+            )}
+            <button
+              className={`connection ${config.connected ? "connected" : ""}`}
+              onClick={() => setModal("settings")}
+              title={config.connected ? "AI connected · settings" : "Connect an AI service"}
+            >
+              <Sparkles size={13} />
+              <span>{config.connected ? "AI connected" : "Connect AI"}</span>
+            </button>
             {!project.episode?.guide && (
               <Button
                 icon={Sparkles}
@@ -2755,9 +3366,10 @@ function App() {
                 Produce draft
               </Button>
             )}
-            {project.exports[0] ? (
+            {project.exports[0] && (
               <a
-                className="btn primary"
+                className="btn cc-dl"
+                title="Download the latest MP4"
                 aria-label="Download latest MP4"
                 onClick={(ev) => {
                   if (window.top !== window) {
@@ -2774,102 +3386,25 @@ function App() {
                 href={`/api/projects/${project.id}/exports/${project.exports[0].id}/download`}
                 download
               >
-                <Download size={14} /> Download MP4
+                <Download size={14} /> <span>MP4</span>
               </a>
-            ) : (
-              <Button
-                kind="primary"
-                icon={Film}
-                disabled={locked}
-                onClick={() =>
-                  project.episode?.guide
-                    ? makeFirstDraft({ render: true })
-                    : openTool("export", "review")
-                }
-              >
-                {project.episode?.guide ? "Make video" : "Export video"}
-              </Button>
             )}
-          </div>
-        </div>
-        <nav className="stage-nav">
-          {[
-            ...(project.episode ||
-            project.mode === "narration" ||
-            tab === "setup"
-              ? [["setup", "Episode setup", FolderOpen, null]]
-              : []),
-            ["desk", "Case desk", BookOpen, null],
-            ["research", "Research", Search, project.sources.length],
-            ["script", "Script", FileText, null],
-            ["edit", "Edit", Clapperboard, scenes.length],
-            ["review", "Review & export", ShieldCheck, null],
-            ["recut", "Re-cut", Scissors, null],
-          ].map(([key, label, Icon, count], i) => (
-            <button
-              key={key}
-              className={`${tab === key ? "active" : ""} ${key === "setup" ? "setup-nav" : ""}`}
-              onClick={() => {
-                if (
-                  key === "edit" &&
-                  project.episode?.guide &&
-                  (!project.scenes.some((s) => s.asset_id) ||
-                    project.episode.plan?.mode === "inspection")
-                ) {
-                  makeFirstDraft();
-                  return;
-                }
-                setTab(key);
-                setPlaying(false);
-              }}
+            <Button
+              kind="primary cc-export"
+              icon={Upload}
+              disabled={locked}
+              aria-label={project.episode?.guide ? "Make video" : "Export video"}
+              title={project.episode?.guide ? "Make the video (render an MP4)" : "Export the video"}
+              onClick={() =>
+                project.episode?.guide
+                  ? makeFirstDraft({ render: true })
+                  : openTool("export", "review")
+              }
             >
-              <span className="step-number">0{i + 1}</span>
-              <Icon size={14} />
-              <span>{label}</span>
-              {count > 0 && <span className="stage-count">{count}</span>}
-            </button>
-          ))}
-          <div className="stage-nav-end">
-            <span className="prototype-label">WORKING PROTOTYPE · v{APP_VERSION}</span>
-            <div className="aspect-switch">
-              <button className="aspect-label" aria-label="Video format" aria-expanded={modal === "format"} onClick={() => setModal(modal === "format" ? null : "format")}>
-                <Monitor size={12} /> {FORMATS[aspectOf(project)].label} <ChevronDown size={11} />
-              </button>
-              {modal === "format" && (
-                <div className="aspect-menu" role="menu">
-                  {Object.entries(FORMATS).map(([k, f]) => (
-                    <button
-                      key={k}
-                      role="menuitemradio"
-                      aria-checked={aspectOf(project) === k}
-                      className={aspectOf(project) === k ? "on" : ""}
-                      disabled={locked}
-                      onClick={() => queueSave({ aspect: k })}
-                    >
-                      <i className={`aspect-shape ${k === "9:16" ? "tall" : "wide"}`} />
-                      <span>
-                        <b>{k}</b> {f.label.split("·")[1]}
-                      </span>
-                    </button>
-                  ))}
-                  {aspectOf(project) === "9:16" && (
-                    <div className="aspect-fit">
-                      <small>Wide footage in a tall frame</small>
-                      {FITS.map((f) => (
-                        <label key={f.id}>
-                          <input type="radio" name="vertical-fit" aria-label={f.label} checked={fitOf(project) === f.id} disabled={locked} onChange={() => queueSave({ vertical_fit: f.id })} />
-                          {f.label}
-                        </label>
-                      ))}
-                      <small>Captions stay above the app buttons at the bottom of the screen.</small>
-                    </div>
-                  )}
-                  <button className="aspect-done" onClick={() => setModal(null)}>Done</button>
-                </div>
-              )}
-            </div>
+              Export
+            </Button>
           </div>
-        </nav>
+        </header>
 
         {recoveredSetup && (
           <div className="recovery-notice">
@@ -2978,7 +3513,7 @@ function App() {
                 role="separator"
                 aria-label="Resize the media panel"
                 title="Drag to resize · double-click to reset"
-                style={{ left: layout.left - 3, bottom: timelineHeight(layout.timeline, gridHeight) }}
+                style={{ left: layout.left + GRID_PAD, bottom: timelineHeight(layout.timeline, gridHeight) + 2 * GRID_PAD }}
                 onPointerDown={(e) => resizePanel(e, "left")}
                 onDoubleClick={() => setLayout({ left: LAYOUT_DEFAULTS.left })}
               />
@@ -2989,7 +3524,7 @@ function App() {
                 role="separator"
                 aria-label="Resize the inspector"
                 title="Drag to resize · double-click to reset"
-                style={{ right: layout.right - 3, bottom: timelineHeight(layout.timeline, gridHeight) }}
+                style={{ right: layout.right + GRID_PAD, bottom: timelineHeight(layout.timeline, gridHeight) + 2 * GRID_PAD }}
                 onPointerDown={(e) => resizePanel(e, "right")}
                 onDoubleClick={() => setLayout({ right: LAYOUT_DEFAULTS.right })}
               />
@@ -2999,181 +3534,34 @@ function App() {
               role="separator"
               aria-label="Resize the timeline"
               title="Drag to make the timeline taller or shorter · double-click to reset"
-              style={{ bottom: timelineHeight(layout.timeline, gridHeight) - 3 }}
+              style={{ bottom: timelineHeight(layout.timeline, gridHeight) + GRID_PAD }}
               onPointerDown={(e) => resizePanel(e, "timeline")}
               onDoubleClick={() => setLayout({ timeline: LAYOUT_DEFAULTS.timeline })}
             />
-            <section className="scene-panel" hidden={!layout.showLeft}>
-              <div className="panel-tabs">
-                <button
-                  className={leftTab === "scenes" ? "active" : ""}
-                  onClick={() => setLeftTab("scenes")}
-                >
-                  Scenes <span>{scenes.length}</span>
-                </button>
-                <button
-                  className={leftTab === "assets" ? "active" : ""}
-                  onClick={() => setLeftTab("assets")}
-                >
-                  Media <span>{assets.length}</span>
-                </button>
-                <IconButton
-                  icon={Plus}
-                  label={leftTab === "scenes" ? "Add scene" : "Upload media"}
-                  onClick={() =>
-                    leftTab === "scenes" ? addScene() : fileRef.current.click()
-                  }
-                />
-              </div>
-              <div className="scene-list">
-                {leftTab === "scenes" ? (
-                  scenes.length ? (
-                    scenes.map((s, i) => {
-                      const a = assets.find((a) => a.id === s.asset_id);
-                      return (
-                        <div
-                          key={s.id}
-                          role="button"
-                          tabIndex={0}
-                          draggable
-                          className={`scene-card ${selected?.id === s.id ? "selected" : ""}`}
-                          onClick={() => selectVisualScene(s, i)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") selectVisualScene(s, i);
-                          }}
-                          onDragStart={() => (dragId.current = s.id)}
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            dropScene(s.id);
-                          }}
-                        >
-                          <div className="scene-card-top">
-                            <span className="scene-number">
-                              {String(i + 1).padStart(2, "0")}
-                            </span>
-                            <span className="scene-start">
-                              {tc(offsets[i])}
-                            </span>
-                            <GripVertical size={12} />
-                          </div>
-                          <div className="scene-card-body">
-                            <div
-                              className={`scene-thumb look-${project.look}`}
-                              style={
-                                a?.thumbnail
-                                  ? { backgroundImage: `url("${a.thumbnail}")` }
-                                  : {}
-                              }
-                            >
-                              {!a && <ImageIcon size={17} />}
-                              <span>{Math.round(s.duration)}s</span>
-                            </div>
-                            <div className="scene-card-text">
-                              <h3>{s.title}</h3>
-                              <p>{s.chapter || "Scene"}</p>
-                              {!s.asset_id && <small>Visual needed</small>}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <Empty
-                      icon={Clapperboard}
-                      title="Your timeline starts here"
-                    >
-                      Paste a script, import narration, or add your first scene.
-                      <Button icon={Plus} onClick={addScene}>
-                        Add scene
-                      </Button>
-                    </Empty>
-                  )
-                ) : (
-                  <div className="mini-media-list">
-                    <button
-                      className="mini-upload"
-                      onClick={() => fileRef.current.click()}
-                    >
-                      <Upload size={18} />
-                      <span>
-                        {uploading ? "Uploading…" : "Import your media"}
-                      </span>
-                      <small>Media: 512 MB/file · 30 files/batch</small>
-                    </button>
-                    {assets.map((a) => (
-                      <button
-                        key={a.id}
-                        className="mini-media"
-                        onClick={() => {
-                          setMediaId(a.id);
-                          setModal("media");
-                        }}
-                      >
-                        {a.thumbnail ? (
-                          <img src={a.thumbnail} alt="" />
-                        ) : (
-                          <div>
-                            <AudioLines size={20} />
-                          </div>
-                        )}
-                        <span>
-                          {a.name}
-                          <small>
-                            {a.kind} ·{" "}
-                            {a.duration
-                              ? tc(a.duration)
-                              : `${a.width}×${a.height}`}
-                          </small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <footer className="scene-footer">
-                <Info size={12} />
-                {project.is_demo
-                  ? "Sample imagery is AI-generated."
-                  : "Drag scenes to reorder your edit."}
-              </footer>
-            </section>
+            <section className="scene-panel cc-left" hidden={!layout.showLeft}>{renderLeftPanel()}</section>
             <section className="monitor-panel">
-              <div className="monitor-header">
+              <div className="monitor-header cc-player-head">
                 <span>
-                  <span className="monitor-dot" />
-                  PROGRAM MONITOR
+                  Player
+                  <i>{scenes.length ? ` · Scene ${activeIndex + 1} of ${scenes.length}` : ""}</i>
                 </span>
                 <div>
-                  <button className="btn monitor-stickers" aria-label="Open stickers" disabled={locked || !scenes.length} onClick={() => setStickerDialog(true)}>
-                    <Sticker size={13} /> Stickers
-                  </button>
-                  <Badge>
-                    {project.is_demo ? "FICTIONAL DEMO" : "EDIT PREVIEW"}
-                  </Badge>
+                  {project.is_demo && <Badge>FICTIONAL DEMO</Badge>}
                   <button
                     className={`layout-btn ${layout.showLeft ? "on" : ""}`}
-                    aria-label={layout.showLeft ? "Hide the scenes and media panel" : "Show the scenes and media panel"}
-                    title={layout.showLeft ? "Hide the scenes and media panel" : "Show the scenes and media panel"}
+                    aria-label={layout.showLeft ? "Hide the left panel" : "Show the left panel"}
+                    title={layout.showLeft ? "Hide the left panel (Media, Audio, Text …)" : "Show the left panel (Media, Audio, Text …)"}
                     onClick={() => setLayout({ showLeft: !layout.showLeft })}
                   >
-                    <PanelRight size={14} style={{ transform: "scaleX(-1)" }} />
+                    <PanelLeft size={15} />
                   </button>
                   <button
                     className={`layout-btn ${layout.showRight ? "on" : ""}`}
                     aria-label={layout.showRight ? "Hide the inspector" : "Show the inspector"}
-                    title={layout.showRight ? "Hide the inspector" : "Show the inspector"}
+                    title={layout.showRight ? "Hide the right panel (the selected clip)" : "Show the right panel (the selected clip)"}
                     onClick={() => setLayout({ showRight: !layout.showRight })}
                   >
-                    <PanelRight size={14} />
-                  </button>
-                  <button
-                    className={`layout-btn ${layout.compact ? "" : "on"}`}
-                    aria-label={layout.compact ? "Show the full project header" : "Make the project header smaller"}
-                    title={layout.compact ? "Show the full project header" : "Make the project header smaller"}
-                    onClick={() => setLayout({ compact: !layout.compact })}
-                  >
-                    {layout.compact ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
+                    <PanelRight size={15} />
                   </button>
                   <IconButton
                     className="mobile-inspector"
@@ -3183,7 +3571,20 @@ function App() {
                   />
                 </div>
               </div>
-              <div className="monitor-screen" ref={screenRef}>
+              <div className={`monitor-screen ${fullMode === "window" ? "full-window" : ""}`} ref={screenRef}>
+                {fullMode && (
+                  <div className="full-bar">
+                    <button type="button" aria-label={playing ? "Pause (full screen)" : "Play (full screen)"} title="Play / pause (Space)" onClick={() => setPlaying((v) => !v)} disabled={!scenes.length}>
+                      {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+                    </button>
+                    <span className="full-time">{tc(time, true)} / {tc(duration, true)}</span>
+                    <input type="range" aria-label="Playhead (full screen)" min="0" max={duration || 0} step="0.04" value={Math.min(time, duration || 0)}
+                      onChange={(e) => { setPlaying(false); setTime(+e.target.value); }} />
+                    <button type="button" aria-label="Exit full screen" title="Exit full screen (Esc)" onClick={exitFull}>
+                      <Minimize2 size={15} />
+                    </button>
+                  </div>
+                )}
                 <div
                   className={`video-frame look-${project.look} ${aspectOf(project) === "9:16" ? "tall" : ""}`}
                   style={{ width: frameSize.width, height: frameSize.height }}
@@ -3312,13 +3713,13 @@ function App() {
                     height={frameSize.height}
                     selectedId={stickerId}
                     disabled={locked}
-                    onSelect={(id) => { setStickerId(id); setInspectorTab("stickers"); setLayout({ showRight: true }); }}
+                    onSelect={(id) => { setStickerId(id); openLeft("stickers"); }}
                     onMove={(id, x, y, local) => moveSticker(id, x, y, local)}
                   />
                   {(() => {
                     // v0.4.52 a motion graphic: the one you are editing, else the approved ones
                     // (v0.4.62 stacked as the export stacks them: a cinematic graphic fades in over the one before)
-                    const gs = graphicsAt(project.motion, time, inspectorTab === "motion" ? motionId : null);
+                    const gs = graphicsAt(project.motion, time, motionEditing ? motionId : null);
                     return gs.map((g, k) => (
                       <div key={g.item.id} className={`motion-wrap ${g.exported ? "" : "draft"}`}>
                         <MotionLayer projectId={project.id} item={g.item} look={project.motion?.look} time={time} width={frameSize.width} height={frameSize.height} playing={playing}
@@ -3335,7 +3736,7 @@ function App() {
                     const b = watermarkBox(frameSize.width, frameSize.height, logo.width || 1, logo.height || 1, wm.position, wm.size);
                     return <img className="film-watermark" alt="" src={logo.url} style={{ left: b.x, top: b.y, width: b.w, height: b.h, opacity: wm.opacity }} />;
                   })()}
-                  {project.captions && activeScene && !(graphicAt(project.motion, time, inspectorTab === "motion" ? motionId : null)?.item.hide_captions) && (() => {
+                  {project.captions && activeScene && !(graphicAt(project.motion, time, motionEditing ? motionId : null)?.item.hide_captions) && (() => {
                     const cap = captionAt(activeScene, time - (offsets[activeIndex] || 0), project.caption_style, clean);
                     if (!cap) return null;
                     const css = captionCss(project.caption_style, frameSize.width, frameSize.height);
@@ -3396,16 +3797,11 @@ function App() {
                   <div className="frame-corner br" />
                 </div>
               </div>
-              <div className="player-controls">
-                <div className="player-volume">
-                  <IconButton
-                    icon={muted ? VolumeX : Volume2}
-                    label={muted ? "Unmute preview" : "Mute preview"}
-                    onClick={() => setMuted((v) => !v)}
-                  />
-                  <span>
-                    {voice ? "Voice + picture" : "Picture preview · no voice"}
-                  </span>
+              <div className="player-controls cc-transport">
+                <div className="time-display" aria-label="Playhead time">
+                  <span>{tc(time, true)}</span>
+                  <i>/</i>
+                  {tc(duration, true)}
                 </div>
                 <div className="transport">
                   <IconButton
@@ -3420,13 +3816,14 @@ function App() {
                   <button
                     className="play-btn"
                     aria-label={playing ? "Pause preview" : "Play preview"}
+                    title="Play / pause (Space)"
                     onClick={() => setPlaying((v) => !v)}
                     disabled={!scenes.length}
                   >
                     {playing ? (
-                      <Pause size={15} fill="currentColor" />
+                      <Pause size={16} fill="currentColor" />
                     ) : (
-                      <Play size={15} fill="currentColor" />
+                      <Play size={16} fill="currentColor" />
                     )}
                   </button>
                   <IconButton
@@ -3438,83 +3835,77 @@ function App() {
                       setSelectedId(scenes[i]?.id);
                     }}
                   />
-                  <div className="time-display">
-                    <span>{tc(time, true)}</span>
-                    <i>/</i>
-                    {tc(duration, true)}
-                  </div>
                 </div>
                 <div className="player-right">
-                  {!layout.director && (
-                    <button className="layout-btn" aria-label="Show the direction bar" title="Direct your edit in plain English" onClick={() => setLayout({ director: true })}>
-                      <Sparkles size={14} />
+                  <IconButton
+                    icon={muted ? VolumeX : Volume2}
+                    label={muted ? "Unmute preview" : "Mute preview"}
+                    onClick={() => setMuted((v) => !v)}
+                  />
+                  <div className="aspect-switch">
+                    <button className="aspect-label" aria-label="Video format" aria-expanded={modal === "format"} onClick={() => setModal(modal === "format" ? null : "format")}>
+                      <Monitor size={13} /> <span className="cc-ratio-word">Ratio</span> <b>{aspectOf(project)}</b> <ChevronDown size={11} />
                     </button>
-                  )}
+                    {modal === "format" && (
+                      <div className="aspect-menu" role="menu">
+                        {Object.entries(FORMATS).map(([k, f]) => (
+                          <button
+                            key={k}
+                            role="menuitemradio"
+                            aria-checked={aspectOf(project) === k}
+                            className={aspectOf(project) === k ? "on" : ""}
+                            disabled={locked}
+                            onClick={() => queueSave({ aspect: k })}
+                          >
+                            <i className={`aspect-shape ${k === "9:16" ? "tall" : "wide"}`} />
+                            <span>
+                              <b>{k}</b> {f.label.split("·")[1]}
+                            </span>
+                          </button>
+                        ))}
+                        {aspectOf(project) === "9:16" && (
+                          <div className="aspect-fit">
+                            <small>Wide footage in a tall frame</small>
+                            {FITS.map((f) => (
+                              <label key={f.id}>
+                                <input type="radio" name="vertical-fit" aria-label={f.label} checked={fitOf(project) === f.id} disabled={locked} onChange={() => queueSave({ vertical_fit: f.id })} />
+                                {f.label}
+                              </label>
+                            ))}
+                            <small>Captions stay above the app buttons at the bottom of the screen.</small>
+                          </div>
+                        )}
+                        <button className="aspect-done" onClick={() => setModal(null)}>Done</button>
+                      </div>
+                    )}
+                  </div>
                   <IconButton
                     icon={Maximize2}
-                    label="Fullscreen preview"
+                    label={fullMode ? "Exit full screen" : "Fullscreen preview"}
                     onClick={fullscreen}
                   />
                 </div>
               </div>
-              {layout.director && <form className="director-bar" onSubmit={direct}>
-                <div className="director-symbol">
-                  <Sparkles size={16} />
-                </div>
-                <div className="director-input">
-                  <label htmlFor="direction">
-                    DIRECT YOUR EDIT{" "}
-                    <span>
-                      {config.connected ? "AI connected" : "Local + AI-ready"}
-                    </span>
-                  </label>
-                  <input
-                    id="direction"
-                    value={command}
-                    onChange={(e) => setCommand(e.target.value)}
-                    placeholder={
-                      project.episode?.guide
-                        ? "Try “set music to 8%” or “use the archive look”…"
-                        : "Try “use the archive look” or “set scene 2 to 12 seconds”…"
-                    }
-                    disabled={locked}
-                  />
-                </div>
-                <IconButton
-                  icon={MessageSquareText}
-                  label="Show direction history"
-                  onClick={() => setInspectorTab("director")}
-                />
-                <button
-                  className="send-btn"
-                  type="submit"
-                  aria-label="Apply editing instruction"
-                  disabled={locked || !command.trim()}
-                >
-                  {busy ? (
-                    <LoaderCircle className="spin" size={16} />
-                  ) : (
-                    <ArrowUpRight size={18} />
-                  )}
-                </button>
-                <button type="button" className="layout-btn director-close" aria-label="Hide the direction bar" title="Hide (the Director tab keeps the history)" onClick={() => setLayout({ director: false })}>
-                  <X size={13} />
-                </button>
-              </form>}
             </section>
             <aside className="inspector" hidden={!layout.showRight}>{renderInspector()}</aside>
             <section className="timeline">
-              <div className="timeline-toolbar">
+              <div className="timeline-toolbar cc-tl-toolbar">
                 <div>
-                  <Layers size={14} />
-                  <strong>Timeline</strong>
-                  <span>{scenes.length} scenes</span>
-                  <i>·</i>
-                  <span>{tc(duration)}</span>
-                </div>
-                <div>
+                  <IconButton
+                    icon={Undo2}
+                    label={historyLabel(project, "undo")}
+                    onClick={() => stepHistory("undo")}
+                    disabled={locked || !project.history?.undo?.length}
+                  />
+                  <IconButton
+                    icon={Redo2}
+                    label={historyLabel(project, "redo")}
+                    onClick={() => stepHistory("redo")}
+                    disabled={locked || !project.history?.redo?.length}
+                  />
+                  <span className="toolbar-sep" />
                     <button
-                    className="timeline-tool selected"
+                    className="timeline-tool cc-tool"
                     title="Split scene at playhead"
                     aria-label="Split scene at playhead"
                     onClick={splitAtPlayhead}
@@ -3530,9 +3921,8 @@ function App() {
                     <Scissors size={13} />
                     <span>Split</span>
                   </button>
-                  {activeScene && (
-                    <span className="toolbar-sep" />
-                  )}
+                  <IconButton icon={Plus} label="Add scene" onClick={addScene} disabled={locked} />
+                  <span className="toolbar-sep" />
                   <div className="track-tools">
                       <button
                         className={`timeline-tool ${selectedTrack?.kind === 'visual' ? 'selected' : ''}`}
@@ -3579,6 +3969,24 @@ function App() {
                         <span>Delete</span>
                       </button>
                     </div>
+                </div>
+                <div>
+                  {(() => {
+                    // v0.4.67 the old timeline footer's hint, kept in the tool row (CapCut has no footer)
+                    const hint = voice
+                      ? "Review the timing and mix before final export."
+                      : project.episode?.timings
+                        ? "Imported clock active; upload the exact matching narration."
+                        : "Timing estimated at 145 wpm. Add narration for a complete draft.";
+                    return (
+                      <span className="cc-tl-hint" title={hint + " Space plays and pauses."}>
+                        <span className="tiny-dot amber" />
+                        <span className="cc-tl-hint-text">{voice ? "Review timing and mix" : project.episode?.timings ? "Imported clock" : "Timing estimated"}</span>
+                        <kbd title="Space to play / pause">␣</kbd>
+                      </span>
+                    );
+                  })()}
+                  <span className="cc-tl-count">{scenes.length} scenes · {tc(duration)}</span>
                   <span className="toolbar-sep" />
                   <IconButton
                     icon={ZoomOut}
@@ -3608,33 +4016,51 @@ function App() {
                 </div>
               </div>
               <div className="timeline-lanes">
-                <div className="track-labels">
+                <div className="track-labels cc-heads">
                   <div className="ruler-spacer" />
+                  {overlayOn && (
+                    <div className="track-label overlay" title="Graphics, stickers and the subscribe animation">
+                      <Shapes size={13} />
+                      <span>Overlays</span>
+                    </div>
+                  )}
                   <div className="track-label captions">
-                    <FileText size={12} />
+                    <Captions size={13} />
                     <span>Captions</span>
-                    <span className="track-tag">T1</span>
+                    <button
+                      className="cc-track-btn"
+                      aria-label={project.captions ? "Hide the captions" : "Show the captions"}
+                      title={project.captions ? "Captions are on in the video · click to switch them off" : "Captions are off · click to switch them on"}
+                      disabled={locked}
+                      onClick={() => queueSave({ captions: !project.captions })}
+                    >
+                      {project.captions ? <Eye size={13} /> : <EyeOff size={13} />}
+                    </button>
                   </div>
                   <div className="track-label video">
-                    <Film size={12} />
+                    <Film size={13} />
                     <span>Visuals</span>
-                    <span className="track-tag">V1</span>
                   </div>
-                  <div className="track-label">
-                    <Mic size={12} />
+                  <div className="track-label narr">
+                    <Mic size={13} />
                     <span>Narration</span>
-                    <span className="track-tag">A1</span>
                   </div>
-                  <div className="track-label">
-                    <Music2 size={12} />
+                  <div className="track-label music">
+                    <Music2 size={13} />
                     <span>Music</span>
-                    <span className="track-tag">A2</span>
                   </div>
                   {soundOn && (
                     <div className="track-label sfx">
-                      <AudioWaveform size={12} />
+                      <AudioWaveform size={13} />
                       <span>Sound FX</span>
-                      <span className="track-tag">A3</span>
+                      <button
+                        className={`cc-track-btn ${sfxMute ? "off" : ""}`}
+                        aria-label={sfxMute ? "Unmute the sound effects in the preview" : "Mute the sound effects in the preview"}
+                        title={sfxMute ? "Sound effects muted in the preview (the export keeps them)" : "Mute the sound effects in the preview (the export keeps them)"}
+                        onClick={() => { setSfxMute(!sfxMute); if (!sfxMute) setSfxSolo(false); }}
+                      >
+                        {sfxMute ? <VolumeX size={13} /> : <Volume2 size={13} />}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -3666,30 +4092,37 @@ function App() {
                                 {tc(t)}
                               </span>
                             ))}
-                            {/* v0.4.49: where the subscribe animation and your stickers show */}
-                            {ctaEvents.map(([a, b]) => (
-                              <b key={"cta" + a} className="ruler-mark cta" title={`Subscribe animation ${tc(a)}–${tc(b)}`}
-                                style={{ left: `${(a / duration) * 100}%`, width: `${((b - a) / duration) * 100}%` }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); setInspectorTab("effects"); }} />
-                            ))}
-                            {normaliseMotion(project.motion).items.map((g) => (
-                              <b key={"mg" + g.id} className={`ruler-mark motion ${g.status} ${g.id === motionId ? "on" : ""}`}
-                                title={`Motion graphic (${g.status}) ${tc(g.start)}–${tc(g.end)}`}
-                                style={{ left: `${(g.start / duration) * 100}%`, width: `${(Math.min(g.end, duration) - g.start) / duration * 100}%` }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(g.start + 0.05); setMotionId(g.id); setInspectorTab("motion"); setLayout({ showRight: true }); }} />
-                            ))}
-                            {normaliseStickers(project.stickers, assets).map((st) => (
-                              <b key={"st" + st.id} className={`ruler-mark sticker ${st.id === stickerId ? "on" : ""}`} title={`Sticker ${tc(st.start)}`}
-                                style={{ left: `${(st.start / duration) * 100}%`, width: `${(Math.min(st.length, duration - st.start) / duration) * 100}%` }}
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(st.start + 0.05); setStickerId(st.id); setInspectorTab("stickers"); }} />
-                            ))}
                           </>
                         );
                       })()}
                     </div>
+                    {overlayOn && (
+                      <div className="overlay-lane">
+                        {/* v0.4.67 graphics, stickers and the subscribe animation as clips on their own track (CapCut's effects track) */}
+                        {ctaEvents.map(([a, b]) => (
+                          <button key={"cta" + a} className="fx-clip cta" title={`Subscribe animation ${tc(a)}–${tc(b)}`}
+                            style={{ left: `${(a / duration) * 100}%`, width: `${((b - a) / duration) * 100}%` }}
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(a); openLeft("effects", "subscribe"); }}>
+                            <span>Subscribe</span>
+                          </button>
+                        ))}
+                        {overlayGraphics.map((g) => (
+                          <button key={"mg" + g.id} className={`fx-clip motion ${g.status} ${g.id === motionId ? "on" : ""}`}
+                            title={`Graphic (${g.status}) ${tc(g.start)}–${tc(g.end)}${g.title ? ": " + g.title : ""}`}
+                            style={{ left: `${(g.start / duration) * 100}%`, width: `${((Math.min(g.end, duration) - g.start) / duration) * 100}%` }}
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(g.start + 0.05); setMotionId(g.id); openLeft("graphics"); }}>
+                            <span>{g.title || g.heading || g.lines?.[0]?.text || "Graphic"}</span>
+                          </button>
+                        ))}
+                        {overlayStickers.map((st) => (
+                          <button key={"st" + st.id} className={`fx-clip sticker ${st.id === stickerId ? "on" : ""}`} title={`Sticker: ${stickerLabel(st, project.assets || [])} ${tc(st.start)}`}
+                            style={{ left: `${(st.start / duration) * 100}%`, width: `${(Math.min(st.length, duration - st.start) / duration) * 100}%` }}
+                            onClick={(e) => { e.stopPropagation(); setPlaying(false); setTime(st.start + 0.05); setStickerId(st.id); openLeft("stickers"); }}>
+                            <span>{stickerLabel(st, project.assets || [])}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="caption-lane">
                       {project.captions ? (
                         scenes.flatMap((s, i) =>
@@ -3752,7 +4185,7 @@ function App() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   selectVisualScene(s, i);
-                                  setInspectorTab("effects");
+                                  openLeft("transitions");
                                 }}
                               />
                             )}
@@ -3808,6 +4241,8 @@ function App() {
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setSelectedTrack({ kind: "narration", sceneId: s.id });
+                                  setInspectorTab("audio");
+                                  setAudioSub("voice");
                                 }}
                               >
                                 <Wave
@@ -3825,17 +4260,20 @@ function App() {
                           </span>
                         </>
                       ) : (
-                        <span>
+                        <button type="button" className="lane-empty" onClick={(e) => { e.stopPropagation(); openLeft("audio", "voice"); }}>
                           <Plus size={11} /> No narration — upload a track or
                           generate a voice
-                        </span>
+                        </button>
                       )}
                     </div>
                       <button
                         className={`audio-lane music-lane ${music ? "has-audio" : ""}`}
                         onClick={() => {
+                          if (!music) return openLeft("audio", "music"); // v0.4.68 add music from the Audio tab
                           if (!selected) return;
                           setSelectedTrack({ kind: "music", sceneId: selected.id });
+                          setInspectorTab("audio");
+                          setAudioSub("music");
                         }}
                       >
                         {music ? (
@@ -3874,7 +4312,7 @@ function App() {
                           const t = Math.round(Math.min(duration, Math.max(0, ((e.clientX - r.left) / r.width) * duration)) * 24) / 24;
                           if (!Number.isFinite(t)) return;
                           setSfxPin(t);
-                          setInspectorTab("sound");
+                          openLeft("audio", "sfx");
                         }}>
                         {(soundPlan?.zones || []).map((z, i) => (
                           <i key={"z" + i} className="sfx-zone" title={`No automatic sound: ${z.why}`}
@@ -3900,7 +4338,7 @@ function App() {
                               // v0.4.60 selecting or moving a sound no longer pauses the playback
                               e.currentTarget.focus({ preventScroll: true });
                               setSoundId(x.id);
-                              setInspectorTab("sound");
+                              openLeft("audio", "sfx");
                               if (locked) return;
                               const content = timelineRef.current?.querySelector(".timeline-content");
                               if (!content) return;
@@ -3922,7 +4360,7 @@ function App() {
                             }} />
                         ))}
                         {sfxPin != null && duration > 0 && (
-                          <i className="sfx-pin" style={{ left: `${(sfxPin / duration) * 100}%` }} title="A sound you pick in the library (Sound tab) goes here" />
+                          <i className="sfx-pin" style={{ left: `${(sfxPin / duration) * 100}%` }} title="A sound you pick in the library (Audio › Sound effects) goes here" />
                         )}
                         {!soundPlan && <span>{soundPlanError || "Reading the timeline…"}</span>}
                       </div>
@@ -3938,20 +4376,60 @@ function App() {
                   </div>
                 </div>
               </div>
-              <div className="timeline-footer">
-                <span>
-                  <span className="tiny-dot amber" />
-                  {voice
-                    ? "Review the timing and mix before final export."
-                    : project.episode?.timings
-                      ? "Imported clock active; upload the exact matching narration."
-                      : "Timing estimated at 145 wpm. Add narration for a complete draft."}
-                </span>
-                <span>
-                  Space to play / pause <kbd>␣</kbd>
-                </span>
-              </div>
             </section>
+            {/* v0.4.67 the Director, as CapCut's floating helper: plain-English edits and their history */}
+            <div className={`cc-pilot ${layout.director ? "open" : ""}`}>
+              {layout.director && (
+                <div className="cc-pilot-panel" role="dialog" aria-label="Director">
+                  <header>
+                    <Sparkles size={14} />
+                    <b>Director</b>
+                    <small>{config.connected ? "AI connected" : "Local + AI-ready"}</small>
+                    <button type="button" className="layout-btn" aria-label="Close the Director" title="Close the Director (your history is kept)" onClick={() => setLayout({ director: false })}>
+                      <X size={14} />
+                    </button>
+                  </header>
+                  {directorHistory()}
+                  <form className="director-bar" onSubmit={direct}>
+                    <div className="director-input">
+                      <label htmlFor="direction">Tell the Director what to change</label>
+                      <input
+                        id="direction"
+                        value={command}
+                        onChange={(e) => setCommand(e.target.value)}
+                        placeholder={
+                          project.episode?.guide
+                            ? "Try “set music to 8%” or “use the archive look”…"
+                            : "Try “use the archive look” or “set scene 2 to 12 seconds”…"
+                        }
+                        disabled={locked}
+                      />
+                    </div>
+                    <button
+                      className="send-btn"
+                      type="submit"
+                      aria-label="Apply editing instruction"
+                      disabled={locked || !command.trim()}
+                    >
+                      {busy ? (
+                        <LoaderCircle className="spin" size={16} />
+                      ) : (
+                        <ArrowUpRight size={18} />
+                      )}
+                    </button>
+                  </form>
+                </div>
+              )}
+              <button
+                className="cc-pilot-btn"
+                aria-label={layout.director ? "Hide the Director" : "Show the Director"}
+                aria-expanded={layout.director}
+                title="Direct your edit in plain English"
+                onClick={() => setLayout({ director: !layout.director })}
+              >
+                <Sparkles size={15} /> Director
+              </button>
+            </div>
           </div>
         )}
 
@@ -4850,6 +5328,14 @@ function App() {
         )}
       </div>
       {voice && <audio ref={audioRef} src={voice.url} preload="metadata" />}
+      {searchOpen && (
+        <SearchPalette
+          items={buildIndex({ scenes, assets, offsets, looks: LOOKS, transitions: TRANSITIONS })}
+          onPick={runSearch}
+          onClose={() => setSearchOpen(false)}
+          onAskDirector={askDirector}
+        />
+      )}
       <input
         ref={fileRef}
         type="file"
@@ -4857,6 +5343,15 @@ function App() {
         multiple
         accept=".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.aac,.ogg,.flac,.txt,.md"
         onChange={(e) => uploadFiles(e.target.files)}
+      />
+      <input
+        ref={audioFileRef}
+        type="file"
+        hidden
+        multiple
+        aria-label="Import audio"
+        accept=".mp3,.wav,.m4a,.aac,.ogg,.flac,.mp4,.mov,.webm"
+        onChange={(e) => uploadFiles(e.target.files, audioRoleRef.current)}
       />
       {activeJob && (
         <div className="job-card">
@@ -5237,9 +5732,15 @@ function App() {
                     )}
                     {(a.has_audio || a.kind === "audio") && (
                       <>
+                        <label className="field cc-kind-field">
+                          What this file is
+                          {kindPicker(a)}
+                        </label>
                         <Button
                           className="full"
                           icon={Mic}
+                          disabled={locked || project.narration_id === a.id || project.music_id === a.id || audioRoleOf(a, project) === "sfx"}
+                          title={project.music_id === a.id ? "This is your music. Narration and music are separate files." : undefined}
                           onClick={() => {
                             queueSave({ narration_id: a.id });
                             notify(
@@ -5247,17 +5748,19 @@ function App() {
                             );
                           }}
                         >
-                          Use as narration
+                          {project.narration_id === a.id ? "Your narration" : "Use as narration"}
                         </Button>
                         <Button
                           className="full"
                           icon={Music2}
+                          disabled={locked || project.music_id === a.id || project.narration_id === a.id || audioRoleOf(a, project) === "sfx"}
+                          title={project.narration_id === a.id ? "This is your narration. Narration and music are separate files." : undefined}
                           onClick={() => {
                             queueSave({ music_id: a.id });
                             notify("Background music assigned.");
                           }}
                         >
-                          Use as music
+                          {project.music_id === a.id ? "Your music" : "Use as music"}
                         </Button>
                         <Button
                           className="full"
@@ -5559,6 +6062,27 @@ function App() {
                 >
                   Open Episode setup <ArrowUpRight size={12} />
                 </button>
+              </section>
+            </div>
+            <div>
+              <Images size={18} />
+              <section>
+                <h3>Finding your way in Edit (laid out like CapCut)</h3>
+                <p>
+                  Left: the icon tabs — Media, Audio, Text, Stickers, Effects,
+                  Transitions, Captions, Filters and Graphics — hold everything
+                  you add to the video. Middle: the player. Right: the settings
+                  of whatever you clicked (Video for a picture clip, Audio for the
+                  narration or the music). Bottom: the timeline with its tools
+                  (undo, split, zoom). The Director button, bottom right, takes
+                  edits in plain English. The pages (Episode setup, Research,
+                  Script, Review & export …) are in the top bar; the menu beside
+                  the logo has Home, your projects, backups, help and settings.
+                  Can't find something? Press Search in the top bar (or Ctrl+K / ⌘K)
+                  and type what you want: a tool, a setting, a scene or a word from
+                  the narration. Narration, music and sound effects each have their
+                  own place under Audio.
+                </p>
               </section>
             </div>
             <div>
